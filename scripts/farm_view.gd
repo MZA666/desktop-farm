@@ -5,6 +5,7 @@ extends Node2D
 ## to FarmState; animation offsets are cosmetic and never mutate the model.
 signal plot_clicked(plot_id: String)
 signal fish_clicked(fish_id: String)
+const ART = preload("res://scripts/pixel_assets.gd")
 
 var model_state: Dictionary = {}
 var config: Dictionary = {}
@@ -14,18 +15,19 @@ var view_width := 1920.0
 var view_height := 172.0
 var page := 0
 
-const INK := Color("#314638")
-const MUTED := Color("#657666")
-const CREAM := Color("#f1eedc")
-const GRASS := Color("#9bb785")
-const GRASS_LIGHT := Color("#b5c99a")
-const GRASS_DARK := Color("#748f65")
-const SOIL := Color("#a98869")
-const SOIL_DARK := Color("#80664f")
-const WATER := Color("#93bec8")
-const WATER_LIGHT := Color("#b5d7d7")
-const GOLD := Color("#efd387")
-const RED := Color("#bf7965")
+const INK := Color("#54382d")
+const MUTED := Color("#6d6141")
+const CREAM := Color("#ffebbc")
+const GRASS := Color("#87ae45")
+const GRASS_LIGHT := Color("#acd15b")
+const GRASS_DARK := Color("#628a37")
+const SOIL := Color("#bb7c45")
+const SOIL_DARK := Color("#875135")
+const WATER := Color("#489fbe")
+const WATER_LIGHT := Color("#92d3d5")
+const GOLD := Color("#ffd36c")
+const RED := Color("#c65640")
+const ANIMAL_SHADOW := Color("#6f943f")
 
 const SPROUT := ["....gg....", "...lggg...", ".ggggggg..", "..gggggg..", "....s.....", "....s.....", "...sss...."]
 const LEAF_CROP := ["....ll....", "..lggggl..", ".lggggggl.", ".gglgglgg.", "..gggggg..", "...gssg...", "....ss...."]
@@ -62,12 +64,39 @@ var _animation_layer: Node2D
 var _draw_target: CanvasItem
 var _animal_draws: Array = []
 var _scene_cache_ready := false
+var _desktop_suspended := false
+var _last_static_second := -1
+var _farmer_tracks: Dictionary = {}
+var _static_viewport: SubViewport
+var _static_layer: Node2D
+var _static_bake_count := 0
+var _static_layout_key := ""
 
 func _ready() -> void:
-	_font.font_names = PackedStringArray(["Microsoft YaHei", "微软雅黑", "Noto Sans CJK SC", "sans-serif"])
+	# Respect the controller's shared SystemFont. Changing its name list reloads
+	# a second system font file and defeats sharing between scenery and menus.
+	if _font.font_names.is_empty():
+		_font.font_names = PackedStringArray(["Microsoft YaHei", "微软雅黑", "sans-serif"])
 	texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
-	# The parent keeps Godot's cached ground/building/text commands. Only this
-	# child's draw list is rebuilt at the animation rate; it has no _process.
+	# Rasterize ground, buildings and text only on invalidation. Godot caches
+	# CanvasItem commands, but submitting that long static list every OpenGL
+	# frame is still expensive; the scene now samples one small strip texture.
+	_static_viewport = SubViewport.new()
+	_static_viewport.name = "StaticSceneryCache"
+	_static_viewport.disable_3d = true
+	_static_viewport.transparent_bg = true
+	_static_viewport.gui_disable_input = true
+	_static_viewport.render_target_update_mode = SubViewport.UPDATE_DISABLED
+	_static_viewport.render_target_clear_mode = SubViewport.CLEAR_MODE_ALWAYS
+	_static_viewport.size = _cache_pixel_size()
+	add_child(_static_viewport)
+	_static_layer = Node2D.new()
+	_static_layer.name = "StaticScenery"
+	_static_layer.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
+	_static_layer.draw.connect(_draw_static)
+	_static_viewport.add_child(_static_layer)
+	_static_layer.set_process(false)
+	# Only the actor child's draw list is rebuilt at the animation rate.
 	_animation_layer = Node2D.new()
 	_animation_layer.name = "AnimatedActors"
 	_animation_layer.draw.connect(_draw_animated)
@@ -83,14 +112,26 @@ func configure(values: Dictionary) -> void:
 	_fish_types = _index(config.get("fish", []))
 	_invalidate_scene()
 
-func set_model(values: Dictionary) -> void:
+func set_model(values: Dictionary, force := false) -> void:
 	model_state = values
-	_invalidate_scene()
+	var second := int(floor(float(values.get("elapsed", 0))))
+	if force or second != _last_static_second:
+		_last_static_second = second
+		_invalidate_scene()
+
+func set_desktop_suspended(enabled: bool) -> void:
+	_desktop_suspended = enabled
+	set_process(not enabled)
+	if is_instance_valid(_animation_layer): _animation_layer.visible = not enabled
+	if enabled and is_instance_valid(_static_viewport):
+		_static_viewport.render_target_update_mode = SubViewport.UPDATE_DISABLED
+	if not enabled: _invalidate_scene()
 
 func set_scene(value: String) -> void:
 	if value not in ["farm", "ranch", "pond"]:
 		return
 	scene_name = value
+	_farmer_tracks.clear()
 	_net_dragging = false
 	page = 0
 	_hover = ""
@@ -112,18 +153,36 @@ func set_interactive(value: bool) -> void:
 
 func page_next() -> void:
 	page = mini(page + 1, get_page_count() - 1)
+	_farmer_tracks.clear()
 	_invalidate_scene()
 
 func page_previous() -> void:
 	page = maxi(0, page - 1)
+	_farmer_tracks.clear()
 	_invalidate_scene()
 
 func _invalidate_scene() -> void:
 	# set_model is called at the controller's UI cadence, or immediately after
 	# a transaction. It refreshes crop stages/countdowns and actor placement.
 	_scene_cache_ready = false
+	if _desktop_suspended: return
+	_request_static_bake()
 	queue_redraw()
 	_redraw_animation()
+
+func _cache_pixel_size() -> Vector2i:
+	return Vector2i(maxi(1, ceili(view_width)), maxi(1, ceili(view_height)))
+
+func _static_key() -> String:
+	return "%s/%d/%d/%d/%s" % [scene_name, page, ceili(view_width), ceili(view_height), _hover]
+
+func _request_static_bake() -> void:
+	if _desktop_suspended or not is_instance_valid(_static_viewport): return
+	var requested_size := _cache_pixel_size()
+	if _static_viewport.size != requested_size: _static_viewport.size = requested_size
+	_static_layout_key = _static_key()
+	_static_layer.queue_redraw()
+	_static_viewport.render_target_update_mode = SubViewport.UPDATE_ONCE
 
 func _redraw_animation() -> void:
 	if is_instance_valid(_animation_layer):
@@ -145,7 +204,7 @@ func _index(entries: Variant) -> Dictionary:
 	return output
 
 func _process(delta: float) -> void:
-	if not is_visible_in_tree():
+	if _desktop_suspended or not is_visible_in_tree():
 		return
 	var settings: Dictionary = model_state.get("settings", {})
 	var fps := 15.0 if bool(settings.get("power_saving", false)) else 30.0
@@ -164,7 +223,7 @@ func _process(delta: float) -> void:
 				if hit.rect.has_point(mouse):
 					_hover = str(hit.id)
 		if _hover != previous_hover:
-			queue_redraw()
+			_invalidate_scene()
 	_redraw_animation()
 
 func _input(event: InputEvent) -> void:
@@ -227,6 +286,17 @@ func _segment_hits_rect(start: Vector2, finish: Vector2, rect: Rect2) -> bool:
 	return true
 
 func _draw() -> void:
+	if not is_instance_valid(_static_viewport): return
+	# Keep compatibility with callers changing page directly then requesting
+	# a redraw, without repeatedly baking this texture during actor frames.
+	if _static_layout_key != _static_key():
+		_scene_cache_ready = false
+		_request_static_bake()
+	draw_texture_rect(_static_viewport.get_texture(), Rect2(Vector2.ZERO, Vector2(view_width, view_height)), false)
+
+func _draw_static() -> void:
+	if _desktop_suspended: return
+	_draw_target = _static_layer
 	_plot_hits.clear()
 	_target_positions.clear()
 	_animal_draws.clear()
@@ -235,6 +305,8 @@ func _draw() -> void:
 		"farm": _draw_farm()
 		"ranch": _draw_ranch()
 		"pond": _draw_pond()
+	_draw_target = null
+	_static_bake_count += 1
 	_scene_cache_ready = true
 	# Redraw after rebuilding placements, including pages changed by callers
 	# that set page directly and then call queue_redraw().
@@ -249,8 +321,14 @@ func _draw_animated() -> void:
 		return
 	_draw_target = _animation_layer
 	if scene_name == "ranch":
+		# Keep shadows, atlas sprites and markers in separate runs. Interleaving
+		# a solid rectangle and a texture for every animal prevents GL batching.
+		for entry in _animal_draws:
+			_box(Rect2(entry.position + Vector2(5, 24), Vector2(19, 2)), ANIMAL_SHADOW)
 		for entry in _animal_draws:
 			_draw_animal(entry.position, entry.animal)
+		for entry in _animal_draws:
+			_draw_animal_markers(entry.position, entry.animal)
 	elif scene_name == "pond":
 		_draw_pond_ripples()
 		for item in model_state.get("fish", []):
@@ -259,9 +337,10 @@ func _draw_animated() -> void:
 	_draw_target = null
 
 func _background() -> void:
-	_box(Rect2(0, 0, view_width, view_height), GRASS)
-	_box(Rect2(0, 0, view_width, 3), GRASS_DARK)
-	_box(Rect2(0, view_height - 8, view_width, 8), GRASS_DARK)
+	_canvas().draw_texture_rect(ART.terrain("grass"), Rect2(0, 0, view_width, view_height), true)
+	_box(Rect2(0, 0, view_width, 3), SOIL_DARK)
+	_box(Rect2(0, 3, view_width, 2), Color("#dbab62"))
+	_box(Rect2(0, view_height - 5, view_width, 5), GRASS_DARK)
 	for x in range(8, int(view_width), 37):
 		var yy := 22 + (x * 13) % 117
 		_box(Rect2(x, yy, 3, 2), GRASS_LIGHT)
@@ -296,8 +375,9 @@ func _draw_region(origin: Vector2, width: float, index: int, region: Dictionary,
 	var title := "%02d  %s" % [index + 1, str(crop.get("name", "防风草"))]
 	if not opened:
 		title = "%02d  待开辟" % [index + 1]
-	_box(Rect2(origin + Vector2(0, 3), Vector2(width, 23)), CREAM if opened else Color("#c3c5ac"))
-	_box(Rect2(origin + Vector2(0, 25), Vector2(width, 2)), SOIL_DARK)
+	_box(Rect2(origin + Vector2(0, 3), Vector2(width, 23)), SOIL_DARK)
+	_box(Rect2(origin + Vector2(2, 5), Vector2(width - 4, 19)), CREAM if opened else Color("#c2c29c"))
+	_box(Rect2(origin + Vector2(4, 6), Vector2(width - 8, 2)), Color("#fff6da"))
 	_label(title, origin + Vector2(8, 19), INK, 12, width - 16)
 	if not str(region.get("pending_crop_id", "")).is_empty() and opened:
 		_box(Rect2(origin + Vector2(width - 15, 10), Vector2(7, 7)), GOLD)
@@ -361,12 +441,8 @@ func _draw_plot(rect: Rect2, plot: Dictionary, region_open: bool) -> void:
 		_draw_lock(rect.position + Vector2(12, 12), 1)
 		return
 	var status := str(plot.get("status", "empty"))
-	var tint := SOIL if status in ["empty", "unwatered"] else Color("#886e56")
 	_box(rect, SOIL_DARK)
-	_box(rect.grow(-1), tint)
-	_box(Rect2(rect.position + Vector2(2, 2), Vector2(28, 2)), Color("#b69a77"))
-	for row in [10, 18, 26]:
-		_box(Rect2(rect.position + Vector2(3, row), Vector2(26, 1)), SOIL_DARK)
+	_canvas().draw_texture_rect(ART.terrain("soil" if status in ["empty", "unwatered"] else "wet_soil"), rect.grow(-1), false)
 	_plot_hits.append({"rect": rect, "id": str(plot.get("id", ""))})
 	_target_positions[str(plot.get("id", ""))] = rect.get_center()
 	if status != "empty":
@@ -376,7 +452,7 @@ func _draw_plot(rect: Rect2, plot: Dictionary, region_open: bool) -> void:
 			growth = 1.0
 		elif status == "growing":
 			growth = clampf(1.0 - float(plot.get("remaining", 0)) / maxf(1, float(crop.get("grow_seconds", 720))), 0, 1)
-		_draw_crop(rect.position + Vector2(6, 6), str(crop.get("id", "parsnip")), growth, status)
+		_draw_crop(rect.position + Vector2(2, 2), str(crop.get("id", "parsnip")), growth, status)
 		if status == "unwatered":
 			_draw_drop(rect.position + Vector2(25, 3), RED)
 		elif status == "ready":
@@ -389,21 +465,13 @@ func _draw_plot(rect: Rect2, plot: Dictionary, region_open: bool) -> void:
 		_canvas().draw_rect(rect, CREAM, false, 2, false)
 
 func _draw_crop(origin: Vector2, id: String, growth: float, status: String) -> void:
-	var color := _crop_color(id)
-	var palette := {"g": Color("#527850"), "l": Color("#81a46b"), "s": Color("#647249"), "p": color, "y": GOLD}
-	var pattern: Array = SPROUT
-	if growth > 0.33 or status in ["ready", "processing"]:
-		pattern = LEAF_CROP
-	if growth > 0.7 or status in ["ready", "processing"]:
-		if id in ["blue_jazz", "tulip", "poppy", "summer_spangle", "fairy_rose", "sunflower", "mixed_flower_seeds"]:
-			pattern = FLOWER
-		elif id in ["unmilled_rice", "wheat", "fiber", "hops", "tea_leaves"]:
-			pattern = WHEAT
-		elif bool(_crops.get(id, {}).get("regrow", false)):
-			pattern = BUSH
-		else:
-			pattern = ROOT_CROP
-	_sprite(pattern, palette, origin, 2)
+	if growth < 0.25 and status not in ["ready", "processing"]:
+		_sprite(SPROUT, {"g": Color("#4d842f"), "l": Color("#b5d75e"), "s": Color("#729745")}, origin + Vector2(4, 11), 2)
+		return
+	var size := 28.0 if growth >= 0.7 or status in ["ready", "processing"] else 21.0
+	var texture: Texture2D = ART.icon("crop", id)
+	if texture != null:
+		_canvas().draw_texture_rect(texture, Rect2(origin + Vector2(floorf((28 - size) / 2), 28 - size), Vector2(size, size)), false)
 
 func _crop_color(id: String) -> Color:
 	var fixed := {
@@ -503,18 +571,31 @@ func _draw_barn(origin: Vector2, barn: Dictionary) -> void:
 	_label(str(barn.get("name", "棚舍")) + ("  Lv.%d" % level if level > 0 else "  待建"), origin + Vector2(2, 18), INK)
 	# Stepped roof, wooden frontage and fixed 4×3 paddock.
 	var roof := Color("#c09075") if level > 0 else Color("#9eaa8d")
+	if level > 0: roof = Color("#b75c37") if id in ["chicken_coop", "duck_coop", "rabbit_hutch"] else Color("#a74634")
 	for step in range(4):
-		_box(Rect2(origin + Vector2(8 + step * 4, 30 - step * 4), Vector2(112 - step * 8, 4)), roof)
-	_box(Rect2(origin + Vector2(8, 34), Vector2(112, 24)), Color("#e1d4af") if level > 0 else Color("#bbc1a6"))
+		_box(Rect2(origin + Vector2(6 + step * 4, 29 - step * 4), Vector2(116 - step * 8, 5)), SOIL_DARK)
+		_box(Rect2(origin + Vector2(8 + step * 4, 28 - step * 4), Vector2(112 - step * 8, 4)), roof.lightened(step * 0.035))
+		for tile in range(12 + step * 4, 115 - step * 4, 13):
+			_box(Rect2(origin + Vector2(tile, 28 - step * 4), Vector2(1, 3)), roof.darkened(0.18))
+	_box(Rect2(origin + Vector2(8, 32), Vector2(112, 26)), Color("#e8b979") if level > 0 else Color("#bbc1a6"))
+	for board in [36, 43, 50]:
+		_box(Rect2(origin + Vector2(9, board), Vector2(110, 1)), Color("#ba844e") if level > 0 else MUTED)
+	_box(Rect2(origin + Vector2(9, 32), Vector2(3, 26)), SOIL_DARK)
+	_box(Rect2(origin + Vector2(116, 32), Vector2(3, 26)), SOIL_DARK)
+	_box(Rect2(origin + Vector2(8, 31), Vector2(112, 2)), GOLD if level > 0 else MUTED)
 	_box(Rect2(origin + Vector2(18, 39), Vector2(16, 12)), SOIL_DARK)
 	_box(Rect2(origin + Vector2(20, 41), Vector2(12, 8)), WATER_LIGHT)
+	_box(Rect2(origin + Vector2(25, 40), Vector2(2, 10)), SOIL_DARK)
+	_box(Rect2(origin + Vector2(19, 44), Vector2(14, 1)), SOIL_DARK)
 	_box(Rect2(origin + Vector2(52, 38), Vector2(24, 20)), SOIL_DARK)
 	_box(Rect2(origin + Vector2(54, 40), Vector2(20, 18)), Color("#ac916f"))
-	_box(Rect2(origin + Vector2(3, 60), Vector2(122, 87)), Color("#afbd92") if level > 0 else Color("#a0af8f"))
+	_canvas().draw_texture_rect(ART.terrain("grass"), Rect2(origin + Vector2(3, 60), Vector2(122, 87)), true, Color.WHITE if level > 0 else Color("#b6bd9c"))
 	_box(Rect2(origin + Vector2(3, 145), Vector2(122, 2)), SOIL_DARK)
 	for px in range(3, 126, 20):
-		_box(Rect2(origin + Vector2(px, 137), Vector2(3, 15)), Color("#cebd94"))
-	_box(Rect2(origin + Vector2(3, 140), Vector2(122, 3)), Color("#d9c9a2"))
+		_box(Rect2(origin + Vector2(px, 137), Vector2(4, 15)), SOIL_DARK)
+		_box(Rect2(origin + Vector2(px + 1, 138), Vector2(2, 13)), Color("#eac08a"))
+	_box(Rect2(origin + Vector2(3, 140), Vector2(122, 3)), Color("#dda462"))
+	_box(Rect2(origin + Vector2(3, 142), Vector2(122, 1)), SOIL_DARK)
 	if level == 0:
 		_draw_lock(origin + Vector2(56, 91), 2)
 		_label("%d 金币" % int(barn.get("costs", [0])[0]), origin + Vector2(24, 164), MUTED)
@@ -529,28 +610,14 @@ func _draw_barn(origin: Vector2, barn: Dictionary) -> void:
 
 func _draw_animal(origin: Vector2, animal: Dictionary) -> void:
 	var id := str(animal.get("type_id", "chicken"))
-	var pattern: Array = CHICKEN
-	var body := Color("#f0e8c8")
-	match id:
-		"duck", "dinosaur": pattern = DUCK
-		"rabbit": pattern = RABBIT
-		"cow", "goat", "ostrich": pattern = COW
-		"sheep": pattern = SHEEP
-		"pig":
-			pattern = PIG
-			body = Color("#d9aaa0")
-	if id == "void_chicken": body = Color("#897889")
-	if id == "golden_chicken": body = GOLD
-	if id == "dinosaur": body = Color("#b4c48f")
-	if id == "ostrich": body = Color("#c8bca5")
 	var adult := bool(animal.get("adult", false))
-	var pixel := 2 if adult else 1
 	var bob := int(sin(_animation_seconds * 2 + float(absi(str(animal.get("id", "")).hash()) % 17)) > 0)
-	var pos := origin + Vector2(3 if adult else 8, 2 + bob if adult else 9 + bob)
-	_box(Rect2(origin + Vector2(5, 23), Vector2(18, 2)), Color("#94a482"))
-	var palette := {"f": body, "r": Color("#b97e6d"), "k": INK, "y": GOLD,
-		"o": Color("#c89d69"), "g": Color("#729975"), "s": Color("#8c8777"), "p": Color("#d4b5a3")}
-	_sprite(pattern, palette, pos, pixel)
+	var size := 28.0 if adult else 19.0
+	var pos := origin + Vector2(floorf((30 - size) / 2), 26 - size + bob)
+	var texture: Texture2D = ART.icon("animal", "chick" if not adult and id in ["chicken", "golden_chicken"] else id)
+	_canvas().draw_texture_rect(texture, Rect2(pos, Vector2(size, size)), false)
+
+func _draw_animal_markers(origin: Vector2, animal: Dictionary) -> void:
 	if bool(animal.get("hungry", false)):
 		_box(Rect2(origin + Vector2(24, 2), Vector2(2, 6)), RED)
 		_box(Rect2(origin + Vector2(24, 10), Vector2(2, 2)), RED)
@@ -586,6 +653,10 @@ func _draw_pond() -> void:
 	_box(_pond_bounds, WATER)
 	_box(Rect2(_pond_bounds.position, Vector2(_pond_bounds.size.x, 7)), Color("#7eacb7"))
 	_box(Rect2(_pond_bounds.position + Vector2(0, _pond_bounds.size.y - 7), Vector2(_pond_bounds.size.x, 7)), WATER_LIGHT)
+	for stone in range(int(_pond_bounds.size.x / 18)):
+		var sx := _pond_bounds.position.x + stone * 18
+		_box(Rect2(sx, _pond_bounds.end.y + 2, 12, 3), Color("#b7a579"))
+		_box(Rect2(sx + 2, _pond_bounds.end.y + 1, 8, 2), Color("#ead7a4"))
 	# Deck boards and reeds form the pond's shoreline.
 	_box(Rect2(left - 38, 75, 57, 46), SOIL_DARK)
 	for i in range(6):
@@ -632,11 +703,8 @@ func _draw_fish(item: Dictionary) -> void:
 	center += Vector2(floor(sin(_animation_seconds * 0.65 + phase) * 9), floor(sin(_animation_seconds * 0.9 + phase) * 3))
 	center.x = clampf(center.x, _pond_bounds.position.x + 16, _pond_bounds.end.x - 16)
 	center.y = clampf(center.y, _pond_bounds.position.y + 10, _pond_bounds.end.y - 10)
-	var color := Color("#e0e8d9")
-	if type_id == "blueback_fish": color = Color("#6c97a2")
-	if type_id == "goldstripe_fish": color = Color("#e6c486")
-	_box(Rect2(center + Vector2(-9, 5), Vector2(19, 2)), Color("#81adb9"))
-	_sprite(FISH, {"l": color.darkened(0.1), "f": color, "k": INK}, center + Vector2(-13, -7), 2)
+	_box(Rect2(center + Vector2(-9, 6), Vector2(19, 2)), Color("#438fab"))
+	_canvas().draw_texture_rect(ART.icon("animal", type_id), Rect2(center + Vector2(-16, -12), Vector2(32, 24)), false)
 	_fish_hits.append({"id": id, "rect": Rect2(center + Vector2(-17, -11), Vector2(34, 22))})
 
 func _draw_farmers() -> void:
@@ -661,23 +729,34 @@ func _draw_farmers() -> void:
 			pos = target_pos + Vector2(7, -12)
 			pos.y = clampf(pos.y, 27, 134)
 			pos.x = clampf(pos.x, 4, view_width - 28)
-		var moving := mode in ["working", "outbound", "returning"]
-		var bob := int(sin(_animation_seconds * 8) > 0) if moving else 0
-		var shirt := Color("#799b94") if str(farmer.get("home", "")) == scene_name else Color("#9a98ad")
-		_sprite(FARMER, {"h": Color("#d3bc82"), "f": Color("#d9bba0"), "k": INK,
-			"b": shirt, "d": Color("#69828a")}, pos + Vector2(0, bob), 2)
+		# Travel interpolation is cosmetic: the simulator retains its accepted
+		# action/movement budgets and save schema. No animation mutates a task.
+		var farmer_id := str(farmer.get("id", ""))
+		var foot := pos + Vector2(11, 24)
+		var track: Dictionary = _farmer_tracks.get(farmer_id, {"from": foot, "target": foot, "since": _animation_seconds, "left": false})
+		var progress := clampf((_animation_seconds - float(track.since)) / 0.85, 0, 1)
+		var drawn: Vector2 = (track.from as Vector2).lerp(track.target as Vector2, progress)
+		if (track.target as Vector2).distance_squared_to(foot) > 1:
+			track = {"from": drawn, "target": foot, "since": _animation_seconds, "left": foot.x < drawn.x}
+			progress = 0.0
+		_farmer_tracks[farmer_id] = track
+		drawn = drawn.floor()
+		var walking := progress < 1.0 or mode in ["outbound", "returning"]
+		var action := str(task.get("action", "")) if mode == "working" and not walking else "walk"
+		var frame := int(_animation_seconds * 6.0) % 4 if walking or mode == "working" else 3
+		var texture: Texture2D = ART.farmer(action, frame, bool(track.left))
+		var sprite_rect := Rect2(drawn - Vector2(17, 37), Vector2(34, 40))
+		# Working frames face right in the atlas. Mirror only these frames to
+		# aim water/the tool at the assigned target; walking has its own rows.
+		if mode == "working" and not walking and action != "walk" and _target_positions.has(target):
+			if (_target_positions[target] as Vector2).x < drawn.x:
+				sprite_rect.position.x += sprite_rect.size.x
+				sprite_rect.size.x = -sprite_rect.size.x
+		_canvas().draw_texture_rect(texture, sprite_rect, false, Color("#ded0ef") if str(farmer.get("home", "")) != scene_name else Color.WHITE)
 		if mode == "resting":
-			_label("z", pos + Vector2(21, 3), CREAM)
-		elif mode == "working":
-			var action := str(task.get("action", ""))
-			if action == "water":
-				_box(Rect2(pos + Vector2(20, 16), Vector2(6, 6)), WATER_LIGHT)
-				_draw_drop(pos + Vector2(26, 25), WATER_LIGHT)
-			elif action in ["harvest", "collect_product", "cut_grass"]:
-				_box(Rect2(pos + Vector2(23, 13), Vector2(2, 15)), SOIL_DARK)
-				_box(Rect2(pos + Vector2(20, 12), Vector2(8, 3)), CREAM)
-		_box(Rect2(pos + Vector2(2, 28), Vector2(20, 2)), Color("#718769"))
-		_box(Rect2(pos + Vector2(2, 28), Vector2(floor(20 * float(farmer.get("energy", 100)) / 100), 2)), GOLD)
+			_label("z", drawn + Vector2(10, -26), CREAM)
+		_box(Rect2(drawn + Vector2(-10, 3), Vector2(20, 2)), Color("#587335"))
+		_box(Rect2(drawn + Vector2(-10, 3), Vector2(floor(20 * float(farmer.get("energy", 100)) / 100), 2)), GOLD)
 		visible_index += 1
 
 func _sprite(pattern: Array, palette: Dictionary, origin: Vector2, pixel: int) -> void:

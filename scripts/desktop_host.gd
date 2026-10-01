@@ -6,6 +6,8 @@ signal suspend_requested
 signal resumed
 signal display_changed(work_area: Rect2i)
 signal status_changed(message: String)
+signal tray_action(action: String)
+signal desktop_visibility_changed(visible: bool, reason: String)
 
 const SCENE_HEIGHT := 240
 const TOOLBAR_HEIGHT := 32
@@ -20,6 +22,11 @@ var power_saving := false
 var topmost := false
 var dpi_scale := 1.0
 var ready_for_desktop := false
+var user_hidden := false
+var fullscreen_suppressed := false
+var hotkey_available := false
+var tray_available := false
+var test_instance := false
 var _clock_anchor := 0
 var _clock_paused := false
 var _last_power_epoch := 0
@@ -29,6 +36,13 @@ var _work_area := Rect2i()
 var _manual_position := false
 var _last_dpi := 1.0
 var _viewport_active := true
+var _fullscreen_poll := 0.0
+var _auxiliary_windows: Array[Window] = []
+var _last_desktop_visible := true
+var _last_visibility_reason := "visible"
+var _window_viewport_active: Dictionary = {}
+var _window_logical_visible: Dictionary = {}
+var _window_native_id: Dictionary = {}
 
 func start(scene: Window, toolbar: Window = null, settings: Dictionary = {}) -> bool:
 	process_mode = Node.PROCESS_MODE_ALWAYS
@@ -39,6 +53,10 @@ func start(scene: Window, toolbar: Window = null, settings: Dictionary = {}) -> 
 		status_changed.emit("桌面原生模块未加载，请先运行 native/build.ps1。")
 		return false
 	native = ClassDB.instantiate("DesktopNative") as RefCounted
+	# Only this explicit fixture flag isolates native tests from a player's
+	# running game. Test saves are handled independently by the main controller.
+	test_instance = OS.get_cmdline_user_args().has("--benchmark-fixture")
+	native.call("set_test_namespace", test_instance)
 	if not bool(native.call("try_single_instance")):
 		status_changed.emit("农场已经运行，请使用现有窗口。")
 		native = null
@@ -64,6 +82,7 @@ func start(scene: Window, toolbar: Window = null, settings: Dictionary = {}) -> 
 		shutdown()
 		return false
 	native.call("set_suspend_callback", Callable(self, "_on_native_suspend"))
+	native.call("set_action_callback", Callable(self, "_on_native_action"))
 	if toolbar_window != null:
 		toolbar_window.borderless = true
 		toolbar_window.unresizable = true
@@ -81,6 +100,15 @@ func start(scene: Window, toolbar: Window = null, settings: Dictionary = {}) -> 
 		# Disabling the hidden scenery viewport must not freeze toolbar updates.
 		RenderingServer.viewport_set_parent_viewport(toolbar_window.get_viewport_rid(), RID())
 	ready_for_desktop = true
+	tray_available = bool(native.call("install_tray"))
+	if not tray_available:
+		status_changed.emit("Windows 托盘入口创建失败（错误 %d），工具栏仍可使用。" % int(native.call("shell_last_error")))
+	# Fixtures leave the player's Ctrl+Alt+F registration alone. Direct native
+	# tests can exercise a separate Ctrl+Alt+Shift+F12 registration instead.
+	if not test_instance:
+		hotkey_available = bool(native.call("register_toggle_hotkey"))
+		if not hotkey_available:
+			status_changed.emit("Ctrl+Alt+F 注册失败，可能已被其他应用使用（错误 %d）。请使用托盘或工具栏。" % int(native.call("shell_last_error")))
 	set_interactive(interactive)
 	# Locate saved points against every monitor before any clamping. In
 	# particular, a secondary monitor may have negative desktop coordinates.
@@ -113,6 +141,7 @@ func start(scene: Window, toolbar: Window = null, settings: Dictionary = {}) -> 
 	_last_power_epoch = int(native.call("power_epoch"))
 	_last_suspend_epoch = int(native.call("suspend_epoch"))
 	reset_clock_anchor()
+	refresh_desktop_visibility()
 	return true
 
 func _process(delta: float) -> void:
@@ -139,6 +168,99 @@ func _process(delta: float) -> void:
 			dpi_scale = scale
 			_layout_windows()
 			display_changed.emit(area)
+	_fullscreen_poll += delta
+	if _fullscreen_poll >= 0.25:
+		_fullscreen_poll = 0.0
+		refresh_desktop_visibility()
+
+func _on_native_action(action: int) -> void:
+	# A native notification is received inside WndProc. Defer UI changes and
+	# quitting until the callback unwinds and Windows is out of that stack.
+	call_deferred("_emit_tray_action", action)
+
+func _emit_tray_action(action: int) -> void:
+	if not ready_for_desktop:
+		return
+	var names := ["", "toggle_visibility", "toggle_interactive", "open_seed_shop", "open_animal_shop", "quit"]
+	if action > 0 and action < names.size():
+		tray_action.emit(names[action])
+
+func register_auxiliary_window(window: Window) -> void:
+	if is_instance_valid(window) and not _auxiliary_windows.has(window):
+		_auxiliary_windows.append(window)
+	if ready_for_desktop:
+		_apply_desktop_visibility()
+
+func is_desktop_visible() -> bool:
+	return not user_hidden and not fullscreen_suppressed
+
+func set_user_hidden(hidden: bool) -> void:
+	if hidden and ready_for_desktop and not tray_available and not hotkey_available:
+		status_changed.emit("托盘和快捷键均不可用，为避免无法返回，暂不能隐藏整个农场。")
+		return
+	user_hidden = hidden
+	_apply_desktop_visibility()
+
+func toggle_user_hidden() -> void:
+	set_user_hidden(not user_hidden)
+
+func refresh_desktop_visibility() -> void:
+	if not ready_for_desktop or native == null:
+		return
+	fullscreen_suppressed = bool(native.call("foreground_is_fullscreen"))
+	_apply_desktop_visibility()
+
+func _apply_desktop_visibility() -> void:
+	if not ready_for_desktop or native == null:
+		return
+	var visible := is_desktop_visible()
+	var scene_visible := visible and not collapsed
+	if not bool(native.call("set_visible", scene_visible)):
+		status_changed.emit("更新桌面显示状态失败。")
+	if _viewport_active != scene_visible:
+		RenderingServer.viewport_set_active(scene_window.get_viewport_rid(), scene_visible)
+		_viewport_active = scene_visible
+	if is_instance_valid(toolbar_window):
+		var handle := DisplayServer.window_get_native_handle(DisplayServer.WINDOW_HANDLE, toolbar_window.get_window_id())
+		native.call("show_window" if visible else "hide_window", handle)
+		_set_window_viewport_active(toolbar_window, visible)
+	for window in _auxiliary_windows:
+		if not is_instance_valid(window):
+			continue
+		if window.get_window_id() < 0:
+			var key := window.get_instance_id()
+			_window_viewport_active[key] = false
+			_window_logical_visible[key] = window.visible
+			_window_native_id[key] = -1
+			continue
+		var handle := DisplayServer.window_get_native_handle(DisplayServer.WINDOW_HANDLE, window.get_window_id())
+		# Native hiding keeps Window.visible as the user's desired state. An
+		# unopened/closed popup therefore stays closed after fullscreen ends.
+		var should_show := visible and window.visible
+		native.call("show_window" if should_show else "hide_window", handle)
+		_set_window_viewport_active(window, should_show)
+	var flags := (1 if interactive else 0) | (2 if user_hidden else 0) | (4 if fullscreen_suppressed else 0) | (8 if collapsed else 0)
+	native.call("set_shell_state", flags)
+	var reason := "user_hidden" if user_hidden else ("fullscreen" if fullscreen_suppressed else "visible")
+	if visible != _last_desktop_visible or reason != _last_visibility_reason:
+		_last_desktop_visible = visible
+		_last_visibility_reason = reason
+		desktop_visibility_changed.emit(visible, reason)
+
+func _set_window_viewport_active(window: Window, active: bool) -> void:
+	var key := window.get_instance_id()
+	var logical_visible := window.visible
+	var native_id := window.get_window_id()
+	# Window.show()/hide() itself changes viewport activity. Detect a logical
+	# visibility transition before deciding whether the native suppression
+	# layer needs a rendering change, avoiding duplicate set_active(true).
+	if not _window_viewport_active.has(key) or _window_logical_visible.get(key) != logical_visible or _window_native_id.get(key) != native_id:
+		_window_viewport_active[key] = logical_visible
+		_window_logical_visible[key] = logical_visible
+		_window_native_id[key] = native_id
+	if bool(_window_viewport_active[key]) != active:
+		RenderingServer.viewport_set_active(window.get_viewport_rid(), active)
+		_window_viewport_active[key] = active
 
 func _on_native_suspend() -> void:
 	_clock_anchor = int(native.call("elapsed_awake_msec"))
@@ -166,6 +288,7 @@ func set_interactive(enabled: bool) -> void:
 	interactive = enabled
 	if native != null and not bool(native.call("set_interactive", enabled)):
 		status_changed.emit("切换桌面输入模式失败。")
+	_apply_desktop_visibility()
 
 func set_topmost(_enabled: bool) -> void:
 	# Keep the legacy setting/API compatible without restoring permanent topmost.
@@ -177,22 +300,11 @@ func set_topmost(_enabled: bool) -> void:
 
 func set_collapsed(enabled: bool) -> void:
 	collapsed = enabled
-	if is_instance_valid(scene_window):
-		# Godot refuses Window.visible=false for its root window. Hide the
-		# actual HWND and explicitly stop its viewport; keep the scene tree
-		# alive so production and saving continue under the separate toolbar.
-		if native != null and not bool(native.call("set_visible", not enabled)):
-			status_changed.emit("切换收起状态失败。")
-		if _viewport_active == enabled:
-			RenderingServer.viewport_set_active(scene_window.get_viewport_rid(), not enabled)
-			_viewport_active = not enabled
 	if is_instance_valid(toolbar_window):
 		if not toolbar_window.visible:
 			toolbar_window.visible = true
 		_layout_windows()
-		if native != null:
-			var toolbar_handle := DisplayServer.window_get_native_handle(DisplayServer.WINDOW_HANDLE, toolbar_window.get_window_id())
-			native.call("show_window", toolbar_handle)
+	_apply_desktop_visibility()
 
 func set_power_saving(enabled: bool) -> void:
 	power_saving = enabled
@@ -207,13 +319,19 @@ static func visible_area_for_point(point: Vector2i, areas: Array[Rect2i]) -> Rec
 			return area
 	return Rect2i()
 
+static func scenery_size_for_area(area: Rect2i, scale: float) -> Vector2i:
+	return Vector2i(area.size.x, mini(area.size.y, maxi(1, int(round(SCENE_HEIGHT * scale)))))
+
+static func clamped_position(position: Vector2i, size: Vector2i, area: Rect2i) -> Vector2i:
+	var high := area.end - size
+	return Vector2i(clampi(position.x, area.position.x, maxi(area.position.x, high.x)),
+		clampi(position.y, area.position.y, maxi(area.position.y, high.y)))
+
 func set_position_clamped(position: Vector2i) -> void:
 	if not is_instance_valid(scene_window):
 		return
 	_manual_position = true
-	var high := _work_area.end - scene_window.size
-	var clamped := Vector2i(clampi(position.x, _work_area.position.x, maxi(_work_area.position.x, high.x)),
-		clampi(position.y, _work_area.position.y, maxi(_work_area.position.y, high.y)))
+	var clamped := clamped_position(position, scene_window.size, _work_area)
 	if scene_window.position != clamped:
 		scene_window.position = clamped
 	_align_toolbar()
@@ -221,8 +339,8 @@ func set_position_clamped(position: Vector2i) -> void:
 func _layout_windows() -> void:
 	if not is_instance_valid(scene_window) or _work_area.size.x <= 0:
 		return
-	var height := mini(_work_area.size.y, int(round(SCENE_HEIGHT * dpi_scale)))
-	var size := Vector2i(_work_area.size.x, height)
+	var size := scenery_size_for_area(_work_area, dpi_scale)
+	var height := size.y
 	if scene_window.size != size:
 		scene_window.size = size
 	if _manual_position:
@@ -256,10 +374,15 @@ func diagnostics() -> Dictionary:
 		"work_area": _work_area, "dpi_scale": dpi_scale, "interactive": interactive,
 		"single_instance": native != null and (int(native.call("native_status")) & 128) != 0,
 		"scene_window_visible": bool(native.call("is_visible")) if native else false,
+		"tray_available": tray_available, "hotkey_available": hotkey_available,
+		"user_hidden": user_hidden, "fullscreen_suppressed": fullscreen_suppressed,
+		"desktop_visible": is_desktop_visible(), "test_instance": test_instance,
 		"clock_source": "QueryUnbiasedInterruptTime" if native else "unavailable"}
 
 func shutdown() -> void:
 	ready_for_desktop = false
+	tray_available = false
+	hotkey_available = false
 	if native != null:
 		native.call("release")
 		native = null

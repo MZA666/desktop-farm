@@ -22,13 +22,13 @@ func _start_test() -> void:
 	host = HOST.new()
 	root.add_child(host)
 	host.status_changed.connect(func(message: String): print(message))
-	assert(host.start(root, toolbar, {}))
+	verify(host.start(root, toolbar, {}))
 	print("WINDOW_IDS root=", root.get_window_id(), " toolbar=", toolbar.get_window_id(), " logical_visible=", toolbar.visible)
 	print("BEFORE_COLLAPSE toolbar_native_visible=", host.native.call("window_is_visible", DisplayServer.window_get_native_handle(DisplayServer.WINDOW_HANDLE, toolbar.get_window_id())))
-	assert(bool(host.native.call("is_visible")))
+	verify(bool(host.native.call("is_visible")))
 	host.consume_elapsed_msec()
 	host.set_collapsed(true)
-	assert(not bool(host.native.call("is_visible")), "Main HWND must be hidden")
+	verify(not bool(host.native.call("is_visible")), "Main HWND must be hidden")
 	assert_toolbar_visible()
 	stage = 1
 
@@ -44,12 +44,12 @@ func _process(_delta: float) -> bool:
 	frames += 1
 	if stage == 1:
 		hidden_elapsed += host.consume_elapsed_msec()
-		assert(not bool(host.native.call("is_visible")))
+		verify(not bool(host.native.call("is_visible")))
 		assert_toolbar_visible()
 		if frames >= 30:
-			assert(hidden_elapsed >= 800, "Awake clock must advance while scenery is collapsed")
+			verify(hidden_elapsed >= 800, "Awake clock must advance while scenery is collapsed")
 			host.set_collapsed(false)
-			assert(bool(host.native.call("is_visible")), "Expanded HWND must be visible")
+			verify(bool(host.native.call("is_visible")), "Expanded HWND must be visible")
 			assert_toolbar_visible()
 			stage = 2
 			frames = 0
@@ -58,3 +58,10 @@ func _process(_delta: float) -> bool:
 		host.shutdown()
 		quit(1 if test_failed else 0)
 	return false
+
+func verify(condition: bool, message: String = "Native acceptance check failed") -> bool:
+	if not condition:
+		test_failed = true
+		push_error(message)
+		quit(1)
+	return condition

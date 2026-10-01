@@ -2,7 +2,7 @@
 
 This module uses the official Godot GDExtension C interface and Windows APIs; it does not require `godot-cpp`, Visual Studio installation, or .NET. The build uses the portable Zig compiler pinned in `.tools/toolchain.json`. `desktop_native.gdextension` loads `bin/desktop_native.dll` on Windows x64; the minimum Godot version is 4.4.
 
-Build from the project directory:
+Build from the project directory (the bridge also links the system `shell32` and `gdi32` libraries for tray UI):
 
 ```powershell
 ./native/build.ps1
@@ -22,6 +22,43 @@ The scenery, toolbar, and purchase panels follow normal Windows Z order. `projec
 The new `test_window_priority.gd` launched three real Godot HWNDs plus a controlled foreground app in another process. A real mouse click activated that app; it remained above all three game windows while the host repeatedly refreshed old `topmost=true` settings, switched input modes, refreshed visibility, moved the scenery/toolbar by eight physical pixels, and recomputed layout. Result: `HOST_WINDOW_PRIORITY_PASS`. The standalone `priority_probe.exe desktop_native.dll` also verifies that initially topmost controlled HWNDs are demoted and repeated native style/show calls leave the foreground app above them.
 
 The mouse-routing probe explicitly activates its controlled overlay before the interaction phase, with permission from its controlled foreground child. This is test setup after observation has naturally brought the other process to the front; the product never requests another app's foreground permission. Actual routing still passes observation: target 2 / overlay 0, interaction: target 2 / overlay 1, return: target 3 / overlay 1. Collapse visibility and the awake clock (907 ms while hidden), actual collapsed toolbar pixel updates, and synthetic suspend/resume callbacks were rerun successfully after the priority correction. No user's unrelated application or actual system sleep was used in these tests.
+
+## Desktop shell and fullscreen visibility, v0.7
+
+`DesktopHost.tray_action(action: String)` emits `toggle_visibility`, `toggle_interactive`, `open_seed_shop`, `open_animal_shop`, or `quit`. The Windows tray menu provides these actions; double-clicking the icon and the default Ctrl+Alt+F shortcut both emit `toggle_visibility`. The main controller decides how to persist input settings, open shops, and save before quitting. Native notifications are deferred by the host so UI changes and quitting happen after the Windows callback returns. The tray uses an original 32px pixel sprout icon created in memory, and an invisible zero-size native message window. No shell message window is shown as desktop content.
+
+`set_user_hidden(bool)` and `toggle_user_hidden()` hide or show the entire scenery/toolbar/popup group for the current session. This state is deliberately separate from persisted `collapsed`, which hides scenery while retaining the toolbar. The controller calls `register_auxiliary_window(popup)` after constructing its popup. `is_desktop_visible()` describes whether the group is currently allowed to appear, and `desktop_visibility_changed(visible: bool, reason: String)` reports `user_hidden`, `fullscreen`, or `visible`. `refresh_desktop_visibility()` updates this state immediately; otherwise the host checks every quarter second. The main controller can suspend visual animation while leaving production running.
+
+When another process's foreground window covers the farm monitor's entire physical monitor rectangle, the host hides all registered HWNDs and suspends their viewports. A normal maximized window with a title bar, the desktop/taskbar, an iconic window, a DWM-cloaked window, another monitor's fullscreen window, and this process's own windows are excluded. Exiting fullscreen restores the session's intended state: manual hiding wins, collapsed scenery stays collapsed, and a previously closed popup stays closed. Native hiding does not change `Window.visible`, so an open popup can be restored with `SW_SHOWNA` without activating it. The viewport cache tracks logical visibility and native window IDs, including closing/recreating popup HWNDs, to avoid duplicate rendering activation.
+
+Ctrl+Alt+F registration failure is reported through `status_changed` with the Windows error code and tray/toolbar alternatives. If both tray and shortcut are unavailable, session hiding is refused to preserve a usable return path. `release()` removes only this instance's tray icon and registered hotkey, destroys its message window/icon, and releases its singleton. Explorer's `TaskbarCreated` message reinstalls the icon after a shell restart.
+
+The explicit `--benchmark-fixture` user argument switches the host to a per-process test singleton namespace and leaves the player's Ctrl+Alt+F untouched. Direct shell acceptance tests use a separate Ctrl+Alt+Shift+F12 shortcut. No test exits or rewrites a player's running instance. The singleton API test requires the fixture flag and safely exits with code 2 if it is missing. Native test checks use failure-aware verification and nonzero exit codes instead of assertions that can leave a test's scene loop running.
+
+Recorded on 2026-10-01, Godot 4.7.2, Zig 0.16.0, Windows 11/Iris Xe at 100% physical DPI:
+
+| Check | Result |
+| --- | --- |
+| Tray added; actual native context menu enters the Windows menu loop; message sink remains invisible | Passed |
+| Actual keyboard input triggers the registered isolated shortcut; six notifications map to deferred host signals | Passed |
+| Duplicate shortcut reports Win32 1409; releasing one instance permits the second to register | Passed |
+| Session hide/show applies to scenery and toolbar | Passed |
+| Seven real cross-process maximized/fullscreen transitions hide all three game HWNDs, preserve session/collapse/popup state, and retain the external app's foreground | Passed |
+| Closed/reopened popup HWND refreshes the viewport cache without Godot rendering errors | Passed |
+| Awake clock continues during fullscreen suppression | Passed; 735 ms observed while suppressed |
+| Synthetic negative/above-monitor geometry and 100/150/200% physical-DPI sizing/clamping, including a very short work area | Passed |
+| Actual mixed-DPI hardware transitions and monitor removal | Manual hardware acceptance remains |
+
+Run the isolated acceptance scripts from the workspace:
+
+```powershell
+& .\.tools\godot-4.7.2-stable\Godot_v4.7.2-stable_win64_console.exe --headless --path . --script res://native/tests/test_native.gd -- --benchmark-fixture
+& .\.tools\godot-4.7.2-stable\Godot_v4.7.2-stable_win64_console.exe --path . --script res://native/tests/test_desktop_shell.gd -- --benchmark-fixture
+& .\.tools\godot-4.7.2-stable\Godot_v4.7.2-stable_win64_console.exe --path . --script res://native/tests/test_fullscreen_visibility.gd -- --benchmark-fixture
+& .\.tools\godot-4.7.2-stable\Godot_v4.7.2-stable_win64_console.exe --headless --path . --script res://native/tests/test_monitor_restore.gd
+```
+
+The fullscreen helper uses a controlled window in a second process and file handshakes for each transition. It protects only its own initial click from unrelated overlays, then immediately returns that test window to ordinary Z order; player windows are untouched. `.review/fullscreen-host.details` records `ready=1 visible=1 foreground_match=1`, and `.review/fullscreen-host.result` records `1`. The tray menu result is `.review/tray-menu-result.txt`, also `1`. These fixtures exercise actual Windows windows/menu/keyboard input but do not put the computer to sleep or change real display settings.
 
 Saved positions are matched against every monitor's usable rectangle, including negative or vertically offset desktop coordinates, before clamping. The scenery is fitted inside the chosen monitor before querying its work area and DPI; points on a removed monitor fall back to the primary monitor. The supplied `test_monitor_restore.gd` verifies monitor selection with synthetic rectangles; actual display/DPI transitions remain a hardware acceptance check.
 

@@ -32,6 +32,6 @@ $source = Join-Path $nativeRoot 'desktop_native.c'
 $library = Join-Path $outputDirectory 'desktop_native.dll'
 $env:ZIG_GLOBAL_CACHE_DIR = Join-Path $workspace '.tools\zig-cache'
 $env:ZIG_LOCAL_CACHE_DIR = Join-Path $workspace '.tools\zig-local-cache'
-& $Compiler cc -target x86_64-windows-gnu -shared $optimization -std=c11 -Wall -Wextra $source -o $library -luser32 -lkernel32 -lcomctl32
+& $Compiler cc -target x86_64-windows-gnu -shared $optimization -std=c11 -Wall -Wextra $source -o $library -luser32 -lkernel32 -lcomctl32 -lshell32 -lgdi32
 if ($LASTEXITCODE -ne 0) { throw "Native build failed with exit code $LASTEXITCODE." }
 Write-Output "Built $library"

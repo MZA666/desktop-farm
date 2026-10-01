@@ -1,5 +1,7 @@
 extends SceneTree
 
+var test_failed := false
+
 const HOST = preload("res://scripts/desktop_host.gd")
 var host: DesktopHost
 var toolbar: Window
@@ -29,7 +31,7 @@ func _start_test() -> void:
 	toolbar.show()
 	host = HOST.new()
 	root.add_child(host)
-	assert(host.start(root, toolbar, {}))
+	verify(host.start(root, toolbar, {}))
 	host.set_collapsed(true)
 
 func _process(_delta: float) -> bool:
@@ -47,7 +49,14 @@ func _process(_delta: float) -> bool:
 		after.save_png("res://.review/collapsed-toolbar-after.png")
 		var changed := first_pixels != after.get_data()
 		print("COLLAPSED_RENDER_", "PASS" if changed else "FAIL", ": actual toolbar pixel buffer changed=", changed)
-		assert(not bool(host.native.call("is_visible")))
+		verify(not bool(host.native.call("is_visible")))
 		host.shutdown()
-		quit(0 if changed else 1)
+		quit(0 if changed and not test_failed else 1)
 	return false
+
+func verify(condition: bool, message: String = "Native acceptance check failed") -> bool:
+	if not condition:
+		test_failed = true
+		push_error(message)
+		quit(1)
+	return condition

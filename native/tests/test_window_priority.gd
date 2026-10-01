@@ -1,5 +1,7 @@
 extends SceneTree
 
+var test_failed := false
+
 const HOST = preload("res://scripts/desktop_host.gd")
 const REPORT := "res://.review/host-priority-result.txt"
 var host: DesktopHost
@@ -19,9 +21,9 @@ func _start_test() -> void:
 	root.add_child(toolbar)
 	host = HOST.new()
 	root.add_child(host)
-	assert(host.start(root, toolbar, {"topmost": true, "interactive": true}))
-	assert(not host.topmost, "Legacy topmost saves must use ordinary Windows Z order")
-	assert(not root.always_on_top and not toolbar.always_on_top)
+	verify(host.start(root, toolbar, {"topmost": true, "interactive": true}))
+	verify(not host.topmost, "Legacy topmost saves must use ordinary Windows Z order")
+	verify(not root.always_on_top and not toolbar.always_on_top)
 	popup = Window.new()
 	popup.title = "Controlled priority shop"
 	popup.size = Vector2i(320, 160)
@@ -31,14 +33,14 @@ func _start_test() -> void:
 	var handles: Array[String] = []
 	for window in [root, toolbar, popup]:
 		var handle := DisplayServer.window_get_native_handle(DisplayServer.WINDOW_HANDLE, window.get_window_id())
-		assert(bool(host.native.call("make_independent_window", handle)))
-		assert(not bool(host.native.call("window_is_topmost", handle)))
+		verify(bool(host.native.call("make_independent_window", handle)))
+		verify(not bool(host.native.call("window_is_topmost", handle)))
 		handles.append(str(handle))
 	if FileAccess.file_exists(REPORT):
 		DirAccess.remove_absolute(ProjectSettings.globalize_path(REPORT))
 	probe_pid = OS.create_process(ProjectSettings.globalize_path("res://native/bin/priority_probe.exe"),
 		["--handles", ProjectSettings.globalize_path(REPORT)] + handles)
-	assert(probe_pid > 0)
+	verify(probe_pid > 0)
 
 func _process(_delta: float) -> bool:
 	if host == null or not host.ready_for_desktop:
@@ -55,7 +57,7 @@ func _process(_delta: float) -> bool:
 		host.set_position_clamped(Vector2i(area.position.x, area.end.y - root.size.y - offset))
 		host.call("_layout_windows")
 	if FileAccess.file_exists(REPORT):
-		var passed := FileAccess.get_file_as_string(REPORT).strip_edges() == "1"
+		var passed := FileAccess.get_file_as_string(REPORT).strip_edges() == "1" and not test_failed
 		print("HOST_WINDOW_PRIORITY_", "PASS" if passed else "FAIL", ": three real Godot HWNDs behind a clicked app from another process")
 		host.shutdown()
 		quit(0 if passed else 1)
@@ -66,3 +68,10 @@ func _process(_delta: float) -> bool:
 		host.shutdown()
 		quit(1)
 	return false
+
+func verify(condition: bool, message: String = "Native acceptance check failed") -> bool:
+	if not condition:
+		test_failed = true
+		push_error(message)
+		quit(1)
+	return condition

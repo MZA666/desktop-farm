@@ -1,12 +1,65 @@
+param(
+    [ValidateSet('All', 'Simulation', 'Native', 'Controller', 'PixelArt')][string]$Suite = 'All',
+    [string]$PythonPath = '',
+    [switch]$SkipConfig,
+    [switch]$SkipImport
+)
 $ErrorActionPreference = 'Stop'
 $projectRoot = Split-Path -Parent $PSScriptRoot
-$toolchain = Get-Content -LiteralPath (Join-Path $projectRoot '.tools\toolchain.json') -Raw | ConvertFrom-Json
-& $toolchain.godot_exe --headless --path $projectRoot --editor --import
-if ($LASTEXITCODE -ne 0) { throw 'Godot import failed.' }
-& $toolchain.godot_exe --headless --path $projectRoot --script res://tests/test_simulation.gd
-if ($LASTEXITCODE -ne 0) { throw 'Simulation tests failed.' }
-& $toolchain.godot_exe --headless --path $projectRoot --script res://native/tests/test_native.gd
-if ($LASTEXITCODE -ne 0) { throw 'Native API tests failed.' }
-& $toolchain.godot_exe --headless --path $projectRoot --script res://tests/test_controller.gd -- --benchmark-fixture
-if ($LASTEXITCODE -ne 0) { throw 'Controller transaction tests failed.' }
-Write-Output 'Simulation, persistence and native API checks passed.'
+$toolchainPath = Join-Path $projectRoot '.tools\toolchain.json'
+if (-not (Test-Path -LiteralPath $toolchainPath -PathType Leaf)) {
+    throw 'Run scripts/setup_toolchain.ps1 and native/build.ps1 before the Godot tests.'
+}
+$toolchain = Get-Content -LiteralPath $toolchainPath -Raw | ConvertFrom-Json
+if (-not (Test-Path -LiteralPath $toolchain.godot_exe -PathType Leaf)) { throw 'The locked Godot executable is missing.' }
+New-Item -ItemType Directory -Path (Join-Path $projectRoot '.review') -Force | Out-Null
+
+# Python is optional for gameplay. When present, include the independent
+# workbook checks; an explicitly supplied interpreter must exist and work.
+if (-not $SkipConfig) {
+    $pythonArguments = @()
+    if ($PythonPath) {
+        if (-not (Test-Path -LiteralPath $PythonPath -PathType Leaf)) { throw 'The requested Python interpreter does not exist.' }
+    } else {
+        $bundledPython = Join-Path $env:USERPROFILE '.cache\codex-runtimes\codex-primary-runtime\dependencies\python\python.exe'
+        if (Test-Path -LiteralPath $bundledPython -PathType Leaf) { $PythonPath = $bundledPython }
+        else {
+            foreach ($name in @('python.exe', 'python3.exe', 'py.exe')) {
+                $command = Get-Command $name -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1
+                # App execution aliases can open an installer instead of Python.
+                if ($command -and $command.Source -notmatch '[\\/]WindowsApps[\\/]') {
+                    $PythonPath = $command.Source
+                    if ($name -eq 'py.exe') { $pythonArguments = @('-3') }
+                    break
+                }
+            }
+        }
+    }
+    if ($PythonPath) {
+        & $PythonPath @pythonArguments (Join-Path $projectRoot 'tests\validate_config.py')
+        if ($LASTEXITCODE -ne 0) { throw 'Workbook/runtime configuration checks failed.' }
+        Write-Output 'CONFIG_VALIDATION_PASS'
+    } else { Write-Warning 'Python was not found; configuration checks were skipped. Use -PythonPath to enable them.' }
+}
+
+if (-not $SkipImport) {
+    & $toolchain.godot_exe --headless --path $projectRoot --editor --import
+    if ($LASTEXITCODE -ne 0) { throw 'Godot import failed.' }
+}
+$checks = @(
+    @{ Name = 'Simulation'; Script = 'res://tests/test_simulation.gd'; Fixture = $false },
+    @{ Name = 'Native'; Script = 'res://native/tests/test_native.gd'; Fixture = $true },
+    @{ Name = 'Controller'; Script = 'res://tests/test_controller.gd'; Fixture = $true },
+    @{ Name = 'PixelArt'; Script = 'res://tests/test_pixel_art.gd'; Fixture = $false }
+)
+foreach ($check in $checks) {
+    if ($Suite -ne 'All' -and $Suite -ne $check.Name) { continue }
+    $arguments = @('--headless', '--path', $projectRoot, '--script', $check.Script)
+    if ($check.Fixture) { $arguments += @('--', '--benchmark-fixture') }
+    # All scripts use test paths. Native/controller checks use isolated
+    # fixtures before loading; the formal desktop-farm-save.json is never used.
+    & $toolchain.godot_exe @arguments
+    if ($LASTEXITCODE -ne 0) { throw ($check.Name + ' tests failed.') }
+    Write-Output ($check.Name.ToUpperInvariant() + '_TEST_PASS')
+}
+Write-Output ('HEADLESS_TESTS_COMPLETE suite=' + $Suite)

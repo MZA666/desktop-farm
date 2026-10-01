@@ -37,6 +37,8 @@ static HWND create_window(const wchar_t *title, RECT rect, int topmost) {
         cls.lpszClassName, title, WS_POPUP, rect.left, rect.top,
         rect.right - rect.left, rect.bottom - rect.top, NULL, NULL, cls.hInstance, NULL);
     ShowWindow(window, SW_SHOWNA);
+    SetWindowPos(window, NULL, 0, 0, 0, 0,
+        SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE | SWP_SHOWWINDOW);
     return window;
 }
 
