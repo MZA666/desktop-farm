@@ -2,6 +2,8 @@
 
 Git 在本地记录每次代码修改；GitHub、GitLab 或 Gitee 仓库保存远端副本。浏览器登录用于管理网站，首次从命令行推送可能仍需通过 Git Credential Manager 登录。
 
+本项目已接入 [MZA666/desktop-farm](https://github.com/MZA666/desktop-farm)，远端名为 `origin`、分支为 `main`。下面的“首次接入”用于全新项目；当前项目日常修改只需检查、提交、推送，不需要重复添加远端。
+
 ## 首次接入远端
 
 1. 在你使用的代码平台创建空仓库，名称可用 `desktop-farm`，建议首期设为私有仓库。
@@ -35,7 +37,7 @@ git push
 git switch -c feature/new-feature
 ```
 
-发布可用带说明的标签，例如 `git tag -a v0.6.2 -m "v0.6.2"`，然后 `git push origin v0.6.2`。当前源码作为首次版本记录，不替代已经交付的试玩压缩包；试玩包来自本机 `dist/`，不随源码提交。
+发布可用带说明的标签，例如 `git tag -a v0.8.0 -m "v0.8.0 stage A"`，然后 `git push origin v0.8.0`。标签对应已验收的源码，试玩包来自本机 `dist/`，不随源码提交。阶段A为0.8.0，后续B/C依次使用0.8.1和0.8.2。
 
 ## 换电脑开发
 

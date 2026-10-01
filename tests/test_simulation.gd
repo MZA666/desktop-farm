@@ -2,13 +2,14 @@ extends SceneTree
 
 const Simulation = preload("res://scripts/game_state.gd")
 const Persistence = preload("res://scripts/save_store.gd")
+const Config = preload("res://scripts/config_loader.gd")
 var values: Dictionary
 var failures: Array[String] = []
 var assertions := 0
 var full_scale_report: Dictionary = {}
 
 func _init() -> void:
-	values = JSON.parse_string(FileAccess.get_file_as_string("res://data/production.json"))
+	values = Config.load_values()
 	_test_initial_and_cycles()
 	_test_water_and_task_restore()
 	_test_special_crops()
@@ -46,13 +47,21 @@ func single_crop(id: String) -> FarmState:
 	for plot in game.state.plots:
 		plot.open = str(plot.id) == "plot_0_0"
 		plot.crop_id = id
-	game.state.regions[0].current_crop_id = id
+		plot.preferred_crop_id = id
+	game.state.default_seed_id = id
 	if not game.state.unlocked_crops.has(id):
 		game.state.unlocked_crops.append(id)
 	return game
 
 func plot0(game: FarmState) -> Dictionary:
 	return game.state.plots[0]
+
+func until(game: FarmState, predicate: Callable, limit := 300) -> void:
+	var elapsed := 0
+	while not predicate.call() and elapsed < limit:
+		game.tick(1)
+		elapsed += 1
+	check(bool(predicate.call()), "Real travel/action reaches requested boundary within %ds" % limit)
 
 func _test_initial_and_cycles() -> void:
 	var game := fresh()
@@ -67,17 +76,17 @@ func _test_initial_and_cycles() -> void:
 	check(game.command("settings", {"values": {"window_position": [-120, 840]}}).ok, "Window position accepts monitor coordinates including negative x")
 	check(game.state.settings.window_position == [-120, 840], "Window position persists as controller-compatible array")
 	check(not game.command("settings", {"values": {"window_position": [100]}}).ok, "Malformed window position rejected")
-	game.tick(200)
+	until(game, func(): return game.state.plots.all(func(p): return not p.open or p.status != "empty"), 600)
 	check(int(game.state.seeds.parsnip) == 0, "Exactly 24 gift seeds are sown")
 	check(game.balance() == 1000, "Initial crop planting has no charge")
 	check(game.state.plots.filter(func(p): return p.open and p.status != "empty").size() == 24, "All initial plots planted")
-	game.tick(2300)
+	game.tick(3300)
 	check(game.balance() >= 0 and game.state.catalog.get("parsnip", {}).get("count", 0) >= 72, "At least three crop cycles and no debt")
 	check(game.state.catalog.has("egg"), "Animal produce automatically sells and registers")
 
 func _test_water_and_task_restore() -> void:
 	var game := single_crop("parsnip")
-	game.tick(4)
+	until(game, func(): return plot0(game).status == "unwatered")
 	check(plot0(game).status == "unwatered", "Sowing waits for water")
 	var f: Dictionary = game.state.farmers[0]
 	check(f.task.action == "water", "Automatic water task exists")
@@ -104,7 +113,7 @@ func _test_water_and_task_restore() -> void:
 	check(JSON.stringify(paused.snapshot()) == JSON.stringify(restored.snapshot()), "Save/reload resumes task deterministically without buying seed twice")
 	check(restored.balance() == before_cash, "Restored already reserved seed not charged twice")
 	var dry := single_crop("parsnip")
-	dry.tick(4)
+	until(dry, func(): return plot0(dry).status == "unwatered")
 	dry.state.farmers = []
 	remaining = float(plot0(dry).remaining)
 	dry.tick(999)
@@ -112,26 +121,26 @@ func _test_water_and_task_restore() -> void:
 
 func _test_special_crops() -> void:
 	var berry := single_crop("strawberry")
-	berry.tick(7)
+	until(berry, func(): return plot0(berry).status == "growing")
 	plot0(berry).remaining = 1.0
-	berry.tick(4)
+	until(berry, func(): return berry.state.catalog.has("strawberry"))
 	check(berry.state.catalog.strawberry.count == 1, "Strawberry first harvest")
 	check(plot0(berry).status == "unwatered" and plot0(berry).remaining == 2400, "Regrowth uses one-third first interval and needs water")
 	check(berry.protection() == 0, "Established regrowth has no seed reserve")
 	var flower := single_crop("sunflower")
-	flower.tick(7)
+	until(flower, func(): return plot0(flower).status == "growing")
 	var after_seed := flower.balance()
 	plot0(flower).remaining = 1.0
-	flower.tick(4)
+	until(flower, func(): return flower.state.catalog.has("sunflower"))
 	check(flower.balance() == after_seed + 80, "Sunflower sells exactly one flower")
 	check(flower.state.farmers[0].task.get("seed_source", "") == "dedicated", "Sunflower dedicated seed reserved for same plot")
-	flower.tick(6)
+	until(flower, func(): return plot0(flower).status == "growing")
 	check(flower.balance() == after_seed + 80 and plot0(flower).remaining == 2520, "Sunflower replants freely at full first interval")
 	var rice := single_crop("unmilled_rice")
-	rice.tick(7)
+	until(rice, func(): return plot0(rice).status == "growing")
 	var original := rice.balance()
 	plot0(rice).remaining = 1.0
-	rice.tick(4)
+	until(rice, func(): return plot0(rice).status == "processing")
 	check(plot0(rice).status == "processing" and plot0(rice).remaining == 180, "Rice harvest enters three-minute serial processing")
 	check(rice.balance() == original, "Raw rice is not also sold")
 	rice.state.farmers = []
@@ -144,12 +153,12 @@ func _test_all_crop_routes() -> void:
 	check(values.crops.size() == 53, "All 53 crop definitions available")
 	for crop in values.crops:
 		var game := single_crop(str(crop.id))
-		game.tick(7)
+		until(game, func(): return plot0(game).status == "growing")
 		check(plot0(game).status == "growing" and float(plot0(game).remaining) == float(crop.first_seconds), "%s configured first growth used" % crop.id)
 		var selected_product: Dictionary = plot0(game).product.duplicate(true)
 		var cash := game.balance()
 		plot0(game).remaining = 1.0
-		game.tick(4)
+		until(game, func(): return plot0(game).status == "processing" or game.state.catalog.has(str(selected_product.id)))
 		if float(crop.processing_seconds) > 0:
 			game.state.farmers = []
 			game.tick(float(crop.processing_seconds))
@@ -163,27 +172,28 @@ func _test_all_crop_routes() -> void:
 
 func _test_protection_and_switches() -> void:
 	var game := fresh()
-	check(game.command("expand_plot", {"region": 0}).ok, "Affordable expansion succeeds")
+	check(game.command("expand_plot").ok, "Affordable expansion succeeds")
 	check(game.balance() == 650 and game.protection() == 520, "Expansion reserves initial and following seed for new plot")
 	var before := game.snapshot()
-	check(not game.command("expand_plot", {"region": 0}).ok, "Unaffordable expansion rejected")
+	check(not game.command("expand_plot").ok, "Unaffordable expansion rejected")
 	check(JSON.stringify(before) == JSON.stringify(game.snapshot()), "Rejected investment has no side effects")
 	var switch := fresh()
 	switch.state.coins = 1000000
-	switch.tick(200)
+	until(switch, func(): return switch.state.plots.all(func(p): return not p.open or p.status == "growing"), 600)
+	switch.command("buy_seeds", {"crop_id": "cauliflower", "count": 2})
 	var old_reserve := switch.protection()
-	check(switch.command("set_crop", {"region": 0, "crop_id": "cauliflower"}).ok, "Growing region accepts pending switch")
-	check(switch.state.regions[0].pending_crop_id == "cauliflower", "Pending region retained")
+	check(switch.command("set_crop", {"plot_ids": ["plot_0_0", "plot_0_1"], "crop_id": "cauliflower"}).ok, "Growing plots accept pending switch")
+	check(switch.state.plots[0].pending_crop_id == "cauliflower", "Pending plot retained")
 	check(switch.protection() > old_reserve, "Pending first and next batches continuously protected")
-	check(switch.command("cancel_crop", {"region": 0}).ok and switch.protection() == old_reserve, "Cancel releases pending-only budget")
-	switch.command("set_crop", {"region": 0, "crop_id": "cauliflower"})
+	check(switch.command("cancel_crop", {"plot_ids": ["plot_0_0", "plot_0_1"]}).ok and switch.protection() == old_reserve, "Cancel releases pending-only budget")
+	switch.command("set_crop", {"plot_ids": ["plot_0_0", "plot_0_1"], "crop_id": "cauliflower"})
 	plot0(switch).remaining = 1
-	switch.tick(10)
+	until(switch, func(): return plot0(switch).crop_id == "cauliflower", 300)
 	check(plot0(switch).crop_id == "cauliflower" and switch.state.plots[1].crop_id == "parsnip", "Switch applies per plot after its harvest")
 	var restored := fresh()
 	check(restored.restore(switch.snapshot()).ok, "Mixed crop region survives reload")
 	check(restored.state.plots[0].crop_id == "cauliflower" and restored.state.plots[1].crop_id == "parsnip", "Reload keeps per-plot actual crop IDs")
-	check(restored.command("cancel_crop", {"region": 0}).ok and restored.state.plots[0].crop_id == "cauliflower", "Cancel does not undo plots already switched")
+	check(restored.command("cancel_crop", {"plot_ids": ["plot_0_0", "plot_0_1"]}).ok and restored.state.plots[0].crop_id == "cauliflower", "Cancel does not undo plots already switched")
 	var zero := single_crop("parsnip")
 	zero.state.coins = 0
 	zero.tick(100)
@@ -393,8 +403,6 @@ func _test_persistence() -> void:
 func _test_full_scale() -> void:
 	var game := fresh()
 	game.state.coins = 1000000
-	for region in game.state.regions:
-		region.unlocked = true
 	for plot in game.state.plots:
 		plot.open = true
 	for grass in game.state.grass:

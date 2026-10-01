@@ -1,4 +1,4 @@
-param(
+﻿param(
     [string]$EnginePath = '',
     [string]$OutputDirectory = '',
     [ValidateRange(10, 3600)][int]$Seconds = 24,
@@ -10,7 +10,7 @@ param(
 )
 $ErrorActionPreference = 'Stop'
 $projectRoot = Split-Path -Parent $PSScriptRoot
-$projectText = Get-Content -LiteralPath (Join-Path $projectRoot 'project.godot') -Raw
+$projectText = Get-Content -LiteralPath (Join-Path $projectRoot 'project.godot') -Raw -Encoding UTF8
 $versionMatch = [regex]::Match($projectText, '(?m)^config/version="([^"]+)"\s*$')
 if (-not $versionMatch.Success) { throw 'The project version is unavailable.' }
 $projectVersion = $versionMatch.Groups[1].Value
@@ -117,6 +117,9 @@ foreach ($mode in $modes) {
     # containing spaces stay one command-line argument.
     $argumentLine = ($arguments | ForEach-Object { '"' + $_.Replace('"', '\"') + '"' }) -join ' '
     $launcher = Start-Process -FilePath $engineAbsolute -ArgumentList $argumentLine -WorkingDirectory ([IO.Path]::GetDirectoryName($engineAbsolute)) -WindowStyle Hidden -RedirectStandardOutput (Join-Path $modeDirectory 'stdout.log') -RedirectStandardError (Join-Path $modeDirectory 'stderr.log') -PassThru
+    # Retain the native process handle before it exits. Windows PowerShell
+    # otherwise may report a null ExitCode after Refresh/HasExited sampling.
+    $null = $launcher.Handle
     $process = $null
     try {
         $startupDeadline = [DateTime]::UtcNow.AddSeconds(20)
@@ -176,7 +179,7 @@ foreach ($mode in $modes) {
         $samples | Export-Csv -LiteralPath (Join-Path $modeDirectory 'process-samples.csv') -Encoding utf8 -NoTypeInformation
         if ($launcher.ExitCode -ne 0) { throw ('Release returned exit code ' + $launcher.ExitCode + ': ' + $mode.Id) }
         if (-not (Test-Path -LiteralPath $runtimePath)) { throw ('Release runtime evidence missing: ' + $mode.Id) }
-        $runtime = Get-Content -LiteralPath $runtimePath -Raw | ConvertFrom-Json
+        $runtime = Get-Content -LiteralPath $runtimePath -Raw -Encoding UTF8 | ConvertFrom-Json
         if ($ExpectedVersion -and $runtime.app_version -ne $ExpectedVersion) { throw ('Release version does not match ' + $ExpectedVersion + '. Rebuild the package before benchmarking.') }
         if ([int]$runtime.process_id -ne $rendererId -or [bool]$runtime.editor_feature -or [bool]$runtime.debug_feature -or $runtime.executable_path.Replace('/', '\') -ine $engineAbsolute -or [bool]$runtime.main_scene_physical_file_exists) { throw 'Runtime evidence did not prove an actual packed release executable.' }
         if (-not [bool]$runtime.native_ready -or $runtime.main_scene_resource -ne 'res://scenes/main.tscn') { throw 'Release main scene/native host is not the expected running application.' }

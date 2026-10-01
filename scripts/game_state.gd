@@ -5,7 +5,9 @@ extends RefCounted
 ## All seconds measure active process time. tick() is the only clock entry point.
 signal changed
 
-const SAVE_VERSION := 1
+const SAVE_VERSION := 2
+const SEED_PLAN = preload("res://scripts/seed_planner.gd")
+const WORLD = preload("res://scripts/world_layout.gd")
 const SCENES := ["farm", "ranch", "pond"]
 var config: Dictionary = {}
 var state: Dictionary = {}
@@ -14,6 +16,7 @@ var animal_types: Dictionary = {}
 var shelter_types: Dictionary = {}
 var fish_types: Dictionary = {}
 var _tick_fraction := 0.0
+var crop_order: Array = []
 
 func _init(values: Dictionary = {}) -> void:
 	config_from(values)
@@ -23,6 +26,8 @@ func _init(values: Dictionary = {}) -> void:
 func config_from(values: Dictionary) -> void:
 	config = values.duplicate(true)
 	crops = _index(config.get("crops", []))
+	crop_order = []
+	for crop in config.get("crops", []): crop_order.append(str(crop.id))
 	animal_types = _index(config.get("animals", []))
 	shelter_types = _index(config.get("shelters", []))
 	fish_types = _index(config.get("fish", []))
@@ -50,7 +55,8 @@ func new_game() -> void:
 		"version": SAVE_VERSION, "config_version": str(config.get("version", "0.5")),
 		"coins": int(initial.get("coins", 1000)), "elapsed": 0.0, "next_id": 1,
 		"tick_fraction": 0.0, "paid_hires": 0, "transaction_id": 0,
-		"regions": [], "plots": [], "seeds": initial.get("seeds", {"parsnip": 24}).duplicate(true),
+		"plots": [], "seeds": initial.get("seeds", {"parsnip": 24}).duplicate(true),
+		"default_seed_id": "parsnip", "previous_default_seed_id": "", "seed_reservations": [],
 		"unlocked_crops": [], "grass": [], "grass_seeds": 0,
 		"grass_remaining": float(_p("grass_growth_seconds", 180)),
 		"warehouse_hay": int(initial.get("warehouse_hay", 0)),
@@ -59,19 +65,17 @@ func new_game() -> void:
 		"animals": [], "farmers": [], "fish": [], "pending_fish": {},
 		"fish_remaining": float(_p("fish_spawn_seconds", 180)), "net_remaining": 0.0,
 		"catalog": {}, "rng": {"grass": 1567331, "fish": 3917737, "crop": 998231},
-		"settings": {"topmost": false, "interactive": true, "power_saving": false, "collapsed": false},
+		"settings": {"topmost": false, "interactive": true, "power_saving": false, "collapsed": false, "farmer_speed": 32.0},
 	}
 	_tick_fraction = 0.0
 	for id in crops:
 		if int(crops[id].get("unlock_price", 0)) == 0:
 			state.unlocked_crops.append(id)
-	for ri in range(int(_p("max_crop_regions", 6))):
-		var opened := ri < int(initial.get("crop_regions", 4))
-		state.regions.append({"index": ri, "unlocked": opened, "current_crop_id": default_crop, "pending_crop_id": ""})
-		for pi in range(int(_p("max_plots_per_region", 16))):
-			state.plots.append({"id": "plot_%d_%d" % [ri, pi], "region": ri, "index": pi,
-				"open": opened and pi < int(initial.get("plots_per_region", 6)), "crop_id": default_crop,
-				"status": "empty", "remaining": 0.0, "return_seed": false, "product": {}, "queued_at": 0.0})
+	for index in range(96):
+		state.plots.append({"id": "plot_%d_%d" % [index / 16, index % 16], "index": index,
+			"open": index < int(initial.get("crop_plots", 24)), "crop_id": default_crop,
+			"preferred_crop_id": default_crop, "pending_crop_id": "",
+			"status": "empty", "remaining": 0.0, "return_seed": false, "product": {}, "queued_at": 0.0})
 	for gi in range(int(_p("max_grass_plots", 96))):
 		var opened := gi < int(initial.get("grass_plots", 6))
 		state.grass.append({"id": "grass_%d" % gi, "index": gi, "open": opened,
@@ -100,38 +104,38 @@ func investable() -> int:
 ## batches, then to the next batch. An in-flight sow reservation is never also
 ## counted as a free seed. Pending switches replace the old next-batch budget.
 func protection() -> int:
-	var demands: Dictionary = {}
-	for plot in state.get("plots", []):
-		if not plot.open:
-			continue
-		var region: Dictionary = state.regions[int(plot.region)]
-		var actual := str(plot.crop_id)
-		var pending := str(region.pending_crop_id)
-		var switching := not pending.is_empty() and actual != pending
-		var id := pending if switching else actual
-		var crop: Dictionary = crops.get(id, {})
-		if crop.is_empty():
-			continue
-		var needs_first := switching or str(plot.status) == "empty"
-		if not switching and _has_task("sow", str(plot.id)):
-			needs_first = false
-		if not switching and bool(plot.return_seed):
-			needs_first = false
-		var needs_next := not bool(crop.get("regrow", false)) and not bool(crop.get("return_seed", false))
-		var amount := int(needs_first) + int(needs_next)
-		demands[id] = int(demands.get(id, 0)) + amount
-	var total := 0
-	for id in demands:
-		var needed := maxi(0, int(demands[id]) - int(state.seeds.get(id, 0)))
-		total += needed * int(crops[id].seed_price)
-	return total
+	return SEED_PLAN.protection(state, crops, crop_order)
 
-func get_regions() -> Array:
-	return state.regions
-func get_plots(region: int = -1) -> Array:
-	if region < 0:
-		return state.plots
-	return state.plots.filter(func(plot): return int(plot.region) == region)
+func get_plots() -> Array:
+	return state.plots
+
+func plot_expansion_price() -> int:
+	var owned: int = state.plots.filter(func(p): return bool(p.open)).size()
+	var prices: Array = config.get("upgrades", {}).get("individual_plot_costs", [])
+	return int(prices[owned - 24]) if owned >= 24 and owned < 96 and prices.size() == 72 else -1
+
+func seed_preview(plot_id: String) -> Dictionary:
+	var plot := _find(state.plots, plot_id)
+	if plot.is_empty(): return _result(false, "地块不存在")
+	for farmer in state.farmers:
+		var task: Dictionary = farmer.task
+		if str(task.get("action", "")) == "sow" and str(task.get("target", "")) == plot_id:
+			return {"ok": true, "crop_id": str(task.crop_id), "source": str(task.seed_source), "cost": 0, "in_flight": true}
+	var chosen: Dictionary = SEED_PLAN.choose(plot.duplicate(true), state.seeds.duplicate(true), state.seed_reservations.duplicate(true), crops, crop_order, str(state.default_seed_id))
+	chosen.ok = true
+	chosen.in_flight = false
+	return chosen
+
+func seed_inventory_summary(crop_id: String) -> Dictionary:
+	var reserved := 0
+	var in_flight := 0
+	for claim in state.seed_reservations:
+		if str(claim.crop_id) == crop_id: reserved += int(claim.quantity)
+	for farmer in state.farmers:
+		var task: Dictionary = farmer.task
+		if str(task.get("action", "")) == "sow" and str(task.get("crop_id", "")) == crop_id and str(task.get("seed_source", "")) != "dedicated": in_flight += 1
+	var available := int(state.seeds.get(crop_id, 0))
+	return {"available": available, "reserved": reserved, "in_flight": in_flight, "total": available + reserved + in_flight}
 func get_animals() -> Array:
 	return state.animals
 func get_farmers() -> Array:
@@ -160,6 +164,10 @@ func snapshot() -> Dictionary:
 	return result
 
 func restore(data: Dictionary) -> Dictionary:
+	if _integer(data.get("version")) and int(data.version) == 1:
+		var migrated := migrate_v1(data)
+		if not migrated.ok: return migrated
+		data = migrated.data
 	var checked := _validate(data)
 	if not checked.ok:
 		return checked
@@ -180,8 +188,107 @@ func restore(data: Dictionary) -> Dictionary:
 	return _result(true, "存档已恢复")
 
 func _validate(data: Dictionary) -> Dictionary:
-	if int(data.get("version", -1)) != SAVE_VERSION:
+	if not _integer(data.get("version")) or int(data.version) != SAVE_VERSION:
 		return _result(false, "不支持的存档版本")
+	if data.has("regions") or not data.get("seed_reservations") is Array:
+		return _result(false, "存档种植结构无效")
+	if not data.has("previous_default_seed_id"): return _result(false, "存档缺少上一默认种")
+	if not data.get("unlocked_crops") is Array or not crops.has(str(data.get("default_seed_id", ""))) or not data.unlocked_crops.has(str(data.default_seed_id)):
+		return _result(false, "默认订购种无效")
+	if not str(data.get("previous_default_seed_id", "")).is_empty() and not crops.has(str(data.previous_default_seed_id)):
+		return _result(false, "上一默认订购种无效")
+	if not data.get("settings") is Dictionary or not _number(data.settings.get("farmer_speed")) or float(data.settings.farmer_speed) < 16 or float(data.settings.farmer_speed) > 48:
+		return _result(false, "农夫速度无效")
+	if not data.get("plots") is Array or data.plots.size() != 96: return _result(false, "地块数量无效")
+	if not data.get("farmers") is Array: return _result(false, "农夫列表无效")
+	var legacy := data.duplicate(true)
+	legacy.version = 1
+	legacy.regions = []
+	for ri in range(6): legacy.regions.append({"index": ri, "unlocked": true, "current_crop_id": "parsnip", "pending_crop_id": ""})
+	for i in range(data.plots.size()):
+		var plot: Variant = data.plots[i]
+		if not plot is Dictionary or plot.has("region") or not _integer(plot.get("index")) or int(plot.index) != i:
+			return _result(false, "地块全局位置无效")
+		if not crops.has(str(plot.get("preferred_crop_id", ""))) or (not str(plot.get("pending_crop_id", "")).is_empty() and not crops.has(str(plot.pending_crop_id))):
+			return _result(false, "地块种植计划无效")
+		legacy.plots[i].region = i / 16
+		legacy.plots[i].index = i % 16
+	var common := _validate_v1(legacy)
+	if not common.ok: return common
+	var claim_keys := {}
+	for claim in data.seed_reservations:
+		if not claim is Dictionary or not _integer(claim.get("quantity")) or int(claim.quantity) != 1 or not ["pending_first", "pending_next"].has(str(claim.get("purpose", ""))):
+			return _result(false, "种子预留数量或用途无效")
+		var plot := _find(data.plots, str(claim.get("plot_id", "")))
+		var expected := str(plot.get("pending_crop_id", ""))
+		if expected.is_empty(): expected = str(plot.get("preferred_crop_id", ""))
+		var key := str(claim.plot_id) + ":" + str(claim.purpose)
+		if plot.is_empty() or not bool(plot.open) or str(claim.get("crop_id", "")) != expected or claim_keys.has(key): return _result(false, "种子预留绑定无效")
+		claim_keys[key] = true
+	for farmer in data.farmers:
+		for key in ["x", "y", "path_target_x", "path_target_y"]:
+			if not _number(farmer.get(key)): return _result(false, "农夫坐标无效")
+		if not WORLD.is_position_valid(str(farmer.scene), Vector2(float(farmer.x), float(farmer.y))) or not WORLD.is_position_valid(str(farmer.scene), Vector2(float(farmer.path_target_x), float(farmer.path_target_y))): return _result(false, "农夫超出世界边界")
+		if not ["idle", "walking", "acting"].has(str(farmer.get("phase", ""))) or (str(farmer.mode) == "working" and str(farmer.phase) == "idle") or (str(farmer.mode) != "working" and str(farmer.phase) != "idle"):
+			return _result(false, "农夫任务阶段无效")
+		if str(farmer.phase) == "acting" and Vector2(float(farmer.x), float(farmer.y)).distance_to(Vector2(float(farmer.path_target_x), float(farmer.path_target_y))) > 0.001: return _result(false, "动作阶段尚未到达")
+	return _result(true, "有效")
+
+func _number(value: Variant) -> bool:
+	return (value is int or value is float) and is_finite(float(value))
+
+func _integer(value: Variant) -> bool:
+	return _number(value) and float(value) == floorf(float(value))
+
+func _finite_tree(value: Variant) -> bool:
+	if value is float: return is_finite(value)
+	if value is Array:
+		for item in value:
+			if not _finite_tree(item): return false
+	elif value is Dictionary:
+		for item in value.values():
+			if not _finite_tree(item): return false
+	return true
+
+func migrate_v1(data: Dictionary) -> Dictionary:
+	var checked := _validate_v1(data)
+	if not checked.ok: return checked
+	var migrated := data.duplicate(true)
+	migrated.version = SAVE_VERSION
+	migrated.default_seed_id = "parsnip"
+	migrated.previous_default_seed_id = ""
+	migrated.seed_reservations = []
+	migrated.settings.farmer_speed = 32.0
+	for i in range(migrated.plots.size()):
+		var plot: Dictionary = migrated.plots[i]
+		var pending := str(data.regions[int(plot.region)].pending_crop_id)
+		plot.preferred_crop_id = str(plot.crop_id)
+		plot.pending_crop_id = pending if bool(plot.open) and pending != str(plot.crop_id) else ""
+		plot.erase("region")
+		plot.index = i
+	migrated.erase("regions")
+	var slots := {"farm": 0, "ranch": 0, "pond": 0}
+	for farmer in migrated.farmers:
+		var scene := str(farmer.scene)
+		var pos: Vector2 = WORLD.farmer_idle_position(scene, int(slots[scene]))
+		slots[scene] = int(slots[scene]) + 1
+		farmer.phase = "idle"
+		if str(farmer.mode) == "working":
+			pos = WORLD.target_position(scene, str(farmer.task.get("target", "")), migrated)
+			farmer.phase = "acting"
+		farmer.x = pos.x
+		farmer.y = pos.y
+		farmer.path_target_x = pos.x
+		farmer.path_target_y = pos.y
+	_fill_seed_reservations(migrated)
+	var valid := _validate(migrated)
+	if not valid.ok: return valid
+	return {"ok": true, "data": migrated, "message": "v1存档已转换为独立地块"}
+
+func _validate_v1(data: Dictionary) -> Dictionary:
+	if not _finite_tree(data): return _result(false, "旧存档包含非有限数值")
+	if not _integer(data.get("version")) or int(data.version) != 1:
+		return _result(false, "不支持的旧存档版本")
 	for key in ["config_version", "coins", "elapsed", "next_id", "regions", "plots", "seeds", "unlocked_crops", "grass", "animals", "farmers", "fish", "shelters", "rng", "catalog", "pending_fish", "settings", "storage_level", "warehouse_hay", "trough_hay", "grass_seeds", "paid_hires", "transaction_id", "grass_remaining", "fish_remaining", "net_remaining"]:
 		if not data.has(key):
 			return _result(false, "存档缺少字段：" + key)
@@ -191,6 +298,11 @@ func _validate(data: Dictionary) -> Dictionary:
 	for key in ["seeds", "shelters", "rng", "catalog", "pending_fish", "settings"]:
 		if not data[key] is Dictionary:
 			return _result(false, "存档字段类型无效：" + key)
+	for key in ["topmost", "interactive", "power_saving", "collapsed"]:
+		if not data.settings.get(key) is bool: return _result(false, "存档窗口设置无效：" + key)
+	if data.settings.has("window_position"):
+		var position: Variant = data.settings.window_position
+		if not position is Array or position.size() != 2 or not _number(position[0]) or not _number(position[1]): return _result(false, "存档窗口位置无效")
 	for key in ["regions", "plots", "grass", "animals", "farmers", "fish"]:
 		for object in data[key]:
 			if not object is Dictionary:
@@ -198,6 +310,9 @@ func _validate(data: Dictionary) -> Dictionary:
 	for key in ["coins", "elapsed", "next_id", "warehouse_hay", "trough_hay", "grass_seeds", "paid_hires", "transaction_id", "grass_remaining", "fish_remaining", "net_remaining"]:
 		if not (data[key] is int or data[key] is float) or float(data[key]) < 0 or not is_finite(float(data[key])):
 			return _result(false, "存档资源或计时无效：" + key)
+	for key in ["coins", "next_id", "warehouse_hay", "trough_hay", "grass_seeds", "paid_hires", "transaction_id", "storage_level"]:
+		if not _integer(data.get(key)): return _result(false, "存档整数资源无效：" + key)
+	if not _number(data.get("tick_fraction", 0.0)) or float(data.get("tick_fraction", 0.0)) < 0 or float(data.get("tick_fraction", 0.0)) >= 1: return _result(false, "存档分数时钟无效")
 	if int(data.storage_level) < 0 or int(data.storage_level) > 3 or int(data.paid_hires) > 6:
 		return _result(false, "存档升级等级无效")
 	var storage_levels: Array = config.get("upgrades", {}).get("hay_storage", [{"capacity": 24}, {"capacity": 64}, {"capacity": 128}, {"capacity": 256}])
@@ -213,7 +328,7 @@ func _validate(data: Dictionary) -> Dictionary:
 	var shelter_counts := {}
 	for ri in range(data.regions.size()):
 		var region: Dictionary = data.regions[ri]
-		if int(region.get("index", -1)) != ri or not region.get("unlocked") is bool:
+		if not _integer(region.get("index")) or int(region.index) != ri or not region.get("unlocked") is bool:
 			return _result(false, "存档区域位置无效")
 		if not crops.has(str(region.get("current_crop_id", ""))) or (not str(region.get("pending_crop_id", "")).is_empty() and not crops.has(str(region.pending_crop_id))):
 			return _result(false, "存档区域作物无效")
@@ -224,13 +339,13 @@ func _validate(data: Dictionary) -> Dictionary:
 				return _result(false, "存档地块缺少字段：" + key)
 		if not _valid_object_id(plot, ids) or not crops.has(str(plot.get("crop_id", ""))) or not ["empty", "unwatered", "growing", "ready", "processing"].has(str(plot.get("status", ""))):
 			return _result(false, "存档地块无效")
-		if int(plot.region) != pi / 16 or int(plot.index) != pi % 16 or float(plot.remaining) < 0 or not is_finite(float(plot.remaining)) or not plot.product is Dictionary or not plot.open is bool or not plot.return_seed is bool:
+		if not _integer(plot.region) or not _integer(plot.index) or int(plot.region) != pi / 16 or int(plot.index) != pi % 16 or str(plot.id) != "plot_%d_%d" % [pi / 16, pi % 16] or not _number(plot.remaining) or float(plot.remaining) < 0 or not _number(plot.queued_at) or float(plot.queued_at) < 0 or not plot.product is Dictionary or not plot.open is bool or not plot.return_seed is bool:
 			return _result(false, "存档地块计时或位置无效")
 		if plot.open and not data.regions[int(plot.region)].unlocked:
 			return _result(false, "存档未解锁区域存在开放地块")
 	for gi in range(data.grass.size()):
 		var grass: Dictionary = data.grass[gi]
-		if not _valid_object_id(grass, ids) or int(grass.get("index", -1)) != gi or int(grass.get("clumps", -1)) < 0 or int(grass.clumps) > 4 or not grass.get("mother") is bool or not grass.get("open") is bool:
+		if not _valid_object_id(grass, ids) or not _integer(grass.get("index")) or int(grass.index) != gi or not _integer(grass.get("clumps")) or int(grass.clumps) < 0 or int(grass.clumps) > 4 or not grass.get("mother") is bool or not grass.get("open") is bool:
 			return _result(false, "存档牧草无效")
 	for animal in data.animals:
 		for key in ["id", "type_id", "adult", "adult_remaining", "product_remaining", "food_remaining", "hungry", "ready", "queued_at"]:
@@ -240,15 +355,16 @@ func _validate(data: Dictionary) -> Dictionary:
 			return _result(false, "存档动物无效")
 		highest_generated_id = maxi(highest_generated_id, int(str(animal.id).get_slice("_", 1)))
 		for key in ["adult_remaining", "product_remaining", "food_remaining", "ready"]:
-			if float(animal.get(key, -1)) < 0 or not is_finite(float(animal[key])):
+			if not _number(animal.get(key)) or float(animal[key]) < 0:
 				return _result(false, "存档动物计时无效")
+		if not animal.adult is bool or not animal.hungry is bool or not _integer(animal.ready) or not _number(animal.queued_at): return _result(false, "存档动物状态无效")
 		if int(animal.ready) > 1:
 			return _result(false, "存档动物产物数量无效")
 		var sid := str(animal_types[str(animal.type_id)].shelter_id)
 		shelter_counts[sid] = int(shelter_counts.get(sid, 0)) + 1
 	for id in shelter_types:
 		var level := int(data.shelters.get(id, 0))
-		if level < 0 or level > 3 or int(shelter_counts.get(id, 0)) > level * 4:
+		if not _integer(data.shelters.get(id)) or level < 0 or level > 3 or int(shelter_counts.get(id, 0)) > level * 4:
 			return _result(false, "存档棚舍容量无效")
 	for farmer in data.farmers:
 		for key in ["id", "home", "scene", "energy", "mode", "remaining", "destination", "task"]:
@@ -257,8 +373,12 @@ func _validate(data: Dictionary) -> Dictionary:
 		if not _valid_object_id(farmer, ids) or not SCENES.has(str(farmer.get("home", ""))) or not SCENES.has(str(farmer.get("scene", ""))):
 			return _result(false, "存档农夫无效")
 		highest_generated_id = maxi(highest_generated_id, int(str(farmer.id).get_slice("_", 1)))
-		if float(farmer.get("energy", -1)) < 0 or float(farmer.energy) > 100 or float(farmer.get("remaining", -1)) < 0 or not is_finite(float(farmer.remaining)) or not is_finite(float(farmer.energy)) or not farmer.task is Dictionary or not ["idle", "resting", "working", "outbound", "returning"].has(str(farmer.get("mode", ""))):
+		if not _number(farmer.energy) or not _number(farmer.remaining) or float(farmer.energy) < 0 or float(farmer.energy) > 100 or float(farmer.remaining) < 0 or not farmer.task is Dictionary or not ["idle", "resting", "working", "outbound", "returning"].has(str(farmer.get("mode", ""))):
 			return _result(false, "存档农夫状态无效")
+		if str(farmer.mode) == "working" and farmer.task.is_empty(): return _result(false, "工作任务缺失")
+		if not farmer.task.is_empty():
+			if not ["sow", "water", "harvest", "cut_grass", "sow_grass", "add_hay", "collect_product"].has(str(farmer.task.get("action", ""))) or str(farmer.task.get("target", "")).is_empty(): return _result(false, "旧任务结构无效")
+			if str(farmer.task.action) == "sow" and (not crops.has(str(farmer.task.get("crop_id", ""))) or not ["inventory", "dedicated", "reservation", "automatic"].has(str(farmer.task.get("seed_source", "")))): return _result(false, "播种领用无效")
 		home_counts[str(farmer.home)] += 1
 		if str(farmer.mode) in ["outbound", "returning"]:
 			if not SCENES.has(str(farmer.destination)):
@@ -285,13 +405,13 @@ func _validate(data: Dictionary) -> Dictionary:
 	if int(data.next_id) <= highest_generated_id:
 		return _result(false, "存档对象序号无效")
 	for id in data.seeds:
-		if not crops.has(str(id)) or int(data.seeds[id]) < 0:
+		if not crops.has(str(id)) or not _integer(data.seeds[id]) or int(data.seeds[id]) < 0:
 			return _result(false, "存档种子库存无效")
 	for id in data.unlocked_crops:
 		if not crops.has(str(id)):
 			return _result(false, "存档解锁作物无效")
 	for stream in ["crop", "grass", "fish"]:
-		if int(data.rng.get(stream, -1)) <= 0 or int(data.rng[stream]) >= 2147483647:
+		if not _integer(data.rng.get(stream)) or int(data.rng[stream]) <= 0 or int(data.rng[stream]) >= 2147483647:
 			return _result(false, "存档随机状态无效")
 	return _result(true, "有效")
 
@@ -334,25 +454,42 @@ func _execute_command(action: String, payload: Dictionary) -> Dictionary:
 			plot.queued_at = float(state.elapsed)
 			return _result(true, "已浇水")
 		"set_crop":
-			var ri := int(payload.get("region", -1))
 			var id := str(payload.get("crop_id", ""))
-			if ri < 0 or ri >= state.regions.size() or not state.regions[ri].unlocked or not crops.has(id):
-				return _result(false, "区域或作物无效")
+			var plots := _selected_plots(payload)
+			if plots.is_empty() or not crops.has(id): return _result(false, "地块或作物无效")
 			if not state.unlocked_crops.has(id):
 				return _result(false, "请先解锁此作物")
-			state.regions[ri].pending_crop_id = id
-			for plot in get_plots(ri):
-				if plot.open and str(plot.status) == "empty" and not _has_task("sow", str(plot.id)):
-					plot.crop_id = id
-					plot.return_seed = false
-			_complete_region_switch(ri)
+			for plot in plots:
+				_release_plot_reservations(str(plot.id))
+				if str(plot.status) == "empty" and not _has_task("sow", str(plot.id)):
+					plot.preferred_crop_id = id
+					plot.pending_crop_id = ""
+					if str(plot.crop_id) != id: plot.return_seed = false
+				else: plot.pending_crop_id = id if id != str(plot.crop_id) else ""
+			_fill_seed_reservations(state)
 			return _check_investment()
 		"cancel_crop":
-			var ri := int(payload.get("region", -1))
-			if ri < 0 or ri >= state.regions.size():
-				return _result(false, "区域无效")
-			state.regions[ri].pending_crop_id = ""
+			var plots := _selected_plots(payload)
+			if plots.is_empty(): return _result(false, "地块无效")
+			for plot in plots:
+				plot.pending_crop_id = ""
+				_release_plot_reservations(str(plot.id))
 			return _result(true, "已取消尚未生效的切换")
+		"buy_seeds":
+			var id := str(payload.get("crop_id", ""))
+			var count: Variant = payload.get("count", 1)
+			if not crops.has(id) or not state.unlocked_crops.has(id) or not _integer(count) or int(count) < 1 or int(count) > 1000000:
+				return _result(false, "种子品种或购买数量无效")
+			state.coins = balance() - int(count) * int(crops[id].seed_price)
+			state.seeds[id] = int(state.seeds.get(id, 0)) + int(count)
+			_fill_seed_reservations(state)
+			return _check_investment()
+		"set_default_seed":
+			var id := str(payload.get("crop_id", ""))
+			if not crops.has(id) or not state.unlocked_crops.has(id): return _result(false, "请先解锁默认种子")
+			state.previous_default_seed_id = str(state.default_seed_id)
+			state.default_seed_id = id
+			return _check_investment()
 		"unlock_crop":
 			var id := str(payload.get("crop_id", ""))
 			if not crops.has(id) or state.unlocked_crops.has(id):
@@ -361,32 +498,17 @@ func _execute_command(action: String, payload: Dictionary) -> Dictionary:
 			state.unlocked_crops.append(id)
 			return _check_investment()
 		"expand_plot":
-			var ri := int(payload.get("region", -1))
-			if ri < 0 or ri >= state.regions.size() or not state.regions[ri].unlocked:
-				return _result(false, "请先解锁区域")
+			var price := plot_expansion_price()
+			if price < 0: return _result(false, "地块已开满或费用配置无效")
 			var target := {}
-			for plot in get_plots(ri):
+			for plot in state.plots:
 				if not plot.open:
 					target = plot
 					break
-			if target.is_empty():
-				return _result(false, "本区已开满16格")
-			var costs: Array = config.get("upgrades", {}).get("plot_costs", [0, 0, 0, 0, 0, 0, 350, 700, 1050, 1400, 1750, 2100, 2450, 2800, 3150, 3500])
-			state.coins = balance() - int(costs[int(target.index)])
+			if target.is_empty(): return _result(false, "地块已开满96格")
+			state.coins = balance() - price
 			target.open = true
-			target.crop_id = str(state.regions[ri].pending_crop_id) if not str(state.regions[ri].pending_crop_id).is_empty() else str(state.regions[ri].current_crop_id)
-			return _check_investment()
-		"unlock_region":
-			var ri := int(payload.get("region", -1))
-			if ri < 4 or ri >= state.regions.size() or state.regions[ri].unlocked:
-				return _result(false, "区域不存在或已经解锁")
-			if ri > 4 and not state.regions[ri - 1].unlocked:
-				return _result(false, "请依次解锁区域")
-			var costs: Array = config.get("upgrades", {}).get("region_costs", [0, 0, 0, 0, 10000, 20000])
-			state.coins = balance() - int(costs[ri])
-			state.regions[ri].unlocked = true
-			for plot in get_plots(ri):
-				plot.open = int(plot.index) < 6
+			target.preferred_crop_id = str(state.default_seed_id)
 			return _check_investment()
 		"expand_grass":
 			var target := {}
@@ -473,6 +595,11 @@ func _execute_command(action: String, payload: Dictionary) -> Dictionary:
 				return _result(false, "目标岗位已满")
 			farmer.home = scene
 			farmer.scene = scene
+			var position: Vector2 = WORLD.farmer_idle_position(scene, _home_count(scene) - 1)
+			farmer.x = position.x
+			farmer.y = position.y
+			farmer.path_target_x = position.x
+			farmer.path_target_y = position.y
 			return _result(true, "免费转岗完成")
 		"cast_net":
 			if not state.pending_fish.is_empty():
@@ -501,12 +628,17 @@ func _execute_command(action: String, payload: Dictionary) -> Dictionary:
 			state.pending_fish = {}
 			return _result(true, "鱼已出售" if choice == "sell" else "已登记图鉴")
 		"settings":
-			var values: Dictionary = payload.get("values", {})
+			var raw_values: Variant = payload.get("values", {})
+			if not raw_values is Dictionary: return _result(false, "设置格式无效")
+			var values: Dictionary = raw_values
+			for key in ["topmost", "interactive", "power_saving", "collapsed"]:
+				if values.has(key) and not values[key] is bool: return _result(false, "设置开关格式无效")
+			if values.has("farmer_speed") and (not _number(values.farmer_speed) or float(values.farmer_speed) < 16 or float(values.farmer_speed) > 48): return _result(false, "农夫速度范围为16至48")
 			if values.has("window_position"):
 				var position: Variant = values.window_position
 				if not position is Array or position.size() != 2 or not (position[0] is int or position[0] is float) or not (position[1] is int or position[1] is float) or not is_finite(float(position[0])) or not is_finite(float(position[1])):
 					return _result(false, "窗口位置无效")
-			for key in ["topmost", "interactive", "power_saving", "collapsed", "window_x", "window_y", "window_position", "monitor"]:
+			for key in ["topmost", "interactive", "power_saving", "collapsed", "window_x", "window_y", "window_position", "monitor", "farmer_speed"]:
 				if values.has(key):
 					state.settings[key] = values[key]
 			return _result(true, "设置已更新")
@@ -518,6 +650,40 @@ func _find(items: Array, id: String) -> Dictionary:
 			return item
 	return {}
 
+func _selected_plots(payload: Dictionary) -> Array:
+	var ids: Variant = payload.get("plot_ids", [])
+	if not ids is Array or ids.is_empty(): return []
+	var selected: Array = []
+	var seen := {}
+	for id in ids:
+		if not id is String or seen.has(id): return []
+		var plot := _find(state.plots, str(id))
+		if plot.is_empty() or not bool(plot.open): return []
+		seen[id] = true
+		selected.append(plot)
+	return selected
+
+func _release_plot_reservations(id: String) -> void:
+	for i in range(state.seed_reservations.size() - 1, -1, -1):
+		var claim: Dictionary = state.seed_reservations[i]
+		if str(claim.plot_id) == id:
+			state.seeds[str(claim.crop_id)] = int(state.seeds.get(str(claim.crop_id), 0)) + int(claim.quantity)
+			state.seed_reservations.remove_at(i)
+
+func _fill_seed_reservations(target_state: Dictionary) -> void:
+	# Fill every first-batch claim before any second-batch claim.
+	for purpose in ["pending_first", "pending_next"]:
+		for plot in target_state.plots:
+			var id := str(plot.get("pending_crop_id", ""))
+			if not bool(plot.open) or id.is_empty(): continue
+			if purpose == "pending_next" and (bool(crops[id].regrow) or bool(crops[id].return_seed)): continue
+			var exists := false
+			for claim in target_state.seed_reservations:
+				if str(claim.plot_id) == str(plot.id) and str(claim.purpose) == purpose: exists = true; break
+			if not exists and int(target_state.seeds.get(id, 0)) > 0:
+				target_state.seeds[id] = int(target_state.seeds[id]) - 1
+				target_state.seed_reservations.append({"plot_id": str(plot.id), "crop_id": id, "quantity": 1, "purpose": purpose})
+
 func _add_animal(id: String) -> void:
 	var kind: Dictionary = animal_types[id]
 	state.animals.append({"id": _uid("animal"), "type_id": id, "adult": false,
@@ -525,8 +691,10 @@ func _add_animal(id: String) -> void:
 		"food_remaining": 0.0, "hungry": true, "ready": 0, "queued_at": float(state.elapsed)})
 
 func _add_farmer(scene: String) -> void:
+	var pos: Vector2 = WORLD.farmer_idle_position(scene, _home_count(scene))
 	state.farmers.append({"id": _uid("farmer"), "home": scene, "scene": scene,
-		"energy": 100.0, "mode": "idle", "remaining": 0.0, "destination": "", "task": {}})
+		"energy": 100.0, "mode": "idle", "remaining": 0.0, "destination": "", "task": {},
+		"x": pos.x, "y": pos.y, "path_target_x": pos.x, "path_target_y": pos.y, "phase": "idle"})
 
 func _animals_in_shelter(id: String) -> int:
 	var count := 0
@@ -732,22 +900,16 @@ func _sell_plot_product(plot: Dictionary) -> void:
 
 func _finish_crop_cycle(plot: Dictionary) -> void:
 	var crop: Dictionary = crops[str(plot.crop_id)]
-	var region: Dictionary = state.regions[int(plot.region)]
-	var pending := str(region.pending_crop_id)
+	var pending := str(plot.pending_crop_id)
 	if not pending.is_empty() and pending != str(plot.crop_id):
-		var old_id := str(plot.crop_id)
-		var old_status := str(plot.status)
-		plot.crop_id = pending
+		plot.preferred_crop_id = pending
+		plot.pending_crop_id = ""
 		plot.status = "empty"
 		plot.return_seed = false
-		if balance() >= protection():
-			plot.product = {}
-			plot.remaining = 0.0
-			plot.queued_at = float(state.elapsed)
-			_complete_region_switch(int(plot.region))
-			return
-		plot.crop_id = old_id
-		plot.status = old_status
+		plot.product = {}
+		plot.remaining = 0.0
+		plot.queued_at = float(state.elapsed)
+		return
 	if bool(crop.get("regrow", false)):
 		plot.status = "unwatered"
 		plot.remaining = float(crop.repeat_seconds)
@@ -758,16 +920,6 @@ func _finish_crop_cycle(plot: Dictionary) -> void:
 		plot.product = {}
 		plot.return_seed = bool(crop.get("return_seed", false))
 	plot.queued_at = float(state.elapsed)
-
-func _complete_region_switch(ri: int) -> void:
-	var pending := str(state.regions[ri].pending_crop_id)
-	if pending.is_empty():
-		return
-	for plot in get_plots(ri):
-		if plot.open and str(plot.crop_id) != pending:
-			return
-	state.regions[ri].current_crop_id = pending
-	state.regions[ri].pending_crop_id = ""
 
 func _collect_animal(animal: Dictionary) -> void:
 	if int(animal.ready) == 0:
@@ -810,8 +962,8 @@ func _tasks(scene: String) -> Array:
 					action = "water"
 					priority = 1
 				"empty":
-					var id := str(plot.crop_id)
-					if plot.return_seed or int(state.seeds.get(id, 0)) > 0 or balance() >= int(crops[id].seed_price):
+					var preview := seed_preview(str(plot.id))
+					if int(preview.cost) <= balance():
 						action = "sow"
 						priority = 2
 			if not action.is_empty() and not _has_task(action, str(plot.id)):
@@ -861,13 +1013,19 @@ func _dispatch(farmer: Dictionary) -> void:
 		if _reserve_task(task):
 			farmer.task = task
 			farmer.mode = "working"
-			farmer.remaining = float(_p("action_seconds", 2)) + float(_p("walk_seconds", 1))
+			var destination: Vector2 = WORLD.target_position(str(farmer.scene), str(task.target), state)
+			farmer.path_target_x = destination.x
+			farmer.path_target_y = destination.y
+			var distance := Vector2(float(farmer.x), float(farmer.y)).distance_to(destination)
+			farmer.phase = "walking" if distance > 0.001 else "acting"
+			farmer.remaining = distance / float(state.settings.farmer_speed) if distance > 0.001 else float(_p("action_seconds", 2))
 		return
 	if str(farmer.scene) == str(farmer.home) and float(farmer.energy) >= 100:
 		for scene in SCENES:
 			if scene != str(farmer.home) and _occupancy(scene) < 3 and _has_work(scene):
 				farmer.energy = float(farmer.energy) - float(_p("support_energy", 20))
 				farmer.mode = "outbound"
+				farmer.phase = "idle"
 				farmer.destination = scene
 				farmer.remaining = float(_p("support_seconds", 5))
 				return
@@ -878,19 +1036,21 @@ func _reserve_task(task: Dictionary) -> bool:
 		var plot := _find(state.plots, str(task.target))
 		if plot.is_empty() or str(plot.status) != "empty":
 			return false
-		var id := str(plot.crop_id)
-		task.crop_id = id
-		if plot.return_seed:
-			task.seed_source = "dedicated"
-			plot.return_seed = false
-		elif int(state.seeds.get(id, 0)) > 0:
-			task.seed_source = "inventory"
-			state.seeds[id] = int(state.seeds[id]) - 1
-		elif balance() >= int(crops[id].seed_price):
-			task.seed_source = "inventory"
-			state.coins = balance() - int(crops[id].seed_price)
-		else:
-			return false
+		var seeds: Dictionary = state.seeds.duplicate(true)
+		var claims: Array = state.seed_reservations.duplicate(true)
+		var projected := plot.duplicate(true)
+		var chosen: Dictionary = SEED_PLAN.choose(projected, seeds, claims, crops, crop_order, str(state.default_seed_id))
+		if int(chosen.cost) > balance(): return false
+		state.seeds = seeds
+		state.seed_reservations = claims
+		state.coins = balance() - int(chosen.cost)
+		plot.return_seed = bool(projected.return_seed)
+		if not str(plot.pending_crop_id).is_empty():
+			plot.preferred_crop_id = str(plot.pending_crop_id)
+			plot.pending_crop_id = ""
+		plot.crop_id = str(chosen.crop_id)
+		task.crop_id = str(chosen.crop_id)
+		task.seed_source = str(chosen.source)
 	elif action == "add_hay":
 		var room := storage_capacity() - int(state.trough_hay) - _reserved_amount("add_hay")
 		var amount := mini(int(_p("hay_transfer_max", 4)), mini(room, int(state.warehouse_hay)))
@@ -914,7 +1074,7 @@ func _task_valid(task: Dictionary) -> bool:
 			var plot := _find(state.plots, target)
 			if plot.is_empty() or not plot.open:
 				return false
-			if action == "sow" and (str(task.get("crop_id", "")) != str(plot.crop_id) or not ["inventory", "dedicated"].has(str(task.get("seed_source", "")))):
+			if action == "sow" and (str(task.get("crop_id", "")) != str(plot.crop_id) or not ["inventory", "dedicated", "reservation", "automatic"].has(str(task.get("seed_source", "")))):
 				return false
 			return str(plot.status) == {"sow": "empty", "water": "unwatered", "harvest": "ready"}[action]
 		"add_hay":
@@ -932,21 +1092,42 @@ func _task_valid(task: Dictionary) -> bool:
 func _advance_farmer(farmer: Dictionary, dt: float) -> void:
 	match str(farmer.mode):
 		"working":
-			farmer.remaining = maxf(0, float(farmer.remaining) - dt)
-			if float(farmer.remaining) == 0:
-				if _task_valid(farmer.task):
-					_commit_task(farmer.task)
-					farmer.energy = maxf(0, float(farmer.energy) - _task_cost(str(farmer.task.action)))
-					farmer.task = {}
-					farmer.mode = "idle"
-				else:
-					_cancel_task(farmer)
+			if not _task_valid(farmer.task): _cancel_task(farmer); return
+			var available := dt
+			if str(farmer.phase) == "walking":
+				var position := Vector2(float(farmer.x), float(farmer.y))
+				var destination := Vector2(float(farmer.path_target_x), float(farmer.path_target_y))
+				var speed := float(state.settings.farmer_speed)
+				var distance := position.distance_to(destination)
+				var travel := minf(available, distance / speed)
+				position = position.move_toward(destination, speed * travel)
+				farmer.x = position.x
+				farmer.y = position.y
+				available -= travel
+				farmer.remaining = position.distance_to(destination) / speed
+				if float(farmer.remaining) > 0.000001: return
+				farmer.phase = "acting"
+				farmer.remaining = float(_p("action_seconds", 2))
+			farmer.remaining = maxf(0, float(farmer.remaining) - available)
+			if float(farmer.remaining) <= 0.000001:
+				_commit_task(farmer.task)
+				farmer.energy = maxf(0, float(farmer.energy) - _task_cost(str(farmer.task.action)))
+				farmer.task = {}
+				farmer.mode = "idle"
+				farmer.phase = "idle"
+				farmer.remaining = 0.0
 		"outbound", "returning":
 			farmer.remaining = maxf(0, float(farmer.remaining) - dt)
 			if float(farmer.remaining) == 0:
 				farmer.scene = str(farmer.destination)
 				farmer.destination = ""
 				farmer.mode = "idle"
+				farmer.phase = "idle"
+				var position: Vector2 = WORLD.farmer_idle_position(str(farmer.scene), int(str(farmer.id).get_slice("_", 1)) % 3)
+				farmer.x = position.x
+				farmer.y = position.y
+				farmer.path_target_x = position.x
+				farmer.path_target_y = position.y
 		"resting", "idle":
 			farmer.energy = minf(100, float(farmer.energy) + float(_p("rest_energy_per_second", 2)) * dt)
 			if str(farmer.mode) == "resting" and float(farmer.energy) >= 100:
@@ -1007,6 +1188,10 @@ func _cancel_task(farmer: Dictionary) -> void:
 	farmer.task = {}
 	farmer.remaining = 0.0
 	farmer.mode = "idle"
+	farmer.phase = "idle"
+	farmer.path_target_x = float(farmer.x)
+	farmer.path_target_y = float(farmer.y)
+	_fill_seed_reservations(state)
 
 func _cancel_target(action: String, target: String) -> void:
 	for farmer in state.farmers:

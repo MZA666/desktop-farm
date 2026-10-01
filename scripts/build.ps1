@@ -1,4 +1,4 @@
-param([switch]$SkipNativeBuild, [switch]$PackageOnly)
+﻿param([switch]$SkipNativeBuild, [switch]$PackageOnly)
 $ErrorActionPreference = 'Stop'
 $projectRoot = Split-Path -Parent $PSScriptRoot
 $toolchain = Get-Content -LiteralPath (Join-Path $projectRoot '.tools\toolchain.json') -Raw | ConvertFrom-Json

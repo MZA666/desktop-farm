@@ -1,6 +1,7 @@
 extends Node
 
 const MODEL = preload("res://scripts/game_state.gd")
+const CONFIG = preload("res://scripts/config_loader.gd")
 const STORE = preload("res://scripts/save_store.gd")
 const VIEW = preload("res://scripts/farm_view.gd")
 const HOST = preload("res://scripts/desktop_host.gd")
@@ -27,7 +28,13 @@ var page_label: Label
 var theme: Theme
 var current_scene := "farm"
 var panel_name := ""
-var region_selection := 0
+var selected_plot_ids: Array = []
+var planting_seed_id := ""
+var seed_purchase_count := 10
+var seed_shop_mode := "shop"
+var plant_controls: HBoxContainer
+var plant_selection_button: Button
+var plant_selection_label: Label
 var auto_save_elapsed := 0.0
 var ui_elapsed := 0.0
 var toast := "欢迎来到桌面农场。农夫会自动照料，你也可以点击地块浇水。"
@@ -64,13 +71,13 @@ var _owned_animal_controls: Dictionary = {}
 var _catalog_revision := 0
 var _catalog_count_label: Label
 var _budget_footer: Label
-var _region_status_label: Label
+var _seed_status_label: Label
 var _sale_controls: Dictionary = {}
 
 func _ready() -> void:
 	get_tree().auto_accept_quit = false
 	Engine.max_fps = 30
-	config = JSON.parse_string(FileAccess.get_file_as_string("res://data/production.json"))
+	config = CONFIG.load_values()
 	model = MODEL.new(config)
 	for argument in OS.get_cmdline_user_args():
 		if argument.begins_with("--smoke-screenshot="):
@@ -80,7 +87,13 @@ func _ready() -> void:
 		get_tree().quit(2)
 		return
 	var test_directory := "res://.review" if OS.has_feature("editor") else "user://test-data"
-	saves = STORE.new("user://test-data/benchmark-save.json" if benchmark_fixture else ("user://desktop-farm-save.json" if smoke_path.is_empty() else test_directory.path_join("ui-smoke-save.json")))
+	saves = STORE.new("user://test-data/benchmark-save.json" if benchmark_fixture else ("user://desktop-farm-save.json" if smoke_path.is_empty() else test_directory.path_join("ui-smoke-save.json")), config)
+	host = HOST.new()
+	add_child(host)
+	host.status_changed.connect(_show_message)
+	if not host.acquire_instance():
+		get_tree().quit(2)
+		return
 	theme = _make_theme()
 	if benchmark_fixture: _make_benchmark_fixture()
 	else: _load_game()
@@ -91,16 +104,17 @@ func _ready() -> void:
 	view._font = theme.default_font as SystemFont
 	view.position = Vector2(0, 40)
 	view.configure(config)
+	view.seed_preview_provider = Callable(model, "seed_preview")
 	view.set_model(model.state)
 	view.plot_clicked.connect(func(id: String): _act("water", {"plot_id": id}, false))
+	view.plots_selected.connect(_on_plots_selected)
+	view.locked_plot_clicked.connect(func(_id: String): _open_panel("build"))
 	view.fish_clicked.connect(_cast_net)
 	add_child(view)
 	_build_status()
+	_build_plant_controls()
 	_build_toolbar()
 	_build_popup()
-	host = HOST.new()
-	add_child(host)
-	host.status_changed.connect(_show_message)
 	host.suspend_requested.connect(_save_now)
 	host.display_changed.connect(func(_area: Rect2i): _sync_layout())
 	host.tray_action.connect(_on_tray_action)
@@ -195,6 +209,8 @@ func _load_game() -> void:
 				_show_message(restored.message)
 		elif loaded.get("from_backup", false):
 			_show_message(loaded.message)
+		elif loaded.get("migrated", false):
+			_show_message("旧存档已升级，金币与生产进度保留，原版备份已保存。")
 	elif not loaded.get("missing", false):
 		startup_blocked = true
 		_show_message(loaded.message)
@@ -233,6 +249,7 @@ func _build_toolbar() -> void:
 		var scene_id := str(id)
 		_button(row, SCENE_NAMES[id], func(): _set_scene(scene_id))
 	_button(row, "种子商店", func(): _open_panel("crops")).name = "SeedShop"
+	_button(row, "种子库", func(): _open_panel("inventory")).name = "SeedInventory"
 	_button(row, "动物商店", func(): _open_panel("animals")).name = "AnimalShop"
 	_button(row, "经营", func(): _open_panel("hub")).name = "Management"
 	coin_label = _label(row, "")
@@ -246,6 +263,64 @@ func _build_toolbar() -> void:
 	collapse_button = _button(row, "收起", _toggle_collapse)
 	_button(row, "退出", _quit_game)
 	toolbar.show()
+
+func _build_plant_controls() -> void:
+	plant_controls = HBoxContainer.new()
+	plant_controls.position = Vector2(14, 182)
+	plant_controls.visible = false
+	plant_controls.theme = theme
+	add_child(plant_controls)
+	plant_selection_label = _label(plant_controls, "")
+	plant_selection_label.add_theme_color_override("font_color", CREAM)
+	plant_selection_button = _button(plant_controls, "种植所选", func(): _apply_selected_crop(planting_seed_id))
+	plant_selection_button.name = "PlantSelectedPlots"
+	_button(plant_controls, "取消", _end_seed_selection)
+
+func _on_plots_selected(ids: Array) -> void:
+	selected_plot_ids = ids.duplicate()
+	view.set_selection(selected_plot_ids)
+	_refresh_plant_controls()
+	if not view.selection_mode:
+		_open_panel("inventory")
+
+func _choose_planting_seed(crop_id: String) -> void:
+	if not selected_plot_ids.is_empty():
+		_apply_selected_crop(crop_id)
+		return
+	if startup_blocked or save_blocked: return
+	if not bool(model.state.settings.interactive) and not _act("settings", {"values": {"interactive": true}}, false): return
+	_apply_settings()
+	planting_seed_id = crop_id
+	view.selection_mode = true
+	_set_scene("farm")
+	_close_panel()
+	_refresh_plant_controls()
+	_show_message("选择 %s 的地块：点击、拖框或按住 Shift 多选，再点「种植所选」。" % str(model.crops[crop_id].name))
+
+func _apply_selected_crop(crop_id: String) -> void:
+	if selected_plot_ids.is_empty(): return
+	if _act("set_crop", {"crop_id": crop_id, "plot_ids": selected_plot_ids.duplicate()}, false):
+		_end_seed_selection()
+		if popup.visible: _render_panel()
+
+func _end_seed_selection() -> void:
+	planting_seed_id = ""
+	selected_plot_ids.clear()
+	view.selection_mode = false
+	view.set_selection([])
+	_refresh_plant_controls()
+
+func _refresh_plant_controls() -> void:
+	if not is_instance_valid(plant_controls): return
+	plant_controls.visible = view.selection_mode and current_scene == "farm" and not bool(model.state.settings.collapsed)
+	plant_selection_label.text = str(model.crops.get(planting_seed_id, {}).get("name", "种植"))
+	plant_selection_button.text = "种植所选 %d 块" % selected_plot_ids.size()
+	plant_selection_button.disabled = selected_plot_ids.is_empty() or save_blocked or startup_blocked
+	if not selected_plot_ids.is_empty() and not planting_seed_id.is_empty():
+		_prepare_preview()
+		var quote := _preview_command("set_crop", {"crop_id": planting_seed_id, "plot_ids": selected_plot_ids})
+		plant_selection_button.disabled = not quote.ok
+		plant_selection_button.tooltip_text = "补种保护 %d → %d；%s" % [quote.protection_before, quote.protection_after, quote.message]
 
 func _build_status() -> void:
 	var bar := ColorRect.new()
@@ -309,7 +384,7 @@ func _sync_layout() -> void:
 	status_label.size.x = logical_width - 20
 	# Keep every action reachable at narrow desktop widths without forcing a
 	# taller strip. The management hub also contains both shop entry points.
-	for button_name in ["SeedShop", "AnimalShop"]:
+	for button_name in ["SeedShop", "SeedInventory", "AnimalShop"]:
 		var shop_button := toolbar.find_child(button_name, true, false)
 		if shop_button != null: shop_button.visible = logical_width >= 1000
 	coin_label.visible = logical_width >= 850
@@ -327,13 +402,14 @@ func _process(delta: float) -> void:
 	if auto_save_elapsed >= 30.0:
 		auto_save_elapsed = 0.0
 		_save_now()
-	if ui_elapsed >= 0.5:
+	if ui_elapsed >= 0.2:
 		ui_elapsed = 0.0
 		view.set_model(model.state)
 		_refresh_labels()
 	if _shop_refresh_elapsed >= 2.0:
 		_shop_refresh_elapsed = 0.0
 		_refresh_open_shop()
+		if not planting_seed_id.is_empty(): _refresh_plant_controls()
 
 func _act(action: String, payload: Dictionary = {}, rebuild := true) -> bool:
 	if startup_blocked:
@@ -382,11 +458,12 @@ func _refresh_labels() -> void:
 	else:
 		var working: int = model.state.farmers.filter(func(f): return str(f.mode) == "working").size()
 		var hungry: int = model.state.animals.filter(func(a): return bool(a.hungry)).size()
-		status_label.text = "运行 %s  ·  农夫 %d（工作 %d）  ·  动物 %d（饥饿 %d）  ·  草仓 %d/%d  ·  食槽 %d/%d  ·  鱼 %d/12  ·  %s" % [_duration(model.state.elapsed), model.state.farmers.size(), working, model.state.animals.size(), hungry, model.state.warehouse_hay, model.storage_capacity(), model.state.trough_hay, model.storage_capacity(), model.state.fish.size(), "保存异常" if save_blocked else "每30秒自动保存"]
+		status_label.text = "农夫 %d人在忙 · %s" % [working, "保存异常，请重试" if save_blocked else ("%d只动物缺粮" % hungry if hungry > 0 else "点击缺水地块浇水 · 种子库可安排种植")]
 
 func _set_scene(id: String) -> void:
 	current_scene = id
 	view.set_scene(id)
+	_refresh_plant_controls()
 	_refresh_labels()
 	if id == "pond" and not model.state.pending_fish.is_empty(): _open_panel("caught")
 
@@ -400,6 +477,7 @@ func _apply_settings() -> void:
 	var settings: Dictionary = model.state.settings
 	settings.topmost = false
 	view.set_interactive(bool(settings.interactive))
+	_refresh_plant_controls()
 	host.set_interactive(bool(settings.interactive))
 	host.set_topmost(false)
 	popup.always_on_top = false
@@ -448,7 +526,7 @@ func _render_panel() -> void:
 	catalog_grid = null
 	_catalog_count_label = null
 	_budget_footer = null
-	_region_status_label = null
+	_seed_status_label = null
 	_crop_quote_controls.clear()
 	_animal_quote_controls.clear()
 	_owned_animal_controls.clear()
@@ -464,7 +542,7 @@ func _render_panel() -> void:
 	_prepare_preview()
 	match panel_name:
 		"hub": _panel_hub()
-		"crops": _panel_crops()
+		"crops", "inventory": _panel_crops()
 		"build": _panel_build()
 		"animals": _panel_animals()
 		"sell_confirm": _panel_sell_confirm()
@@ -489,7 +567,7 @@ func _preview_command(action: String, payload: Dictionary = {}) -> Dictionary:
 	# The public command restores failed mutations. A second dry calculation
 	# on this disposable model keeps the proposed reservation visible even
 	# when it is unaffordable; no signal or disk write reaches the live model.
-	if not preview.ok and action in ["set_crop", "unlock_crop"]:
+	if not preview.ok and action in ["set_crop", "set_default_seed", "unlock_crop"]:
 		_preview_model._execute_command(action, payload)
 	var result := {"ok": bool(preview.ok), "message": str(preview.message),
 		"balance_before": int(_preview_snapshot.coins), "balance_after": _preview_model.balance(),
@@ -501,7 +579,7 @@ func _preview_command(action: String, payload: Dictionary = {}) -> Dictionary:
 	return result
 
 func _shop_state_revision() -> String:
-	return "%d/%d/%d/%d/%d/%s" % [model.balance(), model.protection(), hash(model.state.animals), hash(model.state.catalog), hash(model.state.seeds), str(save_blocked)]
+	return str(hash([model.balance(), model.protection(), model.state.animals, model.state.catalog, model.state.seeds, model.state.seed_reservations, model.state.default_seed_id, model.state.unlocked_crops, save_blocked]))
 
 func _budget_summary() -> String:
 	return "金币 %d  |  补种保护 %d  |  可投资 %d" % [model.balance(), model.protection(), model.investable()]
@@ -510,7 +588,7 @@ func _refresh_open_shop() -> void:
 	if not popup.visible or _shop_state_revision() == _shop_revision: return
 	if is_instance_valid(_budget_footer): _budget_footer.text = _budget_summary()
 	_prepare_preview()
-	if panel_name == "crops" and is_instance_valid(crop_list):
+	if panel_name in ["crops", "inventory"] and is_instance_valid(crop_list):
 		_refresh_crop_quotes()
 	elif panel_name == "animals":
 		_refresh_animal_quotes()
@@ -528,30 +606,45 @@ func _panel_hub() -> void:
 	popup.title = "经营"
 	_title("桌面农场 · 经营手册")
 	_paragraph("安排作物、扩建牧场、招募农夫。生产在后台继续；需要专心工作时可隐藏整个农场。")
-	for entry in [{"id": "crops", "text": "种子商店 / 区域作物"}, {"id": "animals", "text": "动物商店 / 购买与出售"}, {"id": "build", "text": "建设扩展"}, {"id": "farmers", "text": "农夫管理"}, {"id": "catalog", "text": "收藏图鉴"}, {"id": "settings", "text": "设置 / 帮助"}]:
+	for entry in [{"id": "inventory", "text": "种子库 / 独立地块种植"}, {"id": "crops", "text": "种子商店 / 默认自动订购"}, {"id": "animals", "text": "动物商店 / 购买与出售"}, {"id": "build", "text": "建设扩展"}, {"id": "farmers", "text": "农夫管理"}, {"id": "catalog", "text": "收藏图鉴"}, {"id": "settings", "text": "设置 / 帮助"}]:
 		var target := str(entry.id)
 		_button(popup_body, str(entry.text), func(): _open_panel(target))
 	_button(popup_body, "隐藏整个农场（后台继续生产）", func(): host.set_user_hidden(true))
 	_paragraph("可通过系统托盘图标或 Ctrl+Alt+F 返回农场。", MUTED)
 
 func _panel_crops() -> void:
-	popup.title = "种子商店 · 区域作物"
-	_title("种子商店")
-	_paragraph("选择区域与作物，农夫会先用库存，再按单价自动购种。只有实际播种才扣种子费用；解锁费只支付一次。已解锁作物全年可种。")
-	var selector := OptionButton.new()
-	selector.name = "RegionSelector"
-	popup_body.add_child(selector)
-	for region in model.state.regions:
-		selector.add_item("区域 %d%s" % [int(region.index) + 1, "" if region.unlocked else "（未开）"], int(region.index))
-	selector.select(region_selection)
-	selector.item_selected.connect(func(index: int): region_selection = index; _render_panel())
-	var selected: Dictionary = model.state.regions[region_selection]
-	_region_status_label = _wrapped_label(popup_body, _region_summary())
-	if not selected.unlocked:
-		_paragraph("区域尚未开放，可先浏览种子；在建设扩展中解锁后才能安排种植。")
-		_button(popup_body, "前往建设扩展", func(): _open_panel("build"))
-	if not str(selected.pending_crop_id).is_empty():
-		_button(popup_body, "取消尚未生效的切换", func(): _act("cancel_crop", {"region": region_selection}))
+	seed_shop_mode = "inventory" if panel_name == "inventory" else "shop"
+	popup.title = "种子库" if seed_shop_mode == "inventory" else "种子商店"
+	_title(popup.title)
+	var tabs := HFlowContainer.new()
+	popup_body.add_child(tabs)
+	_button(tabs, "购买种子", func(): _open_panel("crops")).disabled = seed_shop_mode == "shop"
+	_button(tabs, "种子库 / 安排种植", func(): _open_panel("inventory")).disabled = seed_shop_mode == "inventory"
+	_paragraph("库存优先使用：先用地块选定的品种，再按库中固定顺序轮转；可用库存全部用完后，才订购默认种子。", MUTED)
+	_seed_status_label = _wrapped_label(popup_body, _seed_summary())
+	var selection_actions := HFlowContainer.new()
+	popup_body.add_child(selection_actions)
+	_button(selection_actions, "全选已开地块", func():
+		selected_plot_ids = model.state.plots.filter(func(p): return bool(p.open)).map(func(p): return str(p.id))
+		view.set_selection(selected_plot_ids)
+		_render_panel())
+	if not selected_plot_ids.is_empty():
+		_button(selection_actions, "清除选择", func(): selected_plot_ids.clear(); view.set_selection([]); _render_panel())
+		_button(selection_actions, "取消所选地块待换种", func(): _act("cancel_crop", {"plot_ids": selected_plot_ids.duplicate()}))
+	if seed_shop_mode == "shop":
+		var quantity_row := _row()
+		_label(quantity_row, "每次购买")
+		var count := SpinBox.new()
+		count.name = "SeedPurchaseCount"
+		count.min_value = 1
+		count.max_value = 999
+		count.step = 1
+		count.value = seed_purchase_count
+		quantity_row.add_child(count)
+		count.value_changed.connect(func(value: float): seed_purchase_count = int(value); _prepare_preview(); _refresh_crop_quotes())
+		for quantity in [1, 5, 10, 25]:
+			var amount := int(quantity)
+			_button(quantity_row, str(amount), func(): count.value = amount)
 	var search := LineEdit.new()
 	search.name = "CropSearch"
 	search.placeholder_text = "搜索作物名称…"
@@ -583,6 +676,7 @@ func _panel_crops() -> void:
 func _filtered_crops() -> Array:
 	var result := []
 	for crop in config.crops:
+		if seed_shop_mode == "inventory" and int(model.seed_inventory_summary(str(crop.id)).total) == 0: continue
 		if not crop_search.strip_edges().is_empty() and not str(crop.name).contains(crop_search.strip_edges()): continue
 		if crop_season != "全部" and not str(crop.season).contains(crop_season): continue
 		if crop_mechanism != "全部" and str(crop.mechanism) != crop_mechanism: continue
@@ -596,74 +690,80 @@ func _render_crop_list() -> void:
 	_crop_quote_controls.clear()
 	_prepare_preview()
 	var filtered := _filtered_crops()
-	_label(crop_list, "显示 %d / %d 种作物" % [filtered.size(), config.crops.size()])
-	if filtered.is_empty(): _wrapped_label(crop_list, "没有符合条件的作物，可修改搜索或筛选。")
+	_label(crop_list, "显示 %d 种" % filtered.size())
+	if filtered.is_empty(): _wrapped_label(crop_list, "这里暂时没有种子。可到种子商店购买，或修改筛选。")
 	for crop in filtered:
 		var crop_id := str(crop.id)
-		var unlocked: bool = model.state.unlocked_crops.has(crop_id)
 		var card := _card(crop_list, "crop", crop_id)
-		var heading := _wrapped_label(card, "%s · %s · %s" % [crop.name, crop.season, "已解锁" if unlocked else "未解锁"])
+		var heading := _wrapped_label(card, "%s · %s" % [crop.name, crop.season])
 		heading.add_theme_font_size_override("font_size", 16)
-		var detail_label := _wrapped_label(card, _crop_description(crop))
-		var action := "set_crop" if unlocked else "unlock_crop"
-		var payload := {"region": region_selection, "crop_id": crop_id} if unlocked else {"crop_id": crop_id}
+		var detail := _wrapped_label(card, _crop_description(crop))
+		var actions := HFlowContainer.new()
+		card.add_child(actions)
+		var buy := _button(actions, "", func():
+			if model.state.unlocked_crops.has(crop_id): _act("buy_seeds", {"crop_id": crop_id, "count": seed_purchase_count})
+			else: _act("unlock_crop", {"crop_id": crop_id}))
+		buy.name = "CropAction_" + crop_id
+		buy.visible = seed_shop_mode == "shop"
+		var plan := _button(actions, "", func(): _choose_planting_seed(crop_id))
+		plan.name = "SeedPlan_" + crop_id
+		var auto_order := _button(actions, "设为默认订购", func(): _act("set_default_seed", {"crop_id": crop_id}))
+		auto_order.name = "DefaultSeed_" + crop_id
+		auto_order.visible = seed_shop_mode == "shop"
 		var quote := _wrapped_label(card, "")
-		if unlocked:
-			_wrapped_label(card, "完成本轮后逐格切换；现在仅预留预算，不扣种价。", MUTED)
-		var text := "选用 / 自动购种" if unlocked else "解锁 %d" % int(crop.unlock_price)
-		var button := _button(card, text, func(): _act(action, payload))
-		button.name = "CropAction_" + crop_id
-		var reason_label := _wrapped_label(card, "", ALERT)
-		_crop_quote_controls[crop_id] = {"crop": crop, "button": button, "quote": quote, "reason": reason_label, "detail": detail_label}
+		var reason := _wrapped_label(card, "", ALERT)
+		_crop_quote_controls[crop_id] = {"crop": crop, "buy": buy, "plan": plan, "default": auto_order, "quote": quote, "reason": reason, "detail": detail}
 	_refresh_crop_quotes()
 
 func _crop_description(crop: Dictionary) -> String:
-	var detail := "种价 %d / 份 · 库存 %d · 首轮 %s" % [int(crop.seed_price), int(model.state.seeds.get(str(crop.id), 0)), _duration(crop.first_seconds)]
-	if bool(crop.regrow): detail += "  ·  再熟 %s" % _duration(crop.repeat_seconds)
-	if str(crop.mechanism) == "mixed": detail += "  ·  随机产物，按实售出"
-	elif str(crop.mechanism) == "processing": detail += "  ·  加工后售 %d" % int(crop.sell_price)
-	else: detail += "  ·  售 %d" % int(crop.sell_price)
+	var stock: Dictionary = model.seed_inventory_summary(str(crop.id))
+	var detail := "种价 %d · 可用 %d · 预留 %d · 在途 %d · 首熟 %s" % [int(crop.seed_price), int(stock.available), int(stock.reserved), int(stock.in_flight), _duration(crop.first_seconds)]
+	if bool(crop.regrow): detail += " · 再熟 " + _duration(crop.repeat_seconds)
+	if str(crop.mechanism) == "mixed": detail += " · 随机产物"
+	else: detail += " · 售 %d" % int(crop.sell_price)
 	return detail
 
-func _region_summary() -> String:
-	var selected: Dictionary = model.state.regions[region_selection]
-	return "区域 %d · %s%s" % [region_selection + 1, str(model.crops[str(selected.current_crop_id)].name), "  →  " + str(model.crops[str(selected.pending_crop_id)].name) if not str(selected.pending_crop_id).is_empty() else ""]
+func _seed_summary() -> String:
+	return "默认订购：%s · 已选 %d 块地。购买只入库，种植在地块当前一轮结束后生效。" % [str(model.crops[str(model.state.default_seed_id)].name), selected_plot_ids.size()]
 
 func _refresh_crop_quotes() -> void:
-	if is_instance_valid(_region_status_label): _region_status_label.text = _region_summary()
+	if is_instance_valid(_seed_status_label): _seed_status_label.text = _seed_summary()
 	for crop_id in _crop_quote_controls:
 		var controls: Dictionary = _crop_quote_controls[crop_id]
 		var crop: Dictionary = controls.crop
-		controls.detail.text = _crop_description(crop)
 		var unlocked: bool = model.state.unlocked_crops.has(crop_id)
-		var preview := _preview_command("set_crop" if unlocked else "unlock_crop", {"region": region_selection, "crop_id": crop_id} if unlocked else {"crop_id": crop_id})
-		var reason := ""
-		var selected: Dictionary = model.state.regions[region_selection]
-		if unlocked and str(selected.current_crop_id) == str(crop_id) and str(selected.pending_crop_id).is_empty():
-			preview.ok = false
-			reason = "本区正在种植此作物"
-		elif not preview.ok: reason = str(preview.message)
-		controls.quote.text = "换种预览：补种保护 %d → %d · 可投资 %d → %d" % [preview.protection_before, preview.protection_after, preview.investable_before, preview.investable_after] if unlocked else "一次解锁 %d · 解锁后可投资 %d" % [int(crop.unlock_price), preview.investable_after]
-		controls.button.disabled = not bool(preview.ok)
-		controls.button.tooltip_text = reason
+		controls.detail.text = _crop_description(crop)
+		var buy_quote := _preview_command("buy_seeds" if unlocked else "unlock_crop", {"crop_id": crop_id, "count": seed_purchase_count})
+		controls.buy.text = "购买 %d 枚 · %d" % [seed_purchase_count, seed_purchase_count * int(crop.seed_price)] if unlocked else "解锁 %d" % int(crop.unlock_price)
+		controls.buy.disabled = not buy_quote.ok
+		controls.buy.tooltip_text = str(buy_quote.message)
+		var default_quote := _preview_command("set_default_seed", {"crop_id": crop_id})
+		controls.default.text = "当前默认订购" if str(model.state.default_seed_id) == crop_id else "设为默认订购"
+		controls.default.disabled = not unlocked or not default_quote.ok or str(model.state.default_seed_id) == crop_id
+		controls.default.tooltip_text = "保护预算 %d → %d；%s" % [default_quote.protection_before, default_quote.protection_after, default_quote.message]
+		controls.plan.text = "安排到所选 %d 块" % selected_plot_ids.size() if not selected_plot_ids.is_empty() else "选择地块种植"
+		var plan_quote := _preview_command("set_crop", {"crop_id": crop_id, "plot_ids": selected_plot_ids}) if not selected_plot_ids.is_empty() else {"ok": unlocked, "message": "先选择地块"}
+		controls.plan.disabled = not unlocked or not plan_quote.ok or save_blocked or startup_blocked
+		controls.plan.tooltip_text = str(plan_quote.message)
+		controls.quote.text = "购买后保护 %d · 可投资 %d" % [buy_quote.protection_after, buy_quote.investable_after] if seed_shop_mode == "shop" else ("安排后保护 %d · 可投资 %d" % [plan_quote.protection_after, plan_quote.investable_after] if plan_quote.has("protection_after") else "点击后可在农田框选或按住 Shift 多选。")
+		var reason := str(buy_quote.message) if not buy_quote.ok and seed_shop_mode == "shop" else (str(plan_quote.message) if not plan_quote.ok else "")
 		controls.reason.text = reason
 		controls.reason.visible = not reason.is_empty()
-		controls.reason.add_theme_color_override("font_color", MUTED if reason == "本区正在种植此作物" else ALERT)
 
 func _panel_build() -> void:
 	popup.title = "建设扩展"
 	_paragraph("所有费用按数值表执行。扩建后的空地也会计入补种预算，余额不足时操作会完整撤回。")
-	_title("耕地与区域")
-	for region in model.state.regions:
-		var ri := int(region.index)
-		var row := _row()
-		var count := model.get_plots(ri).filter(func(p): return bool(p.open)).size()
-		_expand_label(row, "区域 %d  ·  已开 %d/16" % [ri + 1, count])
-		if not region.unlocked:
-			_button(row, "解锁 %d" % int(config.upgrades.region_costs[ri]), func(): _act("unlock_region", {"region": ri}))
-		elif count < 16:
-			_button(row, "加1格 %d" % int(config.upgrades.plot_costs[count]), func(): _act("expand_plot", {"region": ri}))
-		else: _label(row, "已满")
+	_title("独立耕地")
+	var opened: int = model.state.plots.filter(func(p): return bool(p.open)).size()
+	var land_row := _row()
+	_expand_label(land_row, "已开 %d / 96 块" % opened)
+	if opened < 96:
+		var quote := _preview_command("expand_plot")
+		var expand := _button(land_row, "开垦下一块 %d" % model.plot_expansion_price(), func(): _act("expand_plot"))
+		expand.name = "ExpandIndividualPlot"
+		expand.disabled = not quote.ok
+		expand.tooltip_text = str(quote.message)
+	else: _label(land_row, "全部已开垦")
 	_title("牧草与储粮")
 	var grass_count: int = model.state.grass.filter(func(g): return bool(g.open)).size()
 	var row := _row()
@@ -977,6 +1077,19 @@ func _panel_catalog_detail() -> void:
 
 func _panel_settings() -> void:
 	popup.title = "设置 / 试玩说明"
+	_title("农夫行走速度")
+	var speed_row := _row()
+	var speed := SpinBox.new()
+	speed.name = "FarmerSpeed"
+	speed.custom_minimum_size.x = 160
+	speed.min_value = 16
+	speed.max_value = 48
+	speed.step = 4
+	speed.value = float(model.state.settings.get("farmer_speed", 32))
+	speed.suffix = "像素 / 秒"
+	speed_row.add_child(speed)
+	speed.value_changed.connect(func(value: float): _act("settings", {"values": {"farmer_speed": int(value)}}, false))
+	_paragraph("默认32。农夫到达地块后才开始2秒作业，调慢速度也会降低远处任务的处理效率。", MUTED)
 	_paragraph("窗口遵循普通应用的前后顺序。点击其他应用时，其他应用显示在农场和经营窗口前方；农场仍继续生产。")
 	_paragraph("检测到前台全屏应用时自动让出显示，回到普通桌面后恢复。Ctrl+Alt+F 或托盘菜单可隐藏 / 返回整个农场。")
 	_button(popup_body, "隐藏整个农场", func(): host.set_user_hidden(true))
@@ -998,7 +1111,7 @@ func _panel_settings() -> void:
 			host.set_position_clamped(Vector2i(area.position.x, area.end.y - get_window().size.y))
 			_act("settings", {"values": {"window_position": host.export_settings().window_position}}, false))
 	_button(row, "打开存档目录", func(): OS.shell_open(saves.path.get_base_dir()))
-	_paragraph("入门：工具栏的种子商店、动物商店可直接购买/安排生产；经营可扩建、管理农夫和查看图鉴。农夫自动播种、浇水和收获，鱼塘需手动捕鱼。窄屏可用 ‹ › 切换页面。")
+	_paragraph("入门：种子商店购买入库，种子库选择品种后可框选地块安排种植；动物商店购买与出售动物；经营可扩建、管理农夫和查看图鉴。农夫自动播种、浇水和收获，鱼塘需手动捕鱼。窄屏可用 ‹ › 切换页面。")
 	_paragraph("时间：关机、退出和休眠均暂停，不计算离线收益；收起、切场景和锁屏仍继续生产。已捕到但未处理的鱼会保留到下次启动。")
 	_paragraph("经济：补种预算持续预留，菜单显示可投资金币；购买不足时不会扣款。成熟作物和动物产物最多等待1份，不会腐烂。")
 	_paragraph("存档路径：" + saves.path)
@@ -1241,7 +1354,6 @@ func _make_benchmark_fixture() -> void:
 	model.state.storage_level = 3
 	model.state.warehouse_hay = 192
 	model.state.trough_hay = 160
-	for region in model.state.regions: region.unlocked = true
 	for plot in model.state.plots:
 		plot.open = true
 		plot.status = "growing"
@@ -1305,8 +1417,8 @@ func _smoke_capture() -> void:
 		await RenderingServer.frame_post_draw
 		get_viewport().get_texture().get_image().save_png(smoke_path.get_basename() + "-" + scene_id + ".png")
 	_cast_net(str(model.state.fish[0].id))
-	for name in ["hub", "crops", "build", "animals", "farmers", "catalog", "settings", "caught"]:
-		var direct_buttons := {"hub": "Management", "crops": "SeedShop", "animals": "AnimalShop"}
+	for name in ["hub", "crops", "inventory", "build", "animals", "farmers", "catalog", "settings", "caught"]:
+		var direct_buttons := {"hub": "Management", "crops": "SeedShop", "inventory": "SeedInventory", "animals": "AnimalShop"}
 		if direct_buttons.has(name):
 			var entry_button := toolbar.find_child(str(direct_buttons[name]), true, false) as Button
 			entry_button.pressed.emit()
@@ -1326,7 +1438,7 @@ func _smoke_capture() -> void:
 			get_tree().quit(9)
 			return
 		popup.get_texture().get_image().save_png(smoke_path.get_basename() + "-menu-" + name + ".png")
-		if name in ["crops", "animals", "catalog"]:
+		if name in ["crops", "inventory", "animals", "catalog"]:
 			popup.size = Vector2i(540, 500)
 			if is_instance_valid(catalog_grid): catalog_grid.columns = _catalog_columns()
 			for unused in range(3): await get_tree().process_frame
@@ -1344,6 +1456,45 @@ func _smoke_capture() -> void:
 			for unused in range(3): await get_tree().process_frame
 			await RenderingServer.frame_post_draw
 			popup.get_texture().get_image().save_png(smoke_path.get_basename() + "-menu-catalog-detail.png")
+	# Verify real farm mouse routing and the planting HUD with an isolated save.
+	_close_panel()
+	_set_scene("farm")
+	view.set_interactive(true)
+	if not _act("buy_seeds", {"crop_id": "carrot", "count": 5}, false):
+		push_error("UI_SEED_BUY_FAILED")
+		host.shutdown()
+		get_tree().quit(12)
+		return
+	_end_seed_selection()
+	_choose_planting_seed("carrot")
+	for unused in range(3): await get_tree().process_frame
+	var hit: Dictionary = view._plot_hits[0]
+	var click := InputEventMouseButton.new()
+	click.button_index = MOUSE_BUTTON_LEFT
+	click.position = (hit.rect as Rect2).get_center() + view.position
+	click.pressed = true
+	view._input(click)
+	click.pressed = false
+	view._input(click)
+	if selected_plot_ids != [str(hit.id)] or not plant_controls.visible or plant_selection_button.disabled:
+		push_error("UI_SEED_SELECTION_FAILED")
+		host.shutdown()
+		get_tree().quit(13)
+		return
+	for unused in range(3): await get_tree().process_frame
+	await RenderingServer.frame_post_draw
+	get_viewport().get_texture().get_image().save_png(smoke_path.get_basename() + "-planting.png")
+	plant_selection_button.pressed.emit()
+	if not planting_seed_id.is_empty() or plant_controls.visible or str(model.state.plots[0].pending_crop_id) != "carrot":
+		push_error("UI_SEED_APPLY_FAILED")
+		host.shutdown()
+		get_tree().quit(14)
+		return
+	_open_panel("inventory")
+	for unused in range(3): await get_tree().process_frame
+	await RenderingServer.frame_post_draw
+	popup.get_texture().get_image().save_png(smoke_path.get_basename() + "-menu-inventory-purchased.png")
+	print("UI_SEED_PLANTING_OK")
 	print("UI_PANELS_OK")
 	var previous_popup_hash: int = hash(popup.get_texture().get_image().get_data())
 	_toggle_collapse()

@@ -48,10 +48,16 @@ func _run() -> void:
 	await _settle(12)
 	check(view._static_bake_count == bake_count and hash(_cache_image(view).get_data()) == initial_hash, "Actor animation frames reuse unchanged static pixels")
 	check(root.get_render_info(Viewport.RENDER_INFO_TYPE_CANVAS, Viewport.RENDER_INFO_DRAW_CALLS_IN_FRAME) < 30, "Main scene submits the cached strip and actors instead of all ground commands")
+	var stable_hits: String = str(view._plot_hits)
+	view.set_process(false) # keep this hover independent of the user's real cursor
 	view._hover = str(view._plot_hits[0].id)
-	view._invalidate_scene()
+	view._redraw_animation()
 	await _settle()
-	check(hash(_cache_image(view).get_data()) != initial_hash, "Hover invalidation changes actual cached highlight pixels")
+	check(hash(_cache_image(view).get_data()) == initial_hash and str(view._plot_hits) == stable_hits, "Hover draws a light overlay while cached ground and hit coordinates stay unchanged")
+	var hover_image := root.get_texture().get_image()
+	var hover_pixel := Vector2i((view._plot_hits[0].rect as Rect2).position + Vector2(1, 12))
+	check(hover_image.get_pixelv(hover_pixel).is_equal_approx(view.CREAM), "Hover outline appears in actual viewport pixels: " + str(hover_image.get_pixelv(hover_pixel)))
+	view.set_process(true)
 	var hit: Dictionary = view._plot_hits[0]
 	view.set_interactive(true)
 	var water_results: Array[bool] = []
@@ -63,8 +69,35 @@ func _run() -> void:
 	click.pressed = true
 	click.position = (hit.rect as Rect2).get_center()
 	view._input(click)
+	click.pressed = false
+	view._input(click)
 	await _settle()
 	check(water_results == [true] and model.state.plots[0].status == "growing", "Original hit coordinates still water the real plot through input")
+	var selected: Array = []
+	var locked: Array = []
+	view.plots_selected.connect(func(ids): selected.assign(ids); view.set_selection(ids))
+	view.locked_plot_clicked.connect(func(id): locked.append(id))
+	view.selection_mode = true
+	click.pressed = true
+	view._input(click)
+	click.pressed = false
+	view._input(click)
+	await _settle()
+	check(selected == [str(hit.id)] and water_results == [true], "Planting mode selects an existing crop without changing economic state")
+	var select_image := root.get_texture().get_image()
+	check(select_image.get_pixelv(Vector2i((hit.rect as Rect2).position + Vector2(1, 13))).is_equal_approx(view.GOLD), "Selection uses an actual gold outline above the raster cache")
+	select_image.save_png("res://.review/natural-farm-selection.png")
+	var locked_hit: Dictionary = {}
+	for candidate in view._plot_hits:
+		if not bool(candidate.open): locked_hit = candidate; break
+	click.position = (locked_hit.rect as Rect2).get_center()
+	click.pressed = true
+	view._input(click)
+	click.pressed = false
+	view._input(click)
+	check(locked == [str(locked_hit.id)], "Natural unopened grass retains a real development hit target")
+	view.set_selection([])
+	view.selection_mode = false
 	view.set_interactive(false)
 	view.resize_view(Vector2(640, 172))
 	await _settle()

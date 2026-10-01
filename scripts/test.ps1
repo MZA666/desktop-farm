@@ -1,5 +1,5 @@
 param(
-    [ValidateSet('All', 'Simulation', 'Native', 'Controller', 'PixelArt')][string]$Suite = 'All',
+    [ValidateSet('All', 'Simulation', 'StageA', 'SaveMigration', 'Native', 'Controller', 'PixelArt')][string]$Suite = 'All',
     [string]$PythonPath = '',
     [switch]$SkipConfig,
     [switch]$SkipImport
@@ -48,6 +48,8 @@ if (-not $SkipImport) {
 }
 $checks = @(
     @{ Name = 'Simulation'; Script = 'res://tests/test_simulation.gd'; Fixture = $false },
+    @{ Name = 'StageA'; Script = 'res://tests/test_stage_a_model.gd'; Fixture = $false },
+    @{ Name = 'SaveMigration'; Script = 'res://tests/test_save_migration.gd'; Fixture = $false },
     @{ Name = 'Native'; Script = 'res://native/tests/test_native.gd'; Fixture = $true },
     @{ Name = 'Controller'; Script = 'res://tests/test_controller.gd'; Fixture = $true },
     @{ Name = 'PixelArt'; Script = 'res://tests/test_pixel_art.gd'; Fixture = $false }

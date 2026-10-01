@@ -5,6 +5,7 @@ extends RefCounted
 const CROP_IDS := ["blue_jazz", "carrot", "cauliflower", "coffee_bean", "garlic", "green_bean", "kale", "parsnip", "potato", "rhubarb", "strawberry", "tulip", "unmilled_rice", "blueberry", "corn", "hops", "hot_pepper", "melon", "poppy", "radish", "red_cabbage", "starfruit", "summer_spangle", "summer_squash", "sunflower", "tomato", "wheat", "amaranth", "artichoke", "beet", "bok_choy", "broccoli", "cranberry", "eggplant", "fairy_rose", "grape", "pumpkin", "yam", "powdermelon", "ancient_fruit", "cactus_fruit", "fiber", "pineapple", "qi_fruit", "sweet_gem_berry", "taro_root", "tea_leaves", "spring_seeds", "summer_seeds", "fall_seeds", "winter_seeds", "mixed_seeds", "mixed_flower_seeds", "wild_horseradish", "daffodil", "leek", "dandelion", "spice_berry", "sweet_pea", "common_mushroom", "wild_plum", "hazelnut", "blackberry", "winter_root"]
 const ANIMAL_IDS := ["chicken", "duck", "rabbit", "cow", "goat", "sheep", "pig", "void_chicken", "golden_chicken", "dinosaur", "ostrich", "chick", "silver_fish", "blueback_fish", "goldstripe_fish", "hay"]
 const PRODUCT_IDS := ["rice", "crystal_fruit", "snow_yam", "crocus", "egg", "duck_egg", "wool", "milk", "goat_milk", "truffle", "void_egg", "golden_egg", "dinosaur_egg", "ostrich_egg", "grass_seed", "hay"]
+const NATURAL = preload("res://scripts/farm_terrain.gd")
 static var _atlases: Dictionary = {}
 static var _regions: Dictionary = {}
 
@@ -44,7 +45,7 @@ static func icon(kind: String, id: String) -> Texture2D:
 static func farmer(action: String, frame: int, facing_left := false) -> Texture2D:
 	var row := 1 if facing_left else 0
 	if action == "water": row = 2
-	elif action in ["harvest", "collect_product", "cut_grass", "plant", "sow_grass"]: row = 3
+	elif action in ["harvest", "collect_product", "cut_grass", "plant", "sow", "sow_grass"]: row = 3
 	return _region("farmer", row * 4 + posmod(frame, 4), 4)
 
 static func terrain(kind: String) -> Texture2D:
@@ -69,3 +70,9 @@ static func terrain(kind: String) -> Texture2D:
 	var texture := ImageTexture.create_from_image(image)
 	_regions[key] = texture
 	return texture
+
+static func natural_tile(kind: String, variant := 0, edges := 0) -> Texture2D:
+	return NATURAL.tile(kind, variant, edges)
+
+static func natural_decoration(kind: String, variant := 0) -> Texture2D:
+	return NATURAL.decoration(kind, variant)

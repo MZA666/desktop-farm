@@ -4,8 +4,11 @@ extends Node2D
 ## One visible, lightweight pixel-art renderer. All productive state belongs
 ## to FarmState; animation offsets are cosmetic and never mutate the model.
 signal plot_clicked(plot_id: String)
+signal plots_selected(ids: Array)
+signal locked_plot_clicked(plot_id: String)
 signal fish_clicked(fish_id: String)
 const ART = preload("res://scripts/pixel_assets.gd")
+const WORLD = preload("res://scripts/world_layout.gd")
 
 var model_state: Dictionary = {}
 var config: Dictionary = {}
@@ -14,6 +17,10 @@ var interactive := true
 var view_width := 1920.0
 var view_height := 172.0
 var page := 0
+var camera_offset := 0.0
+var selection_mode := false
+var selected_plot_ids: Array = []
+var seed_preview_provider := Callable()
 
 const INK := Color("#54382d")
 const MUTED := Color("#6d6141")
@@ -71,6 +78,15 @@ var _static_viewport: SubViewport
 var _static_layer: Node2D
 var _static_bake_count := 0
 var _static_layout_key := ""
+var _farm_visual_key := -1
+var _plots_by_id: Dictionary = {}
+var _farm_dragging := false
+var _farm_drag_start := Vector2.ZERO
+var _farm_drag_end := Vector2.ZERO
+var _farm_press_hit: Dictionary = {}
+var _farm_shift := false
+var _last_farmer_sample := -1.0
+var _seed_preview_cache: Dictionary = {}
 
 func _ready() -> void:
 	# Respect the controller's shared SystemFont. Changing its name list reloads
@@ -114,10 +130,27 @@ func configure(values: Dictionary) -> void:
 
 func set_model(values: Dictionary, force := false) -> void:
 	model_state = values
+	_seed_preview_cache.clear()
+	_plots_by_id.clear()
+	for plot in values.get("plots", []): _plots_by_id[str(plot.get("id", ""))] = plot
+	_sample_farmers(values)
 	var second := int(floor(float(values.get("elapsed", 0))))
-	if force or second != _last_static_second:
+	var visual_key := _farm_state_key() if scene_name == "farm" else _farm_visual_key
+	var needs_update := visual_key != _farm_visual_key if scene_name == "farm" else second != _last_static_second
+	_farm_visual_key = visual_key
+	if force or needs_update:
 		_last_static_second = second
 		_invalidate_scene()
+	else:
+		_redraw_animation()
+
+func set_selection(ids: Array) -> void:
+	selected_plot_ids = []
+	for id in ids:
+		var key := str(id)
+		if _plots_by_id.has(key) and bool(_plots_by_id[key].get("open", false)) and not selected_plot_ids.has(key):
+			selected_plot_ids.append(key)
+	_redraw_animation()
 
 func set_desktop_suspended(enabled: bool) -> void:
 	_desktop_suspended = enabled
@@ -133,6 +166,7 @@ func set_scene(value: String) -> void:
 	scene_name = value
 	_farmer_tracks.clear()
 	_net_dragging = false
+	_farm_dragging = false
 	page = 0
 	_hover = ""
 	_plot_hits.clear()
@@ -148,6 +182,7 @@ func resize_view(size: Vector2) -> void:
 func set_interactive(value: bool) -> void:
 	interactive = value
 	_net_dragging = false
+	_farm_dragging = false
 	_hover = ""
 	_invalidate_scene()
 
@@ -174,7 +209,7 @@ func _cache_pixel_size() -> Vector2i:
 	return Vector2i(maxi(1, ceili(view_width)), maxi(1, ceili(view_height)))
 
 func _static_key() -> String:
-	return "%s/%d/%d/%d/%s" % [scene_name, page, ceili(view_width), ceili(view_height), _hover]
+	return "%s/%d/%d/%d/%s" % [scene_name, page, ceili(view_width), ceili(view_height), "" if scene_name == "farm" else _hover]
 
 func _request_static_bake() -> void:
 	if _desktop_suspended or not is_instance_valid(_static_viewport): return
@@ -189,11 +224,28 @@ func _redraw_animation() -> void:
 		_animation_layer.queue_redraw()
 
 func get_page_count() -> int:
-	if scene_name == "farm":
-		return maxi(1, ceili(6.0 / float(_farm_slots())))
-	if scene_name == "ranch":
-		return maxi(1, _ranch_pages().size())
-	return 1
+	return maxi(1, ceili(WORLD.world_size(scene_name).x / _camera_span()))
+
+func _camera_span() -> float:
+	return maxf(192.0, view_width - 48.0)
+
+func _update_camera() -> void:
+	page = clampi(page, 0, get_page_count() - 1)
+	camera_offset = minf(page * _camera_span(), maxf(0.0, WORLD.world_size(scene_name).x - _camera_span()))
+
+func _to_screen(world_position: Vector2) -> Vector2:
+	return world_position + Vector2(24.0 - camera_offset, 0)
+
+func _farm_state_key() -> int:
+	var parts: Array = []
+	for plot in model_state.get("plots", []):
+		var status := str(plot.get("status", "empty"))
+		var crop: Dictionary = _crops.get(str(plot.get("crop_id", "")), {})
+		var growth := 1.0 - float(plot.get("remaining", 0)) / maxf(1.0, float(crop.get("grow_seconds", 720)))
+		var stage := 0 if growth < 0.25 else 1 if growth < 0.7 else 2
+		var processing_step := floori((1.0 - float(plot.get("remaining", 0)) / 180.0) * 8) if status == "processing" else 0
+		parts.append([plot.get("id", ""), plot.get("index", 0), plot.get("open", false), plot.get("crop_id", ""), status, stage if status == "growing" else 0, processing_step])
+	return hash(parts)
 
 func _index(entries: Variant) -> Dictionary:
 	if entries is Dictionary:
@@ -223,20 +275,37 @@ func _process(delta: float) -> void:
 				if hit.rect.has_point(mouse):
 					_hover = str(hit.id)
 		if _hover != previous_hover:
-			_invalidate_scene()
+			if scene_name == "farm": _redraw_animation()
+			else: _invalidate_scene()
 	_redraw_animation()
 
 func _input(event: InputEvent) -> void:
 	if not interactive or not is_visible_in_tree():
+		return
+	var hovered_control := get_viewport().gui_get_hovered_control()
+	if hovered_control != null and hovered_control.mouse_filter != Control.MOUSE_FILTER_IGNORE:
+		if event is InputEventMouseButton and not event.pressed:
+			_farm_dragging = false
+			_net_dragging = false
 		return
 	if event is InputEventMouseMotion and scene_name == "pond" and _net_dragging:
 		var drag_point: Vector2 = get_global_transform_with_canvas().affine_inverse() * event.position
 		_track_net(drag_point)
 		get_viewport().set_input_as_handled()
 		return
+	if event is InputEventMouseMotion and scene_name == "farm" and _farm_dragging:
+		_farm_drag_end = get_global_transform_with_canvas().affine_inverse() * event.position
+		get_viewport().set_input_as_handled()
+		_redraw_animation()
+		return
 	if not (event is InputEventMouseButton) or event.button_index != MOUSE_BUTTON_LEFT:
 		return
 	var mouse: Vector2 = get_global_transform_with_canvas().affine_inverse() * event.position
+	if scene_name == "farm" and not event.pressed and _farm_dragging:
+		_farm_drag_end = mouse
+		_finish_farm_gesture()
+		get_viewport().set_input_as_handled()
+		return
 	if scene_name == "pond" and not event.pressed and _net_dragging:
 		_track_net(mouse)
 		_net_dragging = false
@@ -248,12 +317,14 @@ func _input(event: InputEvent) -> void:
 	if not Rect2(Vector2.ZERO, Vector2(view_width, view_height)).has_point(mouse):
 		return
 	if scene_name == "farm":
+		_farm_dragging = true
+		_farm_drag_start = mouse
+		_farm_drag_end = mouse
+		_farm_shift = event.shift_pressed
+		_farm_press_hit = {}
 		for hit in _plot_hits:
-			if hit.rect.has_point(mouse):
-				plot_clicked.emit(str(hit.id))
-				get_viewport().set_input_as_handled()
-				_redraw_animation()
-				return
+			if hit.rect.has_point(mouse): _farm_press_hit = hit; break
+		get_viewport().set_input_as_handled()
 	elif scene_name == "pond" and _pond_bounds.has_point(mouse):
 		_net_dragging = true
 		_net_previous = mouse
@@ -261,6 +332,28 @@ func _input(event: InputEvent) -> void:
 		_track_net(mouse)
 		get_viewport().set_input_as_handled()
 		_redraw_animation()
+
+func _finish_farm_gesture() -> void:
+	_farm_dragging = false
+	var ids: Array = selected_plot_ids.duplicate() if _farm_shift else []
+	if _farm_drag_start.distance_to(_farm_drag_end) >= 5.0:
+		var selection_rect := Rect2(_farm_drag_start, _farm_drag_end - _farm_drag_start).abs()
+		for hit in _plot_hits:
+			if bool(_plots_by_id.get(str(hit.id), {}).get("open", false)) and selection_rect.intersects(hit.rect) and not ids.has(str(hit.id)): ids.append(str(hit.id))
+		plots_selected.emit(ids)
+	elif not _farm_press_hit.is_empty():
+		var id := str(_farm_press_hit.id)
+		if not bool(_plots_by_id.get(id, {}).get("open", false)):
+			locked_plot_clicked.emit(id)
+		elif not selection_mode and not _farm_shift and str(_plots_by_id.get(id, {}).get("status", "")) == "unwatered":
+			plot_clicked.emit(id)
+		else:
+			if _farm_shift and ids.has(id): ids.erase(id)
+			else: ids.append(id)
+			plots_selected.emit(ids)
+	else:
+		plots_selected.emit(ids)
+	_redraw_animation()
 
 func _track_net(point: Vector2) -> void:
 	if _net_candidate.is_empty():
@@ -300,6 +393,7 @@ func _draw_static() -> void:
 	_plot_hits.clear()
 	_target_positions.clear()
 	_animal_draws.clear()
+	_update_camera()
 	_background()
 	match scene_name:
 		"farm": _draw_farm()
@@ -334,9 +428,13 @@ func _draw_animated() -> void:
 		for item in model_state.get("fish", []):
 			_draw_fish(item)
 	_draw_farmers()
+	if scene_name == "farm": _draw_farm_overlay()
 	_draw_target = null
 
 func _background() -> void:
+	if scene_name == "farm":
+		_draw_natural_background()
+		return
 	_canvas().draw_texture_rect(ART.terrain("grass"), Rect2(0, 0, view_width, view_height), true)
 	_box(Rect2(0, 0, view_width, 3), SOIL_DARK)
 	_box(Rect2(0, 3, view_width, 2), Color("#dbab62"))
@@ -348,121 +446,138 @@ func _background() -> void:
 	for x in range(12, int(view_width), 24):
 		_box(Rect2(x, view_height - 6, 2, 4), GRASS_LIGHT)
 
-func _farm_slots() -> int:
-	return clampi(int(floor((view_width - 48.0 + 16.0) / 296.0)), 1, 6)
+func _draw_natural_background() -> void:
+	_canvas().draw_texture_rect(ART.natural_tile("grass"), Rect2(0, 0, view_width, view_height), true)
+	var scenery_width := maxi(int(WORLD.FARM_WIDTH), int(view_width + camera_offset))
+	# The shared walking lane runs through the whole world. Its edges break
+	# up into grass, stones and flowers rather than enclosing region cards.
+	var lane := Rect2(_to_screen(Vector2(12, 123)), Vector2(scenery_width - 24, 19))
+	_canvas().draw_texture_rect(ART.natural_tile("path"), lane, true)
+	for x in range(16, scenery_width, 32):
+		var pos := _to_screen(Vector2(x, 121 + (x / 32) % 2))
+		_box(Rect2(pos, Vector2(10, 2)), Color("#a7ae78"))
+		if (x / 32) % 4 == 0: _draw_decoration("flower", Vector2(x, 139), x / 32)
+	for x in range(0, scenery_width, 32):
+		if x >= 16 and x < 64: continue # a small open gate by the well
+		_draw_decoration("fence", Vector2(x, 142))
+	_draw_decoration("tree", Vector2(2, 5))
+	_draw_decoration("well", Vector2(17, 83))
+	_draw_decoration("sign", Vector2(15, 126))
+	_draw_decoration("tree", Vector2(1100, 44), 1)
+	_draw_decoration("stone", Vector2(1104, 116))
+	for x in range(76, 1100, 127):
+		_draw_decoration("flower", Vector2(x, 2), x / 127)
+	# A small stream and orchard fill wide desktops beyond the cultivable
+	# field. These are cached scenery and never change the 96 plot positions.
+	if scenery_width > int(WORLD.FARM_WIDTH):
+		var stream_x := WORLD.FARM_WIDTH + 168
+		for y in range(0, 153, 12):
+			var bend := float([0, 0, 4, 8, 8, 4, 0, -4, -8, -8, -4, 0, 4][y / 12])
+			var bank := Rect2(_to_screen(Vector2(stream_x + bend, y)), Vector2(28, 14))
+			_box(bank, Color("#738752"))
+			_canvas().draw_texture_rect(ART.natural_tile("water", y / 12), bank.grow(-3), true)
+		var bridge := _to_screen(Vector2(stream_x - 16, 121))
+		_box(Rect2(bridge, Vector2(54, 21)), Color("#715b42"))
+		for x in range(2, 51, 6):
+			_box(Rect2(bridge + Vector2(x, 2), Vector2(5, 17)), Color("#b09365"))
+		for x in range(int(WORLD.FARM_WIDTH) + 56, scenery_width - 40, 138):
+			if absf(x - stream_x) < 48: continue
+			_draw_decoration("tree", Vector2(x, 4 + (x / 138) % 3 * 12), x / 138)
+			_draw_decoration("bush", Vector2(x - 21, 87), x / 138)
+			_draw_decoration("flower", Vector2(x + 42, 83), x / 138)
+			_draw_decoration("stone", Vector2(x + 49, 133), x / 138)
+
+func _draw_decoration(kind: String, world_position: Vector2, variant := 0) -> void:
+	var texture: Texture2D = ART.natural_decoration(kind, variant)
+	var rect := Rect2(_to_screen(world_position), texture.get_size())
+	if rect.end.x > 0 and rect.position.x < view_width: _canvas().draw_texture_rect(texture, rect, false)
 
 func _draw_farm() -> void:
-	var slots := _farm_slots()
-	var usable := int(view_width) - 48 - (slots - 1) * 16
-	var base_width := int(floor(float(usable) / float(slots)))
-	var remainder := usable - base_width * slots
-	var cursor := 24.0
-	var regions: Array = model_state.get("regions", [])
 	var plots: Array = model_state.get("plots", [])
-	for slot in range(slots):
-		var index := page * slots + slot
-		if index >= 6:
-			break
-		var region: Dictionary = regions[index] if index < regions.size() else {}
-		var card_width := float(base_width + int(slot < remainder))
-		var origin := Vector2(cursor, 0)
-		_draw_region(origin, card_width, index, region, plots)
-		cursor += card_width + 16
-
-func _draw_region(origin: Vector2, width: float, index: int, region: Dictionary, plots: Array) -> void:
-	var opened := bool(region.get("unlocked", false))
-	var crop: Dictionary = _crops.get(str(region.get("current_crop_id", "parsnip")), {})
-	var title := "%02d  %s" % [index + 1, str(crop.get("name", "防风草"))]
-	if not opened:
-		title = "%02d  待开辟" % [index + 1]
-	_box(Rect2(origin + Vector2(0, 3), Vector2(width, 23)), SOIL_DARK)
-	_box(Rect2(origin + Vector2(2, 5), Vector2(width - 4, 19)), CREAM if opened else Color("#c2c29c"))
-	_box(Rect2(origin + Vector2(4, 6), Vector2(width - 8, 2)), Color("#fff6da"))
-	_label(title, origin + Vector2(8, 19), INK, 12, width - 16)
-	if not str(region.get("pending_crop_id", "")).is_empty() and opened:
-		_box(Rect2(origin + Vector2(width - 15, 10), Vector2(7, 7)), GOLD)
-	var ready := 0
-	var dry := 0
-	var opened_count := 0
-	var minimum_time := 0.0
+	var by_index := {}
+	for plot in plots: by_index[int(plot.get("index", 0))] = plot
 	for plot in plots:
-		if int(plot.get("region", -1)) != index:
-			continue
-		var number := int(plot.get("index", 0))
-		var rect := Rect2(origin + Vector2(4 + (number % 4) * 36, 28 + (number / 4) * 36), Vector2(32, 32))
-		_draw_plot(rect, plot, opened)
+		var index := int(plot.get("index", 0))
+		var rect := Rect2(_to_screen(WORLD.plot_position(index)), Vector2(32, 32))
+		if rect.end.x <= 0 or rect.position.x >= view_width: continue
+		_plot_hits.append({"rect": rect, "id": str(plot.get("id", "")), "open": bool(plot.get("open", false)), "index": index})
+		_target_positions[str(plot.get("id", ""))] = _to_screen(WORLD.target_position("farm", str(plot.get("id", "")), model_state))
 		if not bool(plot.get("open", false)):
+			# Fallow ground keeps the same hidden hit grid as cultivated land.
+			_canvas().draw_texture_rect(ART.natural_tile("grass", index % 4), rect, false)
+			if index % 11 == 2: _draw_decoration("flower", WORLD.plot_position(index), index)
+			elif index % 17 == 4: _draw_decoration("stone", WORLD.plot_position(index), index)
 			continue
-		opened_count += 1
-		var status := str(plot.get("status", "empty"))
-		ready += int(status == "ready")
-		dry += int(status == "unwatered")
-		var remaining := float(plot.get("remaining", 0))
-		if remaining > 0 and (minimum_time == 0 or remaining < minimum_time):
-			minimum_time = remaining
-	if width < 220:
-		return
-	var side := origin + Vector2(156, 45)
-	if not opened:
-		_draw_lock(side + Vector2(20, 20), 3)
-		var costs: Array = config.get("upgrades", {}).get("region_costs", [0, 0, 0, 0, 10000, 20000])
-		_label("开辟区域", side + Vector2(0, 65), MUTED)
-		_label("%s 金币" % int(costs[index]), side + Vector2(0, 84), SOIL_DARK)
-		_label("赠送6格地块", side + Vector2(0, 107), MUTED)
-		return
-	_label("%d / 16 地块" % opened_count, side, MUTED)
-	_label("成熟 %d  缺水 %d" % [ready, dry], side + Vector2(0, 22), SOIL_DARK if dry > 0 else MUTED)
-	if minimum_time > 0:
-		_label("下一收获 " + _clock(minimum_time), side + Vector2(0, 44), MUTED)
-	elif ready > 0:
-		_label("等待农夫收获", side + Vector2(0, 44), INK)
-	else:
-		_label("农夫正在照料", side + Vector2(0, 44), MUTED)
-	var pending := str(region.get("pending_crop_id", ""))
-	if not pending.is_empty():
-		_label("下轮 → " + str(_crops.get(pending, {}).get("name", pending)), side + Vector2(0, 66), SOIL_DARK, 12, width - 162)
-	elif interactive:
-		_label("点击地块浇水", side + Vector2(0, 66), MUTED)
-	else:
-		_label("观赏模式", side + Vector2(0, 66), MUTED)
-	# A tiny water barrel makes the open space feel like a field, not a table.
-	_box(Rect2(side + Vector2(2, 82), Vector2(20, 24)), SOIL_DARK)
-	_box(Rect2(side + Vector2(4, 84), Vector2(16, 20)), Color("#bfa683"))
-	_box(Rect2(side + Vector2(4, 83), Vector2(16, 5)), WATER)
-	_box(Rect2(side + Vector2(2, 92), Vector2(20, 2)), Color("#7b8071"))
-	_box(Rect2(side + Vector2(2, 101), Vector2(20, 2)), Color("#7b8071"))
-	_target_positions["region_" + str(index)] = side + Vector2(53, 95)
+		var edges := 0
+		if index % 3 == 0 or not bool(by_index.get(index - 1, {}).get("open", false)): edges |= 1
+		if not bool(by_index.get(index + 3, {}).get("open", false)): edges |= 2
+		if index % 3 == 2 or not bool(by_index.get(index + 1, {}).get("open", false)): edges |= 4
+		if not bool(by_index.get(index - 3, {}).get("open", false)): edges |= 8
+		_draw_plot(rect, plot, edges)
 
-func _draw_plot(rect: Rect2, plot: Dictionary, region_open: bool) -> void:
-	var opened := region_open and bool(plot.get("open", false))
-	if not opened:
-		_box(rect, Color("#91a283") if region_open else Color("#8ca080"))
-		_box(rect.grow(-2), Color("#a2ae92"))
-		_draw_lock(rect.position + Vector2(12, 12), 1)
-		return
+func _draw_plot(rect: Rect2, plot: Dictionary, edges: int) -> void:
 	var status := str(plot.get("status", "empty"))
-	_box(rect, SOIL_DARK)
-	_canvas().draw_texture_rect(ART.terrain("soil" if status in ["empty", "unwatered"] else "wet_soil"), rect.grow(-1), false)
-	_plot_hits.append({"rect": rect, "id": str(plot.get("id", ""))})
-	_target_positions[str(plot.get("id", ""))] = rect.get_center()
+	_canvas().draw_texture_rect(ART.natural_tile("field" if status in ["empty", "unwatered"] else "wet", int(plot.get("index", 0)), edges), rect, false)
 	if status != "empty":
 		var crop: Dictionary = _crops.get(str(plot.get("crop_id", "parsnip")), {})
 		var growth := 0.0
-		if status in ["ready", "processing"]:
-			growth = 1.0
-		elif status == "growing":
-			growth = clampf(1.0 - float(plot.get("remaining", 0)) / maxf(1, float(crop.get("grow_seconds", 720))), 0, 1)
+		if status in ["ready", "processing"]: growth = 1.0
+		elif status == "growing": growth = clampf(1.0 - float(plot.get("remaining", 0)) / maxf(1, float(crop.get("grow_seconds", 720))), 0, 1)
 		_draw_crop(rect.position + Vector2(2, 2), str(crop.get("id", "parsnip")), growth, status)
 		if status == "unwatered":
-			_draw_drop(rect.position + Vector2(25, 3), RED)
-		elif status == "ready":
-			_star(rect.position + Vector2(26, 6), GOLD)
+			_draw_drop(rect.position + Vector2(25, 3), Color("#e6bc8a"))
+			_draw_drop(rect.position + Vector2(24, 2), Color("#8c5540"))
+		elif status == "ready": _star(rect.position + Vector2(26, 6), GOLD)
 		elif status == "processing":
 			_box(Rect2(rect.position + Vector2(3, 27), Vector2(26, 3)), CREAM)
 			var progress := 1.0 - float(plot.get("remaining", 0)) / 180.0
 			_box(Rect2(rect.position + Vector2(3, 27), Vector2(floor(26 * clampf(progress, 0, 1)), 3)), GOLD)
-	if str(plot.get("id", "")) == _hover:
-		_canvas().draw_rect(rect, CREAM, false, 2, false)
+
+func _draw_farm_overlay() -> void:
+	var hovered: Dictionary = {}
+	for hit in _plot_hits:
+		var rect: Rect2 = hit.rect
+		if selected_plot_ids.has(str(hit.id)):
+			_canvas().draw_rect(rect.grow(-1), GOLD, false, 2, false)
+			_box(Rect2(rect.position + Vector2(3, 3), Vector2(5, 5)), GOLD)
+		if str(hit.id) == _hover:
+			hovered = hit
+			_canvas().draw_rect(rect.grow(-1), CREAM, false, 2, false)
+			if not bool(hit.open):
+				_box(Rect2(rect.position + Vector2(13, 10), Vector2(2, 10)), CREAM)
+				_box(Rect2(rect.position + Vector2(9, 14), Vector2(10, 2)), CREAM)
+	if _farm_dragging and _farm_drag_start.distance_to(_farm_drag_end) >= 5.0:
+		var rect := Rect2(_farm_drag_start, _farm_drag_end - _farm_drag_start).abs()
+		_canvas().draw_rect(rect, Color(1.0, 0.88, 0.53, 0.12), true)
+		_canvas().draw_rect(rect, GOLD, false, 1, false)
+	if hovered.is_empty() or _farm_dragging: return
+	var plot: Dictionary = _plots_by_id.get(str(hovered.id), {})
+	var width := minf(228, view_width - 16)
+	var origin := Vector2(clampf((hovered.rect as Rect2).position.x, 8, view_width - width - 8), 111 if not selection_mode and (hovered.rect as Rect2).get_center().y < 80 else 4)
+	var bounds := Rect2(origin, Vector2(width, 57))
+	_box(bounds, Color("#66563e"))
+	_box(bounds.grow(-1), Color("#f0e0b9"))
+	if not bool(plot.get("open", false)):
+		_label("荒地 · 可开垦", origin + Vector2(8, 17), INK)
+		_label("点击查看开垦安排", origin + Vector2(8, 36), MUTED, 11)
+		return
+	var crop_id := str(plot.get("crop_id", ""))
+	var status := str(plot.get("status", "empty"))
+	var name := str(_crops.get(crop_id, {}).get("name", crop_id)) if status != "empty" else "空地"
+	_label(name + (" · 已选中" if selected_plot_ids.has(str(hovered.id)) else ""), origin + Vector2(8, 16), INK, 12, width - 16)
+	var stage_names := {"empty": "等待播种", "unwatered": "缺水 · 点击浇水", "growing": "生长 " + _clock(float(plot.get("remaining", 0))), "ready": "成熟 · 等待收获", "processing": "加工 " + _clock(float(plot.get("remaining", 0)))}
+	_label(str(stage_names.get(status, status)), origin + Vector2(8, 33), MUTED, 11, width - 16)
+	var next := str(plot.get("pending_crop_id", ""))
+	if next.is_empty(): next = str(plot.get("preferred_crop_id", model_state.get("default_seed_id", "parsnip")))
+	if seed_preview_provider.is_valid():
+		var preview_id := str(hovered.id)
+		if not _seed_preview_cache.has(preview_id): _seed_preview_cache[preview_id] = seed_preview_provider.call(preview_id)
+		var preview: Dictionary = _seed_preview_cache[preview_id]
+		if bool(preview.get("ok", false)): next = str(preview.get("crop_id", next))
+	var reserved := false
+	for claim in model_state.get("seed_reservations", []):
+		if str(claim.get("plot_id", "")) == str(hovered.id): reserved = true; break
+	_label("下轮 " + str(_crops.get(next, {}).get("name", next)) + (" · 种子已预留" if reserved else ""), origin + Vector2(8, 49), MUTED, 11, width - 16)
 
 func _draw_crop(origin: Vector2, id: String, growth: float, status: String) -> void:
 	if growth < 0.25 and status not in ["ready", "processing"]:
@@ -485,43 +600,26 @@ func _crop_color(id: String) -> Color:
 	return Color.from_hsv(float(absi(id.hash()) % 360) / 360.0, 0.30, 0.80)
 
 func _ranch_pages() -> Array:
-	var available := maxf(192, view_width - 48)
-	var columns := clampi(int(floor(available / 30.0)), 6, 24)
-	var modules: Array = []
-	var first := 0
-	while first < 24:
-		var count := mini(columns, 24 - first)
-		modules.append({"kind": "grass", "first": first, "columns": count, "width": count * 30.0})
-		first += count
-	for barn in config.get("barns", config.get("shelters", [])):
-		modules.append({"kind": "barn", "barn": barn, "width": 128.0})
-	modules.append({"kind": "storage", "width": 128.0})
+	# Retain page metadata for callers, but never rearrange world modules.
 	var pages: Array = []
-	var current: Array = []
-	var used := 0.0
-	for module in modules:
-		var gap := 0.0 if current.is_empty() else 16.0
-		if used + gap + float(module.width) > available and not current.is_empty():
-			pages.append(current)
-			current = []
-			used = 0.0
-			gap = 0.0
-		current.append(module)
-		used += gap + float(module.width)
-	if not current.is_empty():
-		pages.append(current)
+	for page_index in range(maxi(1, ceili(WORLD.RANCH_WIDTH / _camera_span()))):
+		var offset := minf(page_index * _camera_span(), maxf(0, WORLD.RANCH_WIDTH - _camera_span()))
+		var modules: Array = []
+		if offset < 744: modules.append({"kind": "grass"})
+		for barn in config.get("barns", config.get("shelters", [])):
+			var x := WORLD.shelter_position(str(barn.get("id", ""))).x
+			if x + 128 > offset and x < offset + _camera_span(): modules.append({"kind": "barn", "barn": barn})
+		if WORLD.STORAGE_ORIGIN.x + 128 > offset and WORLD.STORAGE_ORIGIN.x < offset + _camera_span(): modules.append({"kind": "storage"})
+		pages.append(modules)
 	return pages
 
 func _draw_ranch() -> void:
-	var pages := _ranch_pages()
-	var current: Array = pages[clampi(page, 0, pages.size() - 1)]
-	var x := 24.0
-	for module in current:
-		match str(module.kind):
-			"grass": _draw_grass_section(Vector2(x, 0), int(module.first), int(module.columns))
-			"barn": _draw_barn(Vector2(x, 0), module.barn)
-			"storage": _draw_storage(Vector2(x, 0))
-		x += float(module.width) + 16
+	_draw_grass_section(_to_screen(Vector2(24, 0)), 0, 24)
+	for barn in config.get("barns", config.get("shelters", [])):
+		var origin := _to_screen(WORLD.shelter_position(str(barn.get("id", ""))))
+		if origin.x + 128 > 0 and origin.x < view_width: _draw_barn(origin, barn)
+	var storage := _to_screen(WORLD.STORAGE_ORIGIN)
+	if storage.x + 128 > 0 and storage.x < view_width: _draw_storage(storage)
 
 func _draw_grass_section(origin: Vector2, first_column: int, columns: int) -> void:
 	var width := columns * 30.0
@@ -645,9 +743,8 @@ func _draw_storage(origin: Vector2) -> void:
 	_target_positions["warehouse"] = origin + Vector2(65, 106)
 
 func _draw_pond() -> void:
-	var left := 140.0 if view_width >= 640 else 44.0
-	var right := 100.0 if view_width >= 640 else 30.0
-	_pond_bounds = Rect2(left, 25, maxf(160, view_width - left - right), 127)
+	var left := _to_screen(Vector2(140, 0)).x
+	_pond_bounds = Rect2(left, 25, WORLD.POND_WIDTH - 240, 127)
 	_box(_pond_bounds.grow(5), Color("#d1c7a5"))
 	_box(_pond_bounds.grow(2), Color("#7d9d93"))
 	_box(_pond_bounds, WATER)
@@ -685,7 +782,7 @@ func _draw_pond() -> void:
 	_label(subtitle, Vector2(left + 130 if view_width >= 640 else 134, 18), MUTED, 12, view_width - 290 if view_width >= 640 else view_width - 158)
 	var spawn := float(model_state.get("fish_remaining", 180))
 	_label("满池时暂停补鱼" if fish.size() >= 12 else "下一条鱼 " + _clock(spawn), Vector2(left, 167), MUTED)
-	_target_positions["pond_dock"] = Vector2(left - 12, 104)
+	_target_positions["pond_dock"] = _to_screen(WORLD.POND_DOCK)
 
 func _draw_pond_ripples() -> void:
 	for i in range(int(_pond_bounds.size.x / 38)):
@@ -707,57 +804,61 @@ func _draw_fish(item: Dictionary) -> void:
 	_canvas().draw_texture_rect(ART.icon("animal", type_id), Rect2(center + Vector2(-16, -12), Vector2(32, 24)), false)
 	_fish_hits.append({"id": id, "rect": Rect2(center + Vector2(-17, -11), Vector2(34, 22))})
 
+func _sample_farmers(values: Dictionary) -> void:
+	var sample_time := float(values.get("elapsed", 0))
+	# Positions advance at one-second simulation boundaries. Interpolate the
+	# whole interval so a 32px step does not become a fast half-second sprint.
+	var duration := clampf(sample_time - _last_farmer_sample, 1.0 / 30.0, 1.0)
+	if sample_time < _last_farmer_sample: _farmer_tracks.clear()
+	_last_farmer_sample = sample_time
+	var scene_indices := {}
+	for farmer in values.get("farmers", []):
+		var scene := str(farmer.get("scene", "farm"))
+		var index := int(scene_indices.get(scene, 0))
+		scene_indices[scene] = index + 1
+		var fallback: Vector2 = WORLD.farmer_idle_position(scene, index)
+		var foot := Vector2(float(farmer.get("x", fallback.x)), float(farmer.get("y", fallback.y)))
+		var id := str(farmer.get("id", ""))
+		var track: Dictionary = _farmer_tracks.get(id, {})
+		if _desktop_suspended or track.is_empty() or str(track.get("scene", "")) != scene:
+			_farmer_tracks[id] = {"from": foot, "target": foot, "since": _animation_seconds, "duration": duration, "left": false, "scene": scene}
+		elif (track.target as Vector2).distance_squared_to(foot) > 0.00001:
+			var drawn := _farmer_position(track)
+			_farmer_tracks[id] = {"from": drawn, "target": foot, "since": _animation_seconds, "duration": duration, "left": foot.x < drawn.x, "scene": scene}
+
+func _farmer_position(track: Dictionary) -> Vector2:
+	var progress := clampf((_animation_seconds - float(track.since)) / maxf(1.0 / 30.0, float(track.duration)), 0, 1)
+	return (track.from as Vector2).lerp(track.target as Vector2, progress)
+
 func _draw_farmers() -> void:
-	var farmers: Array = model_state.get("farmers", [])
 	var visible_index := 0
-	for farmer in farmers:
-		if str(farmer.get("scene", "")) != scene_name:
-			continue
+	for farmer in model_state.get("farmers", []):
+		if str(farmer.get("scene", "")) != scene_name: continue
+		var fallback: Vector2 = WORLD.farmer_idle_position(scene_name, visible_index)
+		var foot := Vector2(float(farmer.get("x", fallback.x)), float(farmer.get("y", fallback.y)))
+		var track: Dictionary = _farmer_tracks.get(str(farmer.get("id", "")), {"from": foot, "target": foot, "since": _animation_seconds, "duration": 0.1, "left": false})
+		var drawn_world := _farmer_position(track)
+		var drawn := _to_screen(drawn_world).floor()
+		visible_index += 1
+		if drawn.x < -17 or drawn.x > view_width + 17: continue
 		var mode := str(farmer.get("mode", "idle"))
-		var pos := Vector2(180 + visible_index * 30, 126)
-		if scene_name == "ranch":
-			pos = Vector2(50 + visible_index * 30, 129)
-		elif scene_name == "pond":
-			pos = _target_positions.get("pond_dock", Vector2(60, 108)) + Vector2(-11 + visible_index * 25, -19)
-		elif scene_name == "farm":
-			var region_index := page * _farm_slots()
-			pos = _target_positions.get("region_" + str(region_index), pos) + Vector2(-11 + visible_index * 25, -15)
+		var phase := str(farmer.get("phase", "idle"))
 		var task: Dictionary = farmer.get("task", {})
-		var target := str(task.get("target", ""))
-		if mode == "working" and _target_positions.has(target):
-			var target_pos: Vector2 = _target_positions[target]
-			pos = target_pos + Vector2(7, -12)
-			pos.y = clampf(pos.y, 27, 134)
-			pos.x = clampf(pos.x, 4, view_width - 28)
-		# Travel interpolation is cosmetic: the simulator retains its accepted
-		# action/movement budgets and save schema. No animation mutates a task.
-		var farmer_id := str(farmer.get("id", ""))
-		var foot := pos + Vector2(11, 24)
-		var track: Dictionary = _farmer_tracks.get(farmer_id, {"from": foot, "target": foot, "since": _animation_seconds, "left": false})
-		var progress := clampf((_animation_seconds - float(track.since)) / 0.85, 0, 1)
-		var drawn: Vector2 = (track.from as Vector2).lerp(track.target as Vector2, progress)
-		if (track.target as Vector2).distance_squared_to(foot) > 1:
-			track = {"from": drawn, "target": foot, "since": _animation_seconds, "left": foot.x < drawn.x}
-			progress = 0.0
-		_farmer_tracks[farmer_id] = track
-		drawn = drawn.floor()
-		var walking := progress < 1.0 or mode in ["outbound", "returning"]
-		var action := str(task.get("action", "")) if mode == "working" and not walking else "walk"
-		var frame := int(_animation_seconds * 6.0) % 4 if walking or mode == "working" else 3
+		var walking := phase == "walking" or drawn_world.distance_squared_to(foot) > 0.25
+		var acting := phase == "acting" and not walking
+		var action := str(task.get("action", "")) if acting else "walk"
+		var frame := int(_animation_seconds * 6.0) % 4 if walking or acting else 3
 		var texture: Texture2D = ART.farmer(action, frame, bool(track.left))
 		var sprite_rect := Rect2(drawn - Vector2(17, 37), Vector2(34, 40))
-		# Working frames face right in the atlas. Mirror only these frames to
-		# aim water/the tool at the assigned target; walking has its own rows.
-		if mode == "working" and not walking and action != "walk" and _target_positions.has(target):
-			if (_target_positions[target] as Vector2).x < drawn.x:
+		if acting and action != "walk":
+			var target := WORLD.target_position(scene_name, str(task.get("target", "")), model_state)
+			if target.x < foot.x:
 				sprite_rect.position.x += sprite_rect.size.x
 				sprite_rect.size.x = -sprite_rect.size.x
 		_canvas().draw_texture_rect(texture, sprite_rect, false, Color("#ded0ef") if str(farmer.get("home", "")) != scene_name else Color.WHITE)
-		if mode == "resting":
-			_label("z", drawn + Vector2(10, -26), CREAM)
+		if mode == "resting": _label("z", drawn + Vector2(10, -26), CREAM)
 		_box(Rect2(drawn + Vector2(-10, 3), Vector2(20, 2)), Color("#587335"))
 		_box(Rect2(drawn + Vector2(-10, 3), Vector2(floor(20 * float(farmer.get("energy", 100)) / 100), 2)), GOLD)
-		visible_index += 1
 
 func _sprite(pattern: Array, palette: Dictionary, origin: Vector2, pixel: int) -> void:
 	# Build each small palette sprite once. One nearest-filtered texture draw

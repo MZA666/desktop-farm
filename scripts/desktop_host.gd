@@ -44,11 +44,16 @@ var _window_viewport_active: Dictionary = {}
 var _window_logical_visible: Dictionary = {}
 var _window_native_id: Dictionary = {}
 
-func start(scene: Window, toolbar: Window = null, settings: Dictionary = {}) -> bool:
-	process_mode = Node.PROCESS_MODE_ALWAYS
-	if OS.get_name() != "Windows" or DisplayServer.get_name() == "headless":
-		status_changed.emit("桌面层仅在 Windows 图形模式启动。")
+func acquire_instance() -> bool:
+	# Acquire before any player-save load/migration. A second instance must not
+	# write a v2 file while the running older executable still owns that save.
+	if DisplayServer.get_name() == "headless":
+		if OS.get_cmdline_user_args().has("--benchmark-fixture"): return true
+		status_changed.emit("正式游戏需要 Windows 图形模式，未读取存档。")
 		return false
+	if OS.get_name() != "Windows":
+		return true
+	if native != null: return true
 	if not ClassDB.class_exists("DesktopNative"):
 		status_changed.emit("桌面原生模块未加载，请先运行 native/build.ps1。")
 		return false
@@ -61,6 +66,14 @@ func start(scene: Window, toolbar: Window = null, settings: Dictionary = {}) -> 
 		status_changed.emit("农场已经运行，请使用现有窗口。")
 		native = null
 		return false
+	return true
+
+func start(scene: Window, toolbar: Window = null, settings: Dictionary = {}) -> bool:
+	process_mode = Node.PROCESS_MODE_ALWAYS
+	if OS.get_name() != "Windows" or DisplayServer.get_name() == "headless":
+		status_changed.emit("桌面层仅在 Windows 图形模式启动。")
+		return false
+	if not acquire_instance(): return false
 	get_tree().root.gui_embed_subwindows = false
 	scene_window = scene
 	toolbar_window = toolbar

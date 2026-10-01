@@ -43,7 +43,7 @@ func _run() -> void:
 	check(controller.model.balance() == int(before.coins) + 400, "Gift-price refund is exactly 400")
 	var readback: Dictionary = controller.saves.load_save()
 	check(readback.ok and int(readback.data.coins) == controller.model.balance(), "Committed sale is immediately persisted")
-	for name in ["hub", "crops", "build", "animals", "farmers", "catalog", "settings", "caught"]:
+	for name in ["hub", "crops", "inventory", "build", "animals", "farmers", "catalog", "settings", "caught"]:
 		controller.panel_name = name
 		controller._render_panel()
 		check(controller.popup_body.get_child_count() > 0, "Panel renders: " + name)
@@ -75,6 +75,7 @@ func _run() -> void:
 	controller.crop_season = "全部"
 	controller.crop_mechanism = "全部"
 	controller.crop_unlocked_only = false
+	controller.seed_shop_mode = "shop"
 	check(controller._filtered_crops().size() == 53, "Unfiltered seed shop contains all 53 crops")
 	controller.crop_search = "防风草"
 	check(controller._filtered_crops().size() == 1 and controller._filtered_crops()[0].id == "parsnip", "Crop search matches the Chinese crop name")
@@ -90,13 +91,13 @@ func _run() -> void:
 	controller.crop_unlocked_only = false
 	var shop_snapshot: Dictionary = controller.model.snapshot()
 	controller._prepare_preview()
-	var budget_preview: Dictionary = controller._preview_command("set_crop", {"region": 0, "crop_id": "cauliflower"})
-	check(budget_preview.ok and int(budget_preview.protection_after) > int(budget_preview.protection_before), "Crop switch preview calculates the increased seed reservation")
+	var budget_preview: Dictionary = controller._preview_command("set_default_seed", {"crop_id": "cauliflower"})
+	check(budget_preview.ok and int(budget_preview.protection_after) > int(budget_preview.protection_before), "Default order preview calculates the increased seed reservation")
 	check(JSON.stringify(controller.model.snapshot()) == JSON.stringify(shop_snapshot), "Command previews do not mutate live state, RNG, or transaction sequence")
 	controller.model.state.coins = 0
 	controller._prepare_preview()
-	var blocked_preview: Dictionary = controller._preview_command("set_crop", {"region": 0, "crop_id": "cauliflower"})
-	check(not blocked_preview.ok and int(blocked_preview.protection_after) > int(blocked_preview.protection_before), "Unaffordable switch still displays the proposed reservation")
+	var blocked_preview: Dictionary = controller._preview_command("set_default_seed", {"crop_id": "cauliflower"})
+	check(not blocked_preview.ok and int(blocked_preview.protection_after) > int(blocked_preview.protection_before), "Unaffordable default order still displays the proposed reservation")
 	controller._open_panel("animals")
 	var blocked_purchase: Button = controller.popup_body.find_child("AnimalAction_chicken", true, false) as Button
 	check(blocked_purchase != null and blocked_purchase.disabled and not blocked_purchase.tooltip_text.is_empty(), "Unaffordable animal purchase is disabled with a concrete reason")
@@ -110,6 +111,31 @@ func _run() -> void:
 	controller.model.state.shelters.duck_coop = 0
 	controller._prepare_preview()
 	check(controller._preview_command("buy_animal", {"animal_id": "duck"}).message == "棚舍等级不足", "Missing shelter reports its level prerequisite")
+	controller.model.restore(shop_snapshot)
+	var before_buy: Dictionary = controller.model.snapshot()
+	var prior_carrot: int = controller.model.seed_inventory_summary("carrot").total
+	check(controller._act("buy_seeds", {"crop_id": "carrot", "count": 5}, false), "Seed quantity purchase commits through the controller")
+	check(controller.model.balance() == int(before_buy.coins) - 5 * int(controller.model.crops.carrot.seed_price), "Purchase charges exactly the displayed seed quantity")
+	check(int(controller.model.seed_inventory_summary("carrot").total) == prior_carrot + 5, "Purchase puts physical seeds in the library")
+	controller.selected_plot_ids.clear()
+	controller._choose_planting_seed("carrot")
+	check(controller.view.selection_mode and controller.plant_controls.visible and not controller.popup.visible, "Choosing a seed opens field selection and the commit HUD")
+	var selected_ids: Array = [str(controller.model.state.plots[0].id), str(controller.model.state.plots[1].id)]
+	controller._on_plots_selected(selected_ids)
+	check(controller.selected_plot_ids == selected_ids and not controller.plant_selection_button.disabled, "Multiple real plot IDs enable planting")
+	controller.plant_selection_button.pressed.emit()
+	check(controller.model.state.plots[0].crop_id == "parsnip" and controller.model.state.plots[0].pending_crop_id == "carrot", "Clicking the HUD preserves current crops and schedules next crops")
+	check(not controller.view.selection_mode and not controller.plant_controls.visible, "Successful planting leaves selection mode")
+	check(controller.saves.load_save().data.plots[0].pending_crop_id == "carrot", "Selected plot plan is saved immediately")
+	check(controller._act("cancel_crop", {"plot_ids": selected_ids}, false), "Scheduled individual plans can be cancelled")
+	check(int(controller.model.seed_inventory_summary("carrot").total) == prior_carrot + 5, "Cancelling the plan releases rather than destroys purchased seeds")
+	controller._open_panel("inventory")
+	check(controller.popup_body.find_child("SeedPlan_carrot", true, false) != null, "Purchased crop appears in the real library panel")
+	controller._open_panel("settings")
+	var speed_control: SpinBox = controller.popup_body.find_child("FarmerSpeed", true, false) as SpinBox
+	check(speed_control != null and speed_control.min_value == 16 and speed_control.max_value == 48 and speed_control.step == 4, "Settings expose the bounded walking speed control")
+	speed_control.value = 16
+	check(int(controller.model.state.settings.farmer_speed) == 16 and int(controller.saves.load_save().data.settings.farmer_speed) == 16, "Speed selection updates model and persists immediately")
 	controller.model.restore(shop_snapshot)
 	var sale_instance: String = controller.model.state.animals[0].id
 	controller.model.state.animals[0].ready = 1

@@ -1,18 +1,20 @@
 # 桌面农场
 
-Windows 11 x64 本地像素风放置游戏，当前版本 0.7.0。Godot 4.7.2、类型化 GDScript、C/Win32 GDExtension。作物、动物、产物和农夫使用原创生成的像素图集，地形与建筑由程序绘制，中文使用系统字体。
+Windows 11 x64 本地像素风放置游戏，当前版本 0.8.0（阶段A：独立种植与自然农田）。Godot 4.7.2、类型化 GDScript、C/Win32 GDExtension。作物、动物、产物和农夫使用原创生成的像素图集，地形与建筑由程序绘制，中文使用系统字体。
 
 ## 试玩
 
-双击 `dist/DesktopFarm-v0.7.0/DesktopFarm.exe`，保持同目录的 `.pck` 和 DLL 文件。无需安装 Godot、Python 或编译器。控制栏直接提供「种子商店」「动物商店」，支持搜索、分类、预算与购买条件预览、动物出售确认；「经营」可进入扩建、农夫、分类图鉴和设置。所有游戏窗口遵循普通 Windows 前后顺序，点击其他应用后该应用优先显示。
+双击 `dist/DesktopFarm-v0.8.0/DesktopFarm.exe`，保持同目录的 `.pck` 和 DLL 文件。无需安装 Godot、Python 或编译器。「种子商店」按数量购买入库并选择默认自动订购；「种子库」选择品种后在农田点击、框选或按 Shift 多选地块，提交种植安排。当前作物完成本轮后换种，取消安排会释放预留种子。整个可用库为空才自动订购，其他库存按固定品种顺序继续播种。
+
+每块地独立管理，初始24、最多96块；建设中每次开垦一块。设置可调农夫速度16～48像素/秒，默认32；按实际距离行走，到达后才开始2秒动作。所有游戏窗口遵循普通 Windows 前后顺序，点击其他应用后该应用优先显示。
 
 托盘菜单和 `Ctrl+Alt+F` 可显示/隐藏游戏，同显示器前台全屏应用会暂时隐藏全部游戏窗口；后台生产继续。快捷键占用时显示明确提示，可继续使用托盘。仅收起场景时工具栏仍可经营。
 
 窄屏下商店快捷按钮会收进经营首页，托盘也能直接打开两个商店。
 
-玩法说明见 `docs/play-guide.txt`；当前开发规格见 `docs/development-spec-v0.7.md`；实际验收与未测项目见 `docs/validation-v0.7.md`。美术方向与素材来源见 `docs/art-direction-v0.7.md`，完整生成提示词见 `assets/pixel/generation-prompts.md`。
+玩法说明见 [试玩说明](docs/play-guide.txt)；当前规则见 [阶段A开发规格](docs/development-spec-v0.8.md)；实际验收与未测项目见 [验收记录](docs/validation-v0.8.md)。后续动物自由移动、自然牧草和互动加成安排在阶段B（0.8.1），渔网与鱼容量升级安排在阶段C（0.8.2），见 [完整开发方案](docs/development-proposal-v0.8.md)。美术方向与素材来源见 `docs/art-direction-v0.7.md`，完整生成提示词见 `assets/pixel/generation-prompts.md`。
 
-便携试玩压缩包为 `dist/DesktopFarm-v0.7.0-win64.zip`，解压后启动程序。包中附开发文档和验收记录，沿用已有存档。
+便携试玩压缩包为 `dist/DesktopFarm-v0.8.0-win64.zip`，解压后启动程序。包中附开发文档和验收记录。启动前先退出旧版游戏；首次载入旧存档会验证并备份原文件，再升级为v2，保留金币、库存及生产进度。
 
 ## 源码运行与构建
 
@@ -50,6 +52,6 @@ python ./scripts/download_windows_templates.py
 
 ## 存档
 
-正式试玩保存于 Windows 用户目录的 Godot `app_userdata/桌面农场/desktop-farm-save.json`。设置中可以打开实际目录。30秒自动保存，经营操作立即保存；写入失败会撤回操作。退出与休眠暂停，没有离线收益。损坏主档尝试上一完整 `.bak`；两份均坏时暂停并保留文件。
+正式试玩保存于 Windows 用户目录的 Godot `app_userdata/桌面农场/desktop-farm-save.json`。设置中可以打开实际目录。30秒自动保存，经营操作立即保存；写入失败会撤回操作。退出与休眠暂停，没有离线收益。损坏主档尝试上一完整 `.bak`；两份均坏时暂停并保留文件。迁移备份名为 `desktop-farm-save.json.version-v1-*.json`，后续保存不会覆盖它；有效旧档升级写入失败会停止启动，避免回退进度。旧版无法读v2，回退需在全部游戏退出后使用原版备份。
 
 原始需求、数值来源及已确认变化记录在 `docs/requirements-review-v0.5.md`。源码目录 `.review/`、`.tools/`、测试、截图及原始文件不随试玩包发布。

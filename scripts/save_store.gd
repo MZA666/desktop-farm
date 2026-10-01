@@ -6,9 +6,11 @@ extends RefCounted
 var path := "user://desktop-farm-save.json"
 var last_error := ""
 var recovered_from_backup := false
+var config: Dictionary = {}
 
-func _init(save_path: String = "user://desktop-farm-save.json") -> void:
+func _init(save_path: String = "user://desktop-farm-save.json", values: Dictionary = {}) -> void:
 	path = ProjectSettings.globalize_path(save_path)
+	config = values.duplicate(true)
 
 func save(data: Dictionary) -> Dictionary:
 	var directory := path.get_base_dir()
@@ -48,25 +50,30 @@ func save(data: Dictionary) -> Dictionary:
 func load_save() -> Dictionary:
 	if not FileAccess.file_exists(path) and not FileAccess.file_exists(path + ".bak"):
 		return {"ok": false, "missing": true, "message": "没有存档"}
-	var result := _read(path)
+	var raw := _read(path)
+	# An unknown future schema is not a corrupt current save. Do not replace it
+	# with an older backup merely because this executable cannot understand it.
+	if raw.ok and int(raw.data.get("version", -1)) not in [1, FarmState.SAVE_VERSION]:
+		return _failure("不支持的存档版本：%s，请使用对应版本打开" % raw.data.version)
+	var result := _prepare_load(raw, path, false)
 	if result.ok:
-		return _migrate(result)
-	var backup := _read(path + ".bak")
+		return result
+	# Valid current progress must not silently roll back to an older backup
+	# merely because preserving or writing the upgraded file was unavailable.
+	if result.get("migration_write_failed", false): return result
+	var backup := _prepare_load(_read(path + ".bak"), path + ".bak", true)
 	if backup.ok:
-		var migrated := _migrate(backup)
-		if migrated.ok:
-			recovered_from_backup = true
-			migrated.from_backup = true
-			migrated.message = "主存档损坏，已读取上一完整备份"
-		return migrated
-	return _failure("主存档和备份均无法读取；请保留文件后重试")
+		recovered_from_backup = not bool(backup.get("migrated", false))
+		backup.from_backup = true
+		backup.message = "主存档损坏，已恢复上一完整备份" + ("并升级为新版本" if backup.get("migrated", false) else "")
+		return backup
+	return _failure("主存档和备份均无法恢复；请保留文件后重试。" + str(result.message))
 
 func load_backup() -> Dictionary:
-	var result := _read(path + ".bak")
+	var result := _prepare_load(_read(path + ".bak"), path + ".bak", true)
 	if result.ok:
-		var migrated := _migrate(result)
-		if migrated.ok: recovered_from_backup = true
-		return migrated
+		recovered_from_backup = not bool(result.get("migrated", false))
+		return result
 	return result
 
 func _read(source: String) -> Dictionary:
@@ -82,11 +89,47 @@ func _read(source: String) -> Dictionary:
 		return {"ok": false, "message": "存档缺少版本"}
 	return {"ok": true, "data": parser.data, "message": "存档已读取"}
 
-func _migrate(result: Dictionary) -> Dictionary:
-	# v1 is the first released schema. Future migrations must be explicit and
-	# must copy the original file to a versioned backup before changing fields.
-	if int(result.data.version) != FarmState.SAVE_VERSION:
-		return {"ok": false, "message": "不支持的存档版本：%s" % result.data.version}
+func _prepare_load(result: Dictionary, source: String, from_backup: bool) -> Dictionary:
+	if not result.ok:
+		return result
+	var version := int(result.data.get("version", -1))
+	if version == FarmState.SAVE_VERSION:
+		if not config.is_empty():
+			var checker := FarmState.new(config)
+			var checked := checker._validate(result.data)
+			if not checked.ok: return checked
+		return result
+	if version != 1 or config.is_empty():
+		return {"ok": false, "message": "不支持的存档版本：%s" % version}
+	var model := FarmState.new(config)
+	var migration: Dictionary = model.migrate_v1(result.data)
+	if not migration.ok:
+		return migration
+	var checked := model.restore(migration.data)
+	if not checked.ok:
+		return checked
+	# Preserve the exact legacy file before writing v2. Every migration backup
+	# has a unique name; no subsequent save or recovery can overwrite it.
+	var stamp := str(int(Time.get_unix_time_from_system())) + "-" + str(Time.get_ticks_usec())
+	var legacy_backup := path + ".version-v1-" + stamp + ".json"
+	while FileAccess.file_exists(legacy_backup):
+		legacy_backup = path + ".version-v1-" + stamp + "-" + str(randi()) + ".json"
+	var copied := DirAccess.copy_absolute(source, legacy_backup)
+	if copied != OK:
+		return _migration_failure("无法保留旧版存档备份：" + error_string(copied))
+	if FileAccess.get_sha256(source) != FileAccess.get_sha256(legacy_backup):
+		return _migration_failure("旧版存档备份校验失败，未执行升级")
+	recovered_from_backup = from_backup
+	var upgraded := model.snapshot()
+	var saved := save(upgraded)
+	if not saved.ok:
+		return _migration_failure(str(saved.message))
+	return {"ok": true, "data": upgraded, "migrated": true, "migration_backup": legacy_backup,
+		"message": "存档已升级，原版备份已保留"}
+
+func _migration_failure(message: String) -> Dictionary:
+	var result := _failure(message)
+	result.migration_write_failed = true
 	return result
 
 func _failure(message: String) -> Dictionary:
