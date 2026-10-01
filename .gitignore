@@ -1,0 +1,14 @@
+.godot/
+.tools/
+.review/
+tools/
+native/.cache/
+native/zig-cache/
+native/.zig-cache/
+/native/bin/
+/evidence/
+/export_templates/
+dist/
+*.tmp
+*.bak
+__pycache__/

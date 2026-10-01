@@ -1,0 +1,3 @@
+* text=auto eol=lf
+# The source checksum refers to the original workbook snapshot bytes.
+data/source/workbook-v0.5.json -text whitespace=cr-at-eol

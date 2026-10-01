@@ -1,0 +1,33 @@
+config_version=5
+
+[application]
+config/name="桌面农场"
+config/version="0.6.1"
+run/main_scene="res://scenes/main.tscn"
+config/features=PackedStringArray("4.4", "GL Compatibility")
+
+[display]
+window/size/viewport_width=1920
+window/size/viewport_height=240
+window/size/window_width_override=1280
+window/size/window_height_override=240
+window/size/transparent=true
+window/size/borderless=true
+window/size/always_on_top=false
+window/per_pixel_transparency/allowed=true
+window/vsync/vsync_mode=0
+window/subwindows/embed_subwindows=false
+
+[rendering]
+renderer/rendering_method="gl_compatibility"
+renderer/rendering_method.mobile="gl_compatibility"
+textures/default_filters/use_nearest_mipmap_filter=false
+textures/canvas_textures/default_texture_filter=0
+environment/defaults/default_clear_color=Color(0, 0, 0, 0)
+
+[debug]
+gdscript/warnings/inferred_declaration=0
+gdscript/warnings/untyped_declaration=0
+gdscript/warnings/unsafe_property_access=0
+gdscript/warnings/unsafe_method_access=0
+gdscript/warnings/unsafe_call_argument=0

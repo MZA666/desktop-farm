@@ -1,0 +1,4224 @@
+{
+  "schema_version": 1,
+  "version": "0.5",
+  "crops": [
+    {
+      "id": "blue_jazz",
+      "name": "蓝爵花",
+      "season": "春",
+      "seed_cost": 30,
+      "sale_price": 50,
+      "grow_seconds": 1260,
+      "regrow_seconds": 0,
+      "mechanism": "single",
+      "unlock_cost": 0,
+      "initial_unlocked": true,
+      "product_id": "blue_jazz",
+      "raw_product_id": "",
+      "process_seconds": 0,
+      "yield": 1,
+      "replant_cost": 30,
+      "pool": [],
+      "expected_sale_price": 50,
+      "notes": "当前成熟时间已确认；原作金币价；产量固定1",
+      "source": {
+        "sheet": "作物生产",
+        "row": 5,
+        "seed": "https://wiki.stardewvalley.net/Jazz_Seeds",
+        "product": "https://wiki.stardewvalley.net/Blue_Jazz"
+      },
+      "seed_price": 30,
+      "sell_price": 50,
+      "first_seconds": 1260,
+      "repeat_seconds": 0,
+      "unlock_price": 0,
+      "processing_seconds": 0,
+      "regrow": false,
+      "return_seed": false
+    },
+    {
+      "id": "carrot",
+      "name": "胡萝卜",
+      "season": "春",
+      "seed_cost": 20,
+      "sale_price": 35,
+      "grow_seconds": 720,
+      "regrow_seconds": 0,
+      "mechanism": "single",
+      "unlock_cost": 0,
+      "initial_unlocked": true,
+      "product_id": "carrot",
+      "raw_product_id": "",
+      "process_seconds": 0,
+      "yield": 1,
+      "replant_cost": 20,
+      "pool": [],
+      "expected_sale_price": 35,
+      "notes": "当前成熟时间与本作补购价已确认；原作无固定金币商店价",
+      "source": {
+        "sheet": "作物生产",
+        "row": 6,
+        "seed": "https://wiki.stardewvalley.net/Carrot_Seeds",
+        "product": "https://wiki.stardewvalley.net/Carrot"
+      },
+      "seed_price": 20,
+      "sell_price": 35,
+      "first_seconds": 720,
+      "repeat_seconds": 0,
+      "unlock_price": 0,
+      "processing_seconds": 0,
+      "regrow": false,
+      "return_seed": false
+    },
+    {
+      "id": "cauliflower",
+      "name": "花椰菜",
+      "season": "春",
+      "seed_cost": 80,
+      "sale_price": 175,
+      "grow_seconds": 2880,
+      "regrow_seconds": 0,
+      "mechanism": "single",
+      "unlock_cost": 0,
+      "initial_unlocked": true,
+      "product_id": "cauliflower",
+      "raw_product_id": "",
+      "process_seconds": 0,
+      "yield": 1,
+      "replant_cost": 80,
+      "pool": [],
+      "expected_sale_price": 175,
+      "notes": "当前成熟时间已确认；原作金币价；产量固定1",
+      "source": {
+        "sheet": "作物生产",
+        "row": 7,
+        "seed": "https://wiki.stardewvalley.net/Cauliflower_Seeds",
+        "product": "https://wiki.stardewvalley.net/Cauliflower"
+      },
+      "seed_price": 80,
+      "sell_price": 175,
+      "first_seconds": 2880,
+      "repeat_seconds": 0,
+      "unlock_price": 0,
+      "processing_seconds": 0,
+      "regrow": false,
+      "return_seed": false
+    },
+    {
+      "id": "coffee_bean",
+      "name": "咖啡豆",
+      "season": "春、夏",
+      "seed_cost": 2500,
+      "sale_price": 15,
+      "grow_seconds": 1800,
+      "regrow_seconds": 600,
+      "mechanism": "regrow",
+      "unlock_cost": 0,
+      "initial_unlocked": true,
+      "product_id": "coffee_bean",
+      "raw_product_id": "",
+      "process_seconds": 0,
+      "yield": 1,
+      "replant_cost": 0,
+      "pool": [],
+      "expected_sale_price": 15,
+      "notes": "采用货车特殊库存2500；单收1使回本较慢，适合作为收藏",
+      "source": {
+        "sheet": "作物生产",
+        "row": 8,
+        "seed": "https://wiki.stardewvalley.net/Coffee_Bean",
+        "product": "https://wiki.stardewvalley.net/Coffee_Bean"
+      },
+      "seed_price": 2500,
+      "sell_price": 15,
+      "first_seconds": 1800,
+      "repeat_seconds": 600,
+      "unlock_price": 0,
+      "processing_seconds": 0,
+      "regrow": true,
+      "return_seed": false
+    },
+    {
+      "id": "garlic",
+      "name": "大蒜",
+      "season": "春",
+      "seed_cost": 40,
+      "sale_price": 60,
+      "grow_seconds": 1080,
+      "regrow_seconds": 0,
+      "mechanism": "single",
+      "unlock_cost": 0,
+      "initial_unlocked": true,
+      "product_id": "garlic",
+      "raw_product_id": "",
+      "process_seconds": 0,
+      "yield": 1,
+      "replant_cost": 40,
+      "pool": [],
+      "expected_sale_price": 60,
+      "notes": "当前成熟时间已确认；原作金币价；产量固定1",
+      "source": {
+        "sheet": "作物生产",
+        "row": 9,
+        "seed": "https://wiki.stardewvalley.net/Garlic_Seeds",
+        "product": "https://wiki.stardewvalley.net/Garlic"
+      },
+      "seed_price": 40,
+      "sell_price": 60,
+      "first_seconds": 1080,
+      "repeat_seconds": 0,
+      "unlock_price": 0,
+      "processing_seconds": 0,
+      "regrow": false,
+      "return_seed": false
+    },
+    {
+      "id": "green_bean",
+      "name": "青豆",
+      "season": "春",
+      "seed_cost": 60,
+      "sale_price": 40,
+      "grow_seconds": 2880,
+      "regrow_seconds": 960,
+      "mechanism": "regrow",
+      "unlock_cost": 0,
+      "initial_unlocked": true,
+      "product_id": "green_bean",
+      "raw_product_id": "",
+      "process_seconds": 0,
+      "yield": 1,
+      "replant_cost": 0,
+      "pool": [],
+      "expected_sale_price": 40,
+      "notes": "当前成熟时间已确认；原作金币价；产量固定1",
+      "source": {
+        "sheet": "作物生产",
+        "row": 10,
+        "seed": "https://wiki.stardewvalley.net/Bean_Starter",
+        "product": "https://wiki.stardewvalley.net/Green_Bean"
+      },
+      "seed_price": 60,
+      "sell_price": 40,
+      "first_seconds": 2880,
+      "repeat_seconds": 960,
+      "unlock_price": 0,
+      "processing_seconds": 0,
+      "regrow": true,
+      "return_seed": false
+    },
+    {
+      "id": "kale",
+      "name": "羽衣甘蓝",
+      "season": "春",
+      "seed_cost": 70,
+      "sale_price": 110,
+      "grow_seconds": 1260,
+      "regrow_seconds": 0,
+      "mechanism": "single",
+      "unlock_cost": 0,
+      "initial_unlocked": true,
+      "product_id": "kale",
+      "raw_product_id": "",
+      "process_seconds": 0,
+      "yield": 1,
+      "replant_cost": 70,
+      "pool": [],
+      "expected_sale_price": 110,
+      "notes": "当前成熟时间已确认；原作金币价；产量固定1",
+      "source": {
+        "sheet": "作物生产",
+        "row": 11,
+        "seed": "https://wiki.stardewvalley.net/Kale_Seeds",
+        "product": "https://wiki.stardewvalley.net/Kale"
+      },
+      "seed_price": 70,
+      "sell_price": 110,
+      "first_seconds": 1260,
+      "repeat_seconds": 0,
+      "unlock_price": 0,
+      "processing_seconds": 0,
+      "regrow": false,
+      "return_seed": false
+    },
+    {
+      "id": "parsnip",
+      "name": "防风草",
+      "season": "春",
+      "seed_cost": 20,
+      "sale_price": 35,
+      "grow_seconds": 720,
+      "regrow_seconds": 0,
+      "mechanism": "single",
+      "unlock_cost": 0,
+      "initial_unlocked": true,
+      "product_id": "parsnip",
+      "raw_product_id": "",
+      "process_seconds": 0,
+      "yield": 1,
+      "replant_cost": 20,
+      "pool": [],
+      "expected_sale_price": 35,
+      "notes": "当前成熟时间已确认；原作金币价；产量固定1",
+      "source": {
+        "sheet": "作物生产",
+        "row": 12,
+        "seed": "https://wiki.stardewvalley.net/Parsnip_Seeds",
+        "product": "https://wiki.stardewvalley.net/Parsnip"
+      },
+      "seed_price": 20,
+      "sell_price": 35,
+      "first_seconds": 720,
+      "repeat_seconds": 0,
+      "unlock_price": 0,
+      "processing_seconds": 0,
+      "regrow": false,
+      "return_seed": false
+    },
+    {
+      "id": "potato",
+      "name": "土豆",
+      "season": "春",
+      "seed_cost": 50,
+      "sale_price": 80,
+      "grow_seconds": 1440,
+      "regrow_seconds": 0,
+      "mechanism": "single",
+      "unlock_cost": 0,
+      "initial_unlocked": true,
+      "product_id": "potato",
+      "raw_product_id": "",
+      "process_seconds": 0,
+      "yield": 1,
+      "replant_cost": 50,
+      "pool": [],
+      "expected_sale_price": 80,
+      "notes": "当前成熟时间已确认；原作金币价；产量固定1",
+      "source": {
+        "sheet": "作物生产",
+        "row": 13,
+        "seed": "https://wiki.stardewvalley.net/Potato_Seeds",
+        "product": "https://wiki.stardewvalley.net/Potato"
+      },
+      "seed_price": 50,
+      "sell_price": 80,
+      "first_seconds": 1440,
+      "repeat_seconds": 0,
+      "unlock_price": 0,
+      "processing_seconds": 0,
+      "regrow": false,
+      "return_seed": false
+    },
+    {
+      "id": "rhubarb",
+      "name": "大黄",
+      "season": "春",
+      "seed_cost": 100,
+      "sale_price": 220,
+      "grow_seconds": 3600,
+      "regrow_seconds": 0,
+      "mechanism": "single",
+      "unlock_cost": 0,
+      "initial_unlocked": true,
+      "product_id": "rhubarb",
+      "raw_product_id": "",
+      "process_seconds": 0,
+      "yield": 1,
+      "replant_cost": 100,
+      "pool": [],
+      "expected_sale_price": 220,
+      "notes": "当前成熟时间已确认；原作金币价；产量固定1",
+      "source": {
+        "sheet": "作物生产",
+        "row": 14,
+        "seed": "https://wiki.stardewvalley.net/Rhubarb_Seeds",
+        "product": "https://wiki.stardewvalley.net/Rhubarb"
+      },
+      "seed_price": 100,
+      "sell_price": 220,
+      "first_seconds": 3600,
+      "repeat_seconds": 0,
+      "unlock_price": 0,
+      "processing_seconds": 0,
+      "regrow": false,
+      "return_seed": false
+    },
+    {
+      "id": "strawberry",
+      "name": "草莓",
+      "season": "春",
+      "seed_cost": 100,
+      "sale_price": 120,
+      "grow_seconds": 7200,
+      "regrow_seconds": 2400,
+      "mechanism": "regrow",
+      "unlock_cost": 0,
+      "initial_unlocked": true,
+      "product_id": "strawberry",
+      "raw_product_id": "",
+      "process_seconds": 0,
+      "yield": 1,
+      "replant_cost": 0,
+      "pool": [],
+      "expected_sale_price": 120,
+      "notes": "当前成熟时间已确认；原作金币价；产量固定1",
+      "source": {
+        "sheet": "作物生产",
+        "row": 15,
+        "seed": "https://wiki.stardewvalley.net/Strawberry_Seeds",
+        "product": "https://wiki.stardewvalley.net/Strawberry"
+      },
+      "seed_price": 100,
+      "sell_price": 120,
+      "first_seconds": 7200,
+      "repeat_seconds": 2400,
+      "unlock_price": 0,
+      "processing_seconds": 0,
+      "regrow": true,
+      "return_seed": false
+    },
+    {
+      "id": "tulip",
+      "name": "郁金香",
+      "season": "春",
+      "seed_cost": 20,
+      "sale_price": 30,
+      "grow_seconds": 1080,
+      "regrow_seconds": 0,
+      "mechanism": "single",
+      "unlock_cost": 0,
+      "initial_unlocked": true,
+      "product_id": "tulip",
+      "raw_product_id": "",
+      "process_seconds": 0,
+      "yield": 1,
+      "replant_cost": 20,
+      "pool": [],
+      "expected_sale_price": 30,
+      "notes": "当前成熟时间已确认；原作金币价；产量固定1",
+      "source": {
+        "sheet": "作物生产",
+        "row": 16,
+        "seed": "https://wiki.stardewvalley.net/Tulip_Bulb",
+        "product": "https://wiki.stardewvalley.net/Tulip"
+      },
+      "seed_price": 20,
+      "sell_price": 30,
+      "first_seconds": 1080,
+      "repeat_seconds": 0,
+      "unlock_price": 0,
+      "processing_seconds": 0,
+      "regrow": false,
+      "return_seed": false
+    },
+    {
+      "id": "unmilled_rice",
+      "name": "未碾米",
+      "season": "春",
+      "seed_cost": 40,
+      "sale_price": 100,
+      "grow_seconds": 1620,
+      "regrow_seconds": 0,
+      "mechanism": "processing",
+      "unlock_cost": 0,
+      "initial_unlocked": true,
+      "product_id": "rice",
+      "raw_product_id": "unmilled_rice",
+      "process_seconds": 180,
+      "yield": 1,
+      "replant_cost": 40,
+      "pool": [],
+      "expected_sale_price": 100,
+      "notes": "已确认：未碾米30→自动碾米100；串行3分钟，解锁按原料30",
+      "source": {
+        "sheet": "作物生产",
+        "row": 17,
+        "seed": "https://wiki.stardewvalley.net/Rice_Shoot",
+        "product": "https://wiki.stardewvalley.net/Unmilled_Rice"
+      },
+      "seed_price": 40,
+      "sell_price": 100,
+      "first_seconds": 1620,
+      "repeat_seconds": 0,
+      "unlock_price": 0,
+      "processing_seconds": 180,
+      "regrow": false,
+      "return_seed": false
+    },
+    {
+      "id": "blueberry",
+      "name": "蓝莓",
+      "season": "夏",
+      "seed_cost": 80,
+      "sale_price": 50,
+      "grow_seconds": 3600,
+      "regrow_seconds": 1200,
+      "mechanism": "regrow",
+      "unlock_cost": 500,
+      "initial_unlocked": false,
+      "product_id": "blueberry",
+      "raw_product_id": "",
+      "process_seconds": 0,
+      "yield": 1,
+      "replant_cost": 0,
+      "pool": [],
+      "expected_sale_price": 50,
+      "notes": "当前成熟时间已确认；原作金币价；产量固定1",
+      "source": {
+        "sheet": "作物生产",
+        "row": 18,
+        "seed": "https://wiki.stardewvalley.net/Blueberry_Seeds",
+        "product": "https://wiki.stardewvalley.net/Blueberry"
+      },
+      "seed_price": 80,
+      "sell_price": 50,
+      "first_seconds": 3600,
+      "repeat_seconds": 1200,
+      "unlock_price": 500,
+      "processing_seconds": 0,
+      "regrow": true,
+      "return_seed": false
+    },
+    {
+      "id": "corn",
+      "name": "玉米",
+      "season": "夏、秋",
+      "seed_cost": 150,
+      "sale_price": 50,
+      "grow_seconds": 3060,
+      "regrow_seconds": 1020,
+      "mechanism": "regrow",
+      "unlock_cost": 500,
+      "initial_unlocked": false,
+      "product_id": "corn",
+      "raw_product_id": "",
+      "process_seconds": 0,
+      "yield": 1,
+      "replant_cost": 0,
+      "pool": [],
+      "expected_sale_price": 50,
+      "notes": "当前成熟时间已确认；原作金币价；产量固定1",
+      "source": {
+        "sheet": "作物生产",
+        "row": 19,
+        "seed": "https://wiki.stardewvalley.net/Corn_Seeds",
+        "product": "https://wiki.stardewvalley.net/Corn"
+      },
+      "seed_price": 150,
+      "sell_price": 50,
+      "first_seconds": 3060,
+      "repeat_seconds": 1020,
+      "unlock_price": 500,
+      "processing_seconds": 0,
+      "regrow": true,
+      "return_seed": false
+    },
+    {
+      "id": "hops",
+      "name": "啤酒花",
+      "season": "夏",
+      "seed_cost": 60,
+      "sale_price": 25,
+      "grow_seconds": 1980,
+      "regrow_seconds": 660,
+      "mechanism": "regrow",
+      "unlock_cost": 250,
+      "initial_unlocked": false,
+      "product_id": "hops",
+      "raw_product_id": "",
+      "process_seconds": 0,
+      "yield": 1,
+      "replant_cost": 0,
+      "pool": [],
+      "expected_sale_price": 25,
+      "notes": "当前成熟时间已确认；原作金币价；产量固定1",
+      "source": {
+        "sheet": "作物生产",
+        "row": 20,
+        "seed": "https://wiki.stardewvalley.net/Hops_Starter",
+        "product": "https://wiki.stardewvalley.net/Hops"
+      },
+      "seed_price": 60,
+      "sell_price": 25,
+      "first_seconds": 1980,
+      "repeat_seconds": 660,
+      "unlock_price": 250,
+      "processing_seconds": 0,
+      "regrow": true,
+      "return_seed": false
+    },
+    {
+      "id": "hot_pepper",
+      "name": "辣椒",
+      "season": "夏",
+      "seed_cost": 40,
+      "sale_price": 40,
+      "grow_seconds": 2880,
+      "regrow_seconds": 960,
+      "mechanism": "regrow",
+      "unlock_cost": 400,
+      "initial_unlocked": false,
+      "product_id": "hot_pepper",
+      "raw_product_id": "",
+      "process_seconds": 0,
+      "yield": 1,
+      "replant_cost": 0,
+      "pool": [],
+      "expected_sale_price": 40,
+      "notes": "当前成熟时间已确认；原作金币价；产量固定1",
+      "source": {
+        "sheet": "作物生产",
+        "row": 21,
+        "seed": "https://wiki.stardewvalley.net/Pepper_Seeds",
+        "product": "https://wiki.stardewvalley.net/Hot_Pepper"
+      },
+      "seed_price": 40,
+      "sell_price": 40,
+      "first_seconds": 2880,
+      "repeat_seconds": 960,
+      "unlock_price": 400,
+      "processing_seconds": 0,
+      "regrow": true,
+      "return_seed": false
+    },
+    {
+      "id": "melon",
+      "name": "甜瓜",
+      "season": "夏",
+      "seed_cost": 80,
+      "sale_price": 250,
+      "grow_seconds": 3420,
+      "regrow_seconds": 0,
+      "mechanism": "single",
+      "unlock_cost": 2500,
+      "initial_unlocked": false,
+      "product_id": "melon",
+      "raw_product_id": "",
+      "process_seconds": 0,
+      "yield": 1,
+      "replant_cost": 80,
+      "pool": [],
+      "expected_sale_price": 250,
+      "notes": "当前成熟时间已确认；原作金币价；产量固定1",
+      "source": {
+        "sheet": "作物生产",
+        "row": 22,
+        "seed": "https://wiki.stardewvalley.net/Melon_Seeds",
+        "product": "https://wiki.stardewvalley.net/Melon"
+      },
+      "seed_price": 80,
+      "sell_price": 250,
+      "first_seconds": 3420,
+      "repeat_seconds": 0,
+      "unlock_price": 2500,
+      "processing_seconds": 0,
+      "regrow": false,
+      "return_seed": false
+    },
+    {
+      "id": "poppy",
+      "name": "虞美人",
+      "season": "夏",
+      "seed_cost": 100,
+      "sale_price": 140,
+      "grow_seconds": 1260,
+      "regrow_seconds": 0,
+      "mechanism": "single",
+      "unlock_cost": 1400,
+      "initial_unlocked": false,
+      "product_id": "poppy",
+      "raw_product_id": "",
+      "process_seconds": 0,
+      "yield": 1,
+      "replant_cost": 100,
+      "pool": [],
+      "expected_sale_price": 140,
+      "notes": "当前成熟时间已确认；原作金币价；产量固定1",
+      "source": {
+        "sheet": "作物生产",
+        "row": 23,
+        "seed": "https://wiki.stardewvalley.net/Poppy_Seeds",
+        "product": "https://wiki.stardewvalley.net/Poppy"
+      },
+      "seed_price": 100,
+      "sell_price": 140,
+      "first_seconds": 1260,
+      "repeat_seconds": 0,
+      "unlock_price": 1400,
+      "processing_seconds": 0,
+      "regrow": false,
+      "return_seed": false
+    },
+    {
+      "id": "radish",
+      "name": "萝卜",
+      "season": "夏",
+      "seed_cost": 40,
+      "sale_price": 90,
+      "grow_seconds": 2520,
+      "regrow_seconds": 0,
+      "mechanism": "single",
+      "unlock_cost": 900,
+      "initial_unlocked": false,
+      "product_id": "radish",
+      "raw_product_id": "",
+      "process_seconds": 0,
+      "yield": 1,
+      "replant_cost": 40,
+      "pool": [],
+      "expected_sale_price": 90,
+      "notes": "当前成熟时间已确认；原作金币价；产量固定1",
+      "source": {
+        "sheet": "作物生产",
+        "row": 24,
+        "seed": "https://wiki.stardewvalley.net/Radish_Seeds",
+        "product": "https://wiki.stardewvalley.net/Radish"
+      },
+      "seed_price": 40,
+      "sell_price": 90,
+      "first_seconds": 2520,
+      "repeat_seconds": 0,
+      "unlock_price": 900,
+      "processing_seconds": 0,
+      "regrow": false,
+      "return_seed": false
+    },
+    {
+      "id": "red_cabbage",
+      "name": "红叶卷心菜",
+      "season": "夏",
+      "seed_cost": 100,
+      "sale_price": 260,
+      "grow_seconds": 3240,
+      "regrow_seconds": 0,
+      "mechanism": "single",
+      "unlock_cost": 2600,
+      "initial_unlocked": false,
+      "product_id": "red_cabbage",
+      "raw_product_id": "",
+      "process_seconds": 0,
+      "yield": 1,
+      "replant_cost": 100,
+      "pool": [],
+      "expected_sale_price": 260,
+      "notes": "当前成熟时间已确认；原作金币价；产量固定1",
+      "source": {
+        "sheet": "作物生产",
+        "row": 25,
+        "seed": "https://wiki.stardewvalley.net/Red_Cabbage_Seeds",
+        "product": "https://wiki.stardewvalley.net/Red_Cabbage"
+      },
+      "seed_price": 100,
+      "sell_price": 260,
+      "first_seconds": 3240,
+      "repeat_seconds": 0,
+      "unlock_price": 2600,
+      "processing_seconds": 0,
+      "regrow": false,
+      "return_seed": false
+    },
+    {
+      "id": "starfruit",
+      "name": "杨桃",
+      "season": "夏",
+      "seed_cost": 400,
+      "sale_price": 750,
+      "grow_seconds": 4320,
+      "regrow_seconds": 0,
+      "mechanism": "single",
+      "unlock_cost": 7500,
+      "initial_unlocked": false,
+      "product_id": "starfruit",
+      "raw_product_id": "",
+      "process_seconds": 0,
+      "yield": 1,
+      "replant_cost": 400,
+      "pool": [],
+      "expected_sale_price": 750,
+      "notes": "当前成熟时间已确认；原作金币价；产量固定1",
+      "source": {
+        "sheet": "作物生产",
+        "row": 26,
+        "seed": "https://wiki.stardewvalley.net/Starfruit_Seeds",
+        "product": "https://wiki.stardewvalley.net/Starfruit"
+      },
+      "seed_price": 400,
+      "sell_price": 750,
+      "first_seconds": 4320,
+      "repeat_seconds": 0,
+      "unlock_price": 7500,
+      "processing_seconds": 0,
+      "regrow": false,
+      "return_seed": false
+    },
+    {
+      "id": "summer_spangle",
+      "name": "夏季亮片",
+      "season": "夏",
+      "seed_cost": 50,
+      "sale_price": 90,
+      "grow_seconds": 1980,
+      "regrow_seconds": 0,
+      "mechanism": "single",
+      "unlock_cost": 900,
+      "initial_unlocked": false,
+      "product_id": "summer_spangle",
+      "raw_product_id": "",
+      "process_seconds": 0,
+      "yield": 1,
+      "replant_cost": 50,
+      "pool": [],
+      "expected_sale_price": 90,
+      "notes": "当前成熟时间已确认；原作金币价；产量固定1",
+      "source": {
+        "sheet": "作物生产",
+        "row": 27,
+        "seed": "https://wiki.stardewvalley.net/Spangle_Seeds",
+        "product": "https://wiki.stardewvalley.net/Summer_Spangle"
+      },
+      "seed_price": 50,
+      "sell_price": 90,
+      "first_seconds": 1980,
+      "repeat_seconds": 0,
+      "unlock_price": 900,
+      "processing_seconds": 0,
+      "regrow": false,
+      "return_seed": false
+    },
+    {
+      "id": "summer_squash",
+      "name": "西葫芦",
+      "season": "夏",
+      "seed_cost": 30,
+      "sale_price": 45,
+      "grow_seconds": 3240,
+      "regrow_seconds": 1080,
+      "mechanism": "regrow",
+      "unlock_cost": 450,
+      "initial_unlocked": false,
+      "product_id": "summer_squash",
+      "raw_product_id": "",
+      "process_seconds": 0,
+      "yield": 1,
+      "replant_cost": 0,
+      "pool": [],
+      "expected_sale_price": 45,
+      "notes": "当前成熟时间与本作补购价已确认；原作无固定金币商店价",
+      "source": {
+        "sheet": "作物生产",
+        "row": 28,
+        "seed": "https://wiki.stardewvalley.net/Summer_Squash_Seeds",
+        "product": "https://wiki.stardewvalley.net/Summer_Squash"
+      },
+      "seed_price": 30,
+      "sell_price": 45,
+      "first_seconds": 3240,
+      "repeat_seconds": 1080,
+      "unlock_price": 450,
+      "processing_seconds": 0,
+      "regrow": true,
+      "return_seed": false
+    },
+    {
+      "id": "sunflower",
+      "name": "向日葵",
+      "season": "夏、秋",
+      "seed_cost": 200,
+      "sale_price": 80,
+      "grow_seconds": 2520,
+      "regrow_seconds": 0,
+      "mechanism": "return_seed",
+      "unlock_cost": 800,
+      "initial_unlocked": false,
+      "product_id": "sunflower",
+      "raw_product_id": "",
+      "process_seconds": 0,
+      "yield": 1,
+      "replant_cost": 0,
+      "pool": [],
+      "expected_sale_price": 80,
+      "notes": "已确认：皮埃尔200；每收1花返1枚专用种子，仅原地补种，不可出售",
+      "source": {
+        "sheet": "作物生产",
+        "row": 29,
+        "seed": "https://wiki.stardewvalley.net/Sunflower_Seeds",
+        "product": "https://wiki.stardewvalley.net/Sunflower"
+      },
+      "seed_price": 200,
+      "sell_price": 80,
+      "first_seconds": 2520,
+      "repeat_seconds": 0,
+      "unlock_price": 800,
+      "processing_seconds": 0,
+      "regrow": false,
+      "return_seed": true
+    },
+    {
+      "id": "tomato",
+      "name": "番茄",
+      "season": "夏",
+      "seed_cost": 50,
+      "sale_price": 60,
+      "grow_seconds": 4320,
+      "regrow_seconds": 1440,
+      "mechanism": "regrow",
+      "unlock_cost": 600,
+      "initial_unlocked": false,
+      "product_id": "tomato",
+      "raw_product_id": "",
+      "process_seconds": 0,
+      "yield": 1,
+      "replant_cost": 0,
+      "pool": [],
+      "expected_sale_price": 60,
+      "notes": "当前成熟时间已确认；原作金币价；产量固定1",
+      "source": {
+        "sheet": "作物生产",
+        "row": 30,
+        "seed": "https://wiki.stardewvalley.net/Tomato_Seeds",
+        "product": "https://wiki.stardewvalley.net/Tomato"
+      },
+      "seed_price": 50,
+      "sell_price": 60,
+      "first_seconds": 4320,
+      "repeat_seconds": 1440,
+      "unlock_price": 600,
+      "processing_seconds": 0,
+      "regrow": true,
+      "return_seed": false
+    },
+    {
+      "id": "wheat",
+      "name": "小麦",
+      "season": "夏、秋",
+      "seed_cost": 10,
+      "sale_price": 25,
+      "grow_seconds": 720,
+      "regrow_seconds": 0,
+      "mechanism": "single",
+      "unlock_cost": 250,
+      "initial_unlocked": false,
+      "product_id": "wheat",
+      "raw_product_id": "",
+      "process_seconds": 0,
+      "yield": 1,
+      "replant_cost": 10,
+      "pool": [],
+      "expected_sale_price": 25,
+      "notes": "当前成熟时间已确认；原作金币价；产量固定1",
+      "source": {
+        "sheet": "作物生产",
+        "row": 31,
+        "seed": "https://wiki.stardewvalley.net/Wheat_Seeds",
+        "product": "https://wiki.stardewvalley.net/Wheat"
+      },
+      "seed_price": 10,
+      "sell_price": 25,
+      "first_seconds": 720,
+      "repeat_seconds": 0,
+      "unlock_price": 250,
+      "processing_seconds": 0,
+      "regrow": false,
+      "return_seed": false
+    },
+    {
+      "id": "amaranth",
+      "name": "苋菜",
+      "season": "秋",
+      "seed_cost": 70,
+      "sale_price": 150,
+      "grow_seconds": 2520,
+      "regrow_seconds": 0,
+      "mechanism": "single",
+      "unlock_cost": 1500,
+      "initial_unlocked": false,
+      "product_id": "amaranth",
+      "raw_product_id": "",
+      "process_seconds": 0,
+      "yield": 1,
+      "replant_cost": 70,
+      "pool": [],
+      "expected_sale_price": 150,
+      "notes": "当前成熟时间已确认；原作金币价；产量固定1",
+      "source": {
+        "sheet": "作物生产",
+        "row": 32,
+        "seed": "https://wiki.stardewvalley.net/Amaranth_Seeds",
+        "product": "https://wiki.stardewvalley.net/Amaranth"
+      },
+      "seed_price": 70,
+      "sell_price": 150,
+      "first_seconds": 2520,
+      "repeat_seconds": 0,
+      "unlock_price": 1500,
+      "processing_seconds": 0,
+      "regrow": false,
+      "return_seed": false
+    },
+    {
+      "id": "artichoke",
+      "name": "洋蓟",
+      "season": "秋",
+      "seed_cost": 30,
+      "sale_price": 160,
+      "grow_seconds": 3960,
+      "regrow_seconds": 0,
+      "mechanism": "single",
+      "unlock_cost": 1600,
+      "initial_unlocked": false,
+      "product_id": "artichoke",
+      "raw_product_id": "",
+      "process_seconds": 0,
+      "yield": 1,
+      "replant_cost": 30,
+      "pool": [],
+      "expected_sale_price": 160,
+      "notes": "当前成熟时间已确认；原作金币价；产量固定1",
+      "source": {
+        "sheet": "作物生产",
+        "row": 33,
+        "seed": "https://wiki.stardewvalley.net/Artichoke_Seeds",
+        "product": "https://wiki.stardewvalley.net/Artichoke"
+      },
+      "seed_price": 30,
+      "sell_price": 160,
+      "first_seconds": 3960,
+      "repeat_seconds": 0,
+      "unlock_price": 1600,
+      "processing_seconds": 0,
+      "regrow": false,
+      "return_seed": false
+    },
+    {
+      "id": "beet",
+      "name": "甜菜",
+      "season": "秋",
+      "seed_cost": 20,
+      "sale_price": 100,
+      "grow_seconds": 2520,
+      "regrow_seconds": 0,
+      "mechanism": "single",
+      "unlock_cost": 1000,
+      "initial_unlocked": false,
+      "product_id": "beet",
+      "raw_product_id": "",
+      "process_seconds": 0,
+      "yield": 1,
+      "replant_cost": 20,
+      "pool": [],
+      "expected_sale_price": 100,
+      "notes": "当前成熟时间已确认；原作金币价；产量固定1",
+      "source": {
+        "sheet": "作物生产",
+        "row": 34,
+        "seed": "https://wiki.stardewvalley.net/Beet_Seeds",
+        "product": "https://wiki.stardewvalley.net/Beet"
+      },
+      "seed_price": 20,
+      "sell_price": 100,
+      "first_seconds": 2520,
+      "repeat_seconds": 0,
+      "unlock_price": 1000,
+      "processing_seconds": 0,
+      "regrow": false,
+      "return_seed": false
+    },
+    {
+      "id": "bok_choy",
+      "name": "小白菜",
+      "season": "秋",
+      "seed_cost": 50,
+      "sale_price": 80,
+      "grow_seconds": 1440,
+      "regrow_seconds": 0,
+      "mechanism": "single",
+      "unlock_cost": 800,
+      "initial_unlocked": false,
+      "product_id": "bok_choy",
+      "raw_product_id": "",
+      "process_seconds": 0,
+      "yield": 1,
+      "replant_cost": 50,
+      "pool": [],
+      "expected_sale_price": 80,
+      "notes": "当前成熟时间已确认；原作金币价；产量固定1",
+      "source": {
+        "sheet": "作物生产",
+        "row": 35,
+        "seed": "https://wiki.stardewvalley.net/Bok_Choy_Seeds",
+        "product": "https://wiki.stardewvalley.net/Bok_Choy"
+      },
+      "seed_price": 50,
+      "sell_price": 80,
+      "first_seconds": 1440,
+      "repeat_seconds": 0,
+      "unlock_price": 800,
+      "processing_seconds": 0,
+      "regrow": false,
+      "return_seed": false
+    },
+    {
+      "id": "broccoli",
+      "name": "西蓝花",
+      "season": "秋",
+      "seed_cost": 50,
+      "sale_price": 70,
+      "grow_seconds": 5040,
+      "regrow_seconds": 1680,
+      "mechanism": "regrow",
+      "unlock_cost": 700,
+      "initial_unlocked": false,
+      "product_id": "broccoli",
+      "raw_product_id": "",
+      "process_seconds": 0,
+      "yield": 1,
+      "replant_cost": 0,
+      "pool": [],
+      "expected_sale_price": 70,
+      "notes": "当前成熟时间与本作补购价已确认；原作无固定金币商店价",
+      "source": {
+        "sheet": "作物生产",
+        "row": 36,
+        "seed": "https://wiki.stardewvalley.net/Broccoli_Seeds",
+        "product": "https://wiki.stardewvalley.net/Broccoli"
+      },
+      "seed_price": 50,
+      "sell_price": 70,
+      "first_seconds": 5040,
+      "repeat_seconds": 1680,
+      "unlock_price": 700,
+      "processing_seconds": 0,
+      "regrow": true,
+      "return_seed": false
+    },
+    {
+      "id": "cranberry",
+      "name": "蔓越莓",
+      "season": "秋",
+      "seed_cost": 240,
+      "sale_price": 75,
+      "grow_seconds": 4500,
+      "regrow_seconds": 1500,
+      "mechanism": "regrow",
+      "unlock_cost": 750,
+      "initial_unlocked": false,
+      "product_id": "cranberry",
+      "raw_product_id": "",
+      "process_seconds": 0,
+      "yield": 1,
+      "replant_cost": 0,
+      "pool": [],
+      "expected_sale_price": 75,
+      "notes": "当前成熟时间已确认；原作金币价；产量固定1",
+      "source": {
+        "sheet": "作物生产",
+        "row": 37,
+        "seed": "https://wiki.stardewvalley.net/Cranberry_Seeds",
+        "product": "https://wiki.stardewvalley.net/Cranberries"
+      },
+      "seed_price": 240,
+      "sell_price": 75,
+      "first_seconds": 4500,
+      "repeat_seconds": 1500,
+      "unlock_price": 750,
+      "processing_seconds": 0,
+      "regrow": true,
+      "return_seed": false
+    },
+    {
+      "id": "eggplant",
+      "name": "茄子",
+      "season": "秋",
+      "seed_cost": 20,
+      "sale_price": 60,
+      "grow_seconds": 4320,
+      "regrow_seconds": 1440,
+      "mechanism": "regrow",
+      "unlock_cost": 600,
+      "initial_unlocked": false,
+      "product_id": "eggplant",
+      "raw_product_id": "",
+      "process_seconds": 0,
+      "yield": 1,
+      "replant_cost": 0,
+      "pool": [],
+      "expected_sale_price": 60,
+      "notes": "当前成熟时间已确认；原作金币价；产量固定1",
+      "source": {
+        "sheet": "作物生产",
+        "row": 38,
+        "seed": "https://wiki.stardewvalley.net/Eggplant_Seeds",
+        "product": "https://wiki.stardewvalley.net/Eggplant"
+      },
+      "seed_price": 20,
+      "sell_price": 60,
+      "first_seconds": 4320,
+      "repeat_seconds": 1440,
+      "unlock_price": 600,
+      "processing_seconds": 0,
+      "regrow": true,
+      "return_seed": false
+    },
+    {
+      "id": "fairy_rose",
+      "name": "玫瑰仙子",
+      "season": "秋",
+      "seed_cost": 200,
+      "sale_price": 290,
+      "grow_seconds": 2160,
+      "regrow_seconds": 0,
+      "mechanism": "single",
+      "unlock_cost": 2900,
+      "initial_unlocked": false,
+      "product_id": "fairy_rose",
+      "raw_product_id": "",
+      "process_seconds": 0,
+      "yield": 1,
+      "replant_cost": 200,
+      "pool": [],
+      "expected_sale_price": 290,
+      "notes": "当前成熟时间已确认；原作金币价；产量固定1",
+      "source": {
+        "sheet": "作物生产",
+        "row": 39,
+        "seed": "https://wiki.stardewvalley.net/Fairy_Seeds",
+        "product": "https://wiki.stardewvalley.net/Fairy_Rose"
+      },
+      "seed_price": 200,
+      "sell_price": 290,
+      "first_seconds": 2160,
+      "repeat_seconds": 0,
+      "unlock_price": 2900,
+      "processing_seconds": 0,
+      "regrow": false,
+      "return_seed": false
+    },
+    {
+      "id": "grape",
+      "name": "葡萄",
+      "season": "秋",
+      "seed_cost": 60,
+      "sale_price": 80,
+      "grow_seconds": 5760,
+      "regrow_seconds": 1920,
+      "mechanism": "regrow",
+      "unlock_cost": 800,
+      "initial_unlocked": false,
+      "product_id": "grape",
+      "raw_product_id": "",
+      "process_seconds": 0,
+      "yield": 1,
+      "replant_cost": 0,
+      "pool": [],
+      "expected_sale_price": 80,
+      "notes": "当前成熟时间已确认；原作金币价；产量固定1",
+      "source": {
+        "sheet": "作物生产",
+        "row": 40,
+        "seed": "https://wiki.stardewvalley.net/Grape_Starter",
+        "product": "https://wiki.stardewvalley.net/Grape"
+      },
+      "seed_price": 60,
+      "sell_price": 80,
+      "first_seconds": 5760,
+      "repeat_seconds": 1920,
+      "unlock_price": 800,
+      "processing_seconds": 0,
+      "regrow": true,
+      "return_seed": false
+    },
+    {
+      "id": "pumpkin",
+      "name": "南瓜",
+      "season": "秋",
+      "seed_cost": 100,
+      "sale_price": 320,
+      "grow_seconds": 4500,
+      "regrow_seconds": 0,
+      "mechanism": "single",
+      "unlock_cost": 3200,
+      "initial_unlocked": false,
+      "product_id": "pumpkin",
+      "raw_product_id": "",
+      "process_seconds": 0,
+      "yield": 1,
+      "replant_cost": 100,
+      "pool": [],
+      "expected_sale_price": 320,
+      "notes": "当前成熟时间已确认；原作金币价；产量固定1",
+      "source": {
+        "sheet": "作物生产",
+        "row": 41,
+        "seed": "https://wiki.stardewvalley.net/Pumpkin_Seeds",
+        "product": "https://wiki.stardewvalley.net/Pumpkin"
+      },
+      "seed_price": 100,
+      "sell_price": 320,
+      "first_seconds": 4500,
+      "repeat_seconds": 0,
+      "unlock_price": 3200,
+      "processing_seconds": 0,
+      "regrow": false,
+      "return_seed": false
+    },
+    {
+      "id": "yam",
+      "name": "山药",
+      "season": "秋",
+      "seed_cost": 60,
+      "sale_price": 160,
+      "grow_seconds": 3060,
+      "regrow_seconds": 0,
+      "mechanism": "single",
+      "unlock_cost": 1600,
+      "initial_unlocked": false,
+      "product_id": "yam",
+      "raw_product_id": "",
+      "process_seconds": 0,
+      "yield": 1,
+      "replant_cost": 60,
+      "pool": [],
+      "expected_sale_price": 160,
+      "notes": "当前成熟时间已确认；原作金币价；产量固定1",
+      "source": {
+        "sheet": "作物生产",
+        "row": 42,
+        "seed": "https://wiki.stardewvalley.net/Yam_Seeds",
+        "product": "https://wiki.stardewvalley.net/Yam"
+      },
+      "seed_price": 60,
+      "sell_price": 160,
+      "first_seconds": 3060,
+      "repeat_seconds": 0,
+      "unlock_price": 1600,
+      "processing_seconds": 0,
+      "regrow": false,
+      "return_seed": false
+    },
+    {
+      "id": "powdermelon",
+      "name": "霜瓜",
+      "season": "冬",
+      "seed_cost": 30,
+      "sale_price": 60,
+      "grow_seconds": 1440,
+      "regrow_seconds": 0,
+      "mechanism": "single",
+      "unlock_cost": 600,
+      "initial_unlocked": false,
+      "product_id": "powdermelon",
+      "raw_product_id": "",
+      "process_seconds": 0,
+      "yield": 1,
+      "replant_cost": 30,
+      "pool": [],
+      "expected_sale_price": 60,
+      "notes": "当前成熟时间与本作补购价已确认；原作无固定金币商店价",
+      "source": {
+        "sheet": "作物生产",
+        "row": 43,
+        "seed": "https://wiki.stardewvalley.net/Powdermelon_Seeds",
+        "product": "https://wiki.stardewvalley.net/Powdermelon"
+      },
+      "seed_price": 30,
+      "sell_price": 60,
+      "first_seconds": 1440,
+      "repeat_seconds": 0,
+      "unlock_price": 600,
+      "processing_seconds": 0,
+      "regrow": false,
+      "return_seed": false
+    },
+    {
+      "id": "ancient_fruit",
+      "name": "远古果实",
+      "season": "春、夏、秋",
+      "seed_cost": 600,
+      "sale_price": 550,
+      "grow_seconds": 13320,
+      "regrow_seconds": 4440,
+      "mechanism": "regrow",
+      "unlock_cost": 0,
+      "initial_unlocked": true,
+      "product_id": "ancient_fruit",
+      "raw_product_id": "",
+      "process_seconds": 0,
+      "yield": 1,
+      "replant_cost": 0,
+      "pool": [],
+      "expected_sale_price": 550,
+      "notes": "当前成熟时间与本作补购价已确认；原作无固定金币商店价",
+      "source": {
+        "sheet": "作物生产",
+        "row": 44,
+        "seed": "https://wiki.stardewvalley.net/Ancient_Seeds",
+        "product": "https://wiki.stardewvalley.net/Ancient_Fruit"
+      },
+      "seed_price": 600,
+      "sell_price": 550,
+      "first_seconds": 13320,
+      "repeat_seconds": 4440,
+      "unlock_price": 0,
+      "processing_seconds": 0,
+      "regrow": true,
+      "return_seed": false
+    },
+    {
+      "id": "cactus_fruit",
+      "name": "仙人掌果子",
+      "season": "全年（原作室内）",
+      "seed_cost": 150,
+      "sale_price": 75,
+      "grow_seconds": 4500,
+      "regrow_seconds": 1500,
+      "mechanism": "regrow",
+      "unlock_cost": 0,
+      "initial_unlocked": true,
+      "product_id": "cactus_fruit",
+      "raw_product_id": "",
+      "process_seconds": 0,
+      "yield": 1,
+      "replant_cost": 0,
+      "pool": [],
+      "expected_sale_price": 75,
+      "notes": "当前成熟时间已确认；原作金币价；产量固定1",
+      "source": {
+        "sheet": "作物生产",
+        "row": 45,
+        "seed": "https://wiki.stardewvalley.net/Cactus_Seeds",
+        "product": "https://wiki.stardewvalley.net/Cactus_Fruit"
+      },
+      "seed_price": 150,
+      "sell_price": 75,
+      "first_seconds": 4500,
+      "repeat_seconds": 1500,
+      "unlock_price": 0,
+      "processing_seconds": 0,
+      "regrow": true,
+      "return_seed": false
+    },
+    {
+      "id": "fiber",
+      "name": "纤维",
+      "season": "全年",
+      "seed_cost": 1,
+      "sale_price": 1,
+      "grow_seconds": 1260,
+      "regrow_seconds": 0,
+      "mechanism": "material",
+      "unlock_cost": 0,
+      "initial_unlocked": true,
+      "product_id": "fiber",
+      "raw_product_id": "",
+      "process_seconds": 0,
+      "yield": 1,
+      "replant_cost": 1,
+      "pool": [],
+      "expected_sale_price": 1,
+      "notes": "首版材料/图鉴用途；收入与种价均1，不作为赚钱作物，默认不自动选用",
+      "source": {
+        "sheet": "作物生产",
+        "row": 46,
+        "seed": "https://wiki.stardewvalley.net/Fiber_Seeds",
+        "product": "https://wiki.stardewvalley.net/Fiber"
+      },
+      "seed_price": 1,
+      "sell_price": 1,
+      "first_seconds": 1260,
+      "repeat_seconds": 0,
+      "unlock_price": 0,
+      "processing_seconds": 0,
+      "regrow": false,
+      "return_seed": false
+    },
+    {
+      "id": "pineapple",
+      "name": "菠萝",
+      "season": "夏（姜岛全年）",
+      "seed_cost": 300,
+      "sale_price": 300,
+      "grow_seconds": 10800,
+      "regrow_seconds": 3600,
+      "mechanism": "regrow",
+      "unlock_cost": 3000,
+      "initial_unlocked": false,
+      "product_id": "pineapple",
+      "raw_product_id": "",
+      "process_seconds": 0,
+      "yield": 1,
+      "replant_cost": 0,
+      "pool": [],
+      "expected_sale_price": 300,
+      "notes": "当前成熟时间与本作补购价已确认；原作无固定金币商店价",
+      "source": {
+        "sheet": "作物生产",
+        "row": 47,
+        "seed": "https://wiki.stardewvalley.net/Pineapple_Seeds",
+        "product": "https://wiki.stardewvalley.net/Pineapple"
+      },
+      "seed_price": 300,
+      "sell_price": 300,
+      "first_seconds": 10800,
+      "repeat_seconds": 3600,
+      "unlock_price": 3000,
+      "processing_seconds": 0,
+      "regrow": true,
+      "return_seed": false
+    },
+    {
+      "id": "qi_fruit",
+      "name": "齐瓜",
+      "season": "全年（原作任务）",
+      "seed_cost": 1,
+      "sale_price": 1,
+      "grow_seconds": 720,
+      "regrow_seconds": 0,
+      "mechanism": "material",
+      "unlock_cost": 0,
+      "initial_unlocked": true,
+      "product_id": "qi_fruit",
+      "raw_product_id": "",
+      "process_seconds": 0,
+      "yield": 1,
+      "replant_cost": 1,
+      "pool": [],
+      "expected_sale_price": 1,
+      "notes": "首版材料/图鉴用途；收入与种价均1，不作为赚钱作物，默认不自动选用",
+      "source": {
+        "sheet": "作物生产",
+        "row": 48,
+        "seed": "https://wiki.stardewvalley.net/Qi_Bean",
+        "product": "https://wiki.stardewvalley.net/Qi_Fruit"
+      },
+      "seed_price": 1,
+      "sell_price": 1,
+      "first_seconds": 720,
+      "repeat_seconds": 0,
+      "unlock_price": 0,
+      "processing_seconds": 0,
+      "regrow": false,
+      "return_seed": false
+    },
+    {
+      "id": "sweet_gem_berry",
+      "name": "宝石甜莓",
+      "season": "秋",
+      "seed_cost": 1000,
+      "sale_price": 3000,
+      "grow_seconds": 12060,
+      "regrow_seconds": 0,
+      "mechanism": "single",
+      "unlock_cost": 30000,
+      "initial_unlocked": false,
+      "product_id": "sweet_gem_berry",
+      "raw_product_id": "",
+      "process_seconds": 0,
+      "yield": 1,
+      "replant_cost": 1000,
+      "pool": [],
+      "expected_sale_price": 3000,
+      "notes": "当前成熟时间已确认；原作金币价；产量固定1",
+      "source": {
+        "sheet": "作物生产",
+        "row": 49,
+        "seed": "https://wiki.stardewvalley.net/Rare_Seed",
+        "product": "https://wiki.stardewvalley.net/Sweet_Gem_Berry"
+      },
+      "seed_price": 1000,
+      "sell_price": 3000,
+      "first_seconds": 12060,
+      "repeat_seconds": 0,
+      "unlock_price": 30000,
+      "processing_seconds": 0,
+      "regrow": false,
+      "return_seed": false
+    },
+    {
+      "id": "taro_root",
+      "name": "芋头",
+      "season": "夏（姜岛全年）",
+      "seed_cost": 40,
+      "sale_price": 100,
+      "grow_seconds": 1800,
+      "regrow_seconds": 0,
+      "mechanism": "single",
+      "unlock_cost": 1000,
+      "initial_unlocked": false,
+      "product_id": "taro_root",
+      "raw_product_id": "",
+      "process_seconds": 0,
+      "yield": 1,
+      "replant_cost": 40,
+      "pool": [],
+      "expected_sale_price": 100,
+      "notes": "当前成熟时间与本作补购价已确认；原作无固定金币商店价",
+      "source": {
+        "sheet": "作物生产",
+        "row": 50,
+        "seed": "https://wiki.stardewvalley.net/Taro_Tuber",
+        "product": "https://wiki.stardewvalley.net/Taro_Root"
+      },
+      "seed_price": 40,
+      "sell_price": 100,
+      "first_seconds": 1800,
+      "repeat_seconds": 0,
+      "unlock_price": 1000,
+      "processing_seconds": 0,
+      "regrow": false,
+      "return_seed": false
+    },
+    {
+      "id": "tea_leaves",
+      "name": "茶叶",
+      "season": "春、夏、秋（室内全年）",
+      "seed_cost": 1000,
+      "sale_price": 50,
+      "grow_seconds": 3600,
+      "regrow_seconds": 1200,
+      "mechanism": "regrow",
+      "unlock_cost": 0,
+      "initial_unlocked": true,
+      "product_id": "tea_leaves",
+      "raw_product_id": "",
+      "process_seconds": 0,
+      "yield": 1,
+      "replant_cost": 0,
+      "pool": [],
+      "expected_sale_price": 50,
+      "notes": "茶苗货车750～1250取1000；全年可产，取消月末限制，首版已确认",
+      "source": {
+        "sheet": "作物生产",
+        "row": 51,
+        "seed": "https://wiki.stardewvalley.net/Tea_Sapling",
+        "product": "https://wiki.stardewvalley.net/Tea_Leaves"
+      },
+      "seed_price": 1000,
+      "sell_price": 50,
+      "first_seconds": 3600,
+      "repeat_seconds": 1200,
+      "unlock_price": 0,
+      "processing_seconds": 0,
+      "regrow": true,
+      "return_seed": false
+    },
+    {
+      "id": "spring_seeds",
+      "name": "春季种子",
+      "season": "春",
+      "seed_cost": 18,
+      "sale_price": 0,
+      "grow_seconds": 1440,
+      "regrow_seconds": 0,
+      "mechanism": "mixed",
+      "unlock_cost": 0,
+      "initial_unlocked": true,
+      "product_id": "",
+      "raw_product_id": "",
+      "process_seconds": 0,
+      "yield": 1,
+      "replant_cost": 18,
+      "pool": [
+        {
+          "item_id": "wild_horseradish",
+          "product_id": "wild_horseradish",
+          "name": "野山葵",
+          "sale_price": 50,
+          "sell_price": 50,
+          "weight": 0.25
+        },
+        {
+          "item_id": "daffodil",
+          "product_id": "daffodil",
+          "name": "黄水仙",
+          "sale_price": 30,
+          "sell_price": 30,
+          "weight": 0.25
+        },
+        {
+          "item_id": "leek",
+          "product_id": "leek",
+          "name": "韭葱",
+          "sale_price": 60,
+          "sell_price": 60,
+          "weight": 0.25
+        },
+        {
+          "item_id": "dandelion",
+          "product_id": "dandelion",
+          "name": "蒲公英",
+          "sale_price": 40,
+          "sell_price": 40,
+          "weight": 0.25
+        }
+      ],
+      "expected_sale_price": 45,
+      "notes": "已确认常驻金币价=平均售价40%；每轮等概率随机：野山葵 50、黄水仙 30、韭葱 60、蒲公英 40；解锁按均值",
+      "source": {
+        "sheet": "作物生产",
+        "row": 52,
+        "seed": "https://wiki.stardewvalley.net/Spring_Seeds",
+        "product": "https://wiki.stardewvalley.net/Wild_Horseradish | https://wiki.stardewvalley.net/Daffodil | https://wiki.stardewvalley.net/Leek | https://wiki.stardewvalley.net/Dandelion"
+      },
+      "seed_price": 18,
+      "sell_price": 0,
+      "first_seconds": 1440,
+      "repeat_seconds": 0,
+      "unlock_price": 0,
+      "processing_seconds": 0,
+      "regrow": false,
+      "return_seed": false
+    },
+    {
+      "id": "summer_seeds",
+      "name": "夏季种子",
+      "season": "夏",
+      "seed_cost": 28,
+      "sale_price": 0,
+      "grow_seconds": 2160,
+      "regrow_seconds": 0,
+      "mechanism": "mixed",
+      "unlock_cost": 700,
+      "initial_unlocked": false,
+      "product_id": "",
+      "raw_product_id": "",
+      "process_seconds": 0,
+      "yield": 1,
+      "replant_cost": 28,
+      "pool": [
+        {
+          "item_id": "spice_berry",
+          "product_id": "spice_berry",
+          "name": "香味浆果",
+          "sale_price": 80,
+          "sell_price": 80,
+          "weight": 0.3333333333333333
+        },
+        {
+          "item_id": "grape",
+          "product_id": "grape",
+          "name": "葡萄",
+          "sale_price": 80,
+          "sell_price": 80,
+          "weight": 0.3333333333333333
+        },
+        {
+          "item_id": "sweet_pea",
+          "product_id": "sweet_pea",
+          "name": "甜豌豆",
+          "sale_price": 50,
+          "sell_price": 50,
+          "weight": 0.3333333333333333
+        }
+      ],
+      "expected_sale_price": 70,
+      "notes": "已确认常驻金币价=平均售价40%；每轮等概率随机：香味浆果 80、葡萄 80、甜豌豆 50；解锁按均值",
+      "source": {
+        "sheet": "作物生产",
+        "row": 53,
+        "seed": "https://wiki.stardewvalley.net/Summer_Seeds",
+        "product": "https://wiki.stardewvalley.net/Spice_Berry | https://wiki.stardewvalley.net/Grape | https://wiki.stardewvalley.net/Sweet_Pea"
+      },
+      "seed_price": 28,
+      "sell_price": 0,
+      "first_seconds": 2160,
+      "repeat_seconds": 0,
+      "unlock_price": 700,
+      "processing_seconds": 0,
+      "regrow": false,
+      "return_seed": false
+    },
+    {
+      "id": "fall_seeds",
+      "name": "秋季种子",
+      "season": "秋",
+      "seed_cost": 23,
+      "sale_price": 0,
+      "grow_seconds": 1800,
+      "regrow_seconds": 0,
+      "mechanism": "mixed",
+      "unlock_cost": 575,
+      "initial_unlocked": false,
+      "product_id": "",
+      "raw_product_id": "",
+      "process_seconds": 0,
+      "yield": 1,
+      "replant_cost": 23,
+      "pool": [
+        {
+          "item_id": "common_mushroom",
+          "product_id": "common_mushroom",
+          "name": "普通蘑菇",
+          "sale_price": 40,
+          "sell_price": 40,
+          "weight": 0.25
+        },
+        {
+          "item_id": "wild_plum",
+          "product_id": "wild_plum",
+          "name": "野梅",
+          "sale_price": 80,
+          "sell_price": 80,
+          "weight": 0.25
+        },
+        {
+          "item_id": "hazelnut",
+          "product_id": "hazelnut",
+          "name": "榛子",
+          "sale_price": 90,
+          "sell_price": 90,
+          "weight": 0.25
+        },
+        {
+          "item_id": "blackberry",
+          "product_id": "blackberry",
+          "name": "黑莓",
+          "sale_price": 20,
+          "sell_price": 20,
+          "weight": 0.25
+        }
+      ],
+      "expected_sale_price": 57.5,
+      "notes": "已确认常驻金币价=平均售价40%；每轮等概率随机：普通蘑菇 40、野梅 80、榛子 90、黑莓 20；解锁按均值",
+      "source": {
+        "sheet": "作物生产",
+        "row": 54,
+        "seed": "https://wiki.stardewvalley.net/Fall_Seeds",
+        "product": "https://wiki.stardewvalley.net/Common_Mushroom | https://wiki.stardewvalley.net/Wild_Plum | https://wiki.stardewvalley.net/Hazelnut | https://wiki.stardewvalley.net/Blackberry"
+      },
+      "seed_price": 23,
+      "sell_price": 0,
+      "first_seconds": 1800,
+      "repeat_seconds": 0,
+      "unlock_price": 575,
+      "processing_seconds": 0,
+      "regrow": false,
+      "return_seed": false
+    },
+    {
+      "id": "winter_seeds",
+      "name": "冬季种子",
+      "season": "冬",
+      "seed_cost": 38,
+      "sale_price": 0,
+      "grow_seconds": 2880,
+      "regrow_seconds": 0,
+      "mechanism": "mixed",
+      "unlock_cost": 950,
+      "initial_unlocked": false,
+      "product_id": "",
+      "raw_product_id": "",
+      "process_seconds": 0,
+      "yield": 1,
+      "replant_cost": 38,
+      "pool": [
+        {
+          "item_id": "winter_root",
+          "product_id": "winter_root",
+          "name": "冬根",
+          "sale_price": 70,
+          "sell_price": 70,
+          "weight": 0.25
+        },
+        {
+          "item_id": "crystal_fruit",
+          "product_id": "crystal_fruit",
+          "name": "水晶果",
+          "sale_price": 150,
+          "sell_price": 150,
+          "weight": 0.25
+        },
+        {
+          "item_id": "snow_yam",
+          "product_id": "snow_yam",
+          "name": "雪山药",
+          "sale_price": 100,
+          "sell_price": 100,
+          "weight": 0.25
+        },
+        {
+          "item_id": "crocus",
+          "product_id": "crocus",
+          "name": "番红花",
+          "sale_price": 60,
+          "sell_price": 60,
+          "weight": 0.25
+        }
+      ],
+      "expected_sale_price": 95,
+      "notes": "已确认常驻金币价=平均售价40%；每轮等概率随机：冬根 70、水晶果 150、雪山药 100、番红花 60；解锁按均值",
+      "source": {
+        "sheet": "作物生产",
+        "row": 55,
+        "seed": "https://wiki.stardewvalley.net/Winter_Seeds",
+        "product": "https://wiki.stardewvalley.net/Winter_Root | https://wiki.stardewvalley.net/Crystal_Fruit | https://wiki.stardewvalley.net/Snow_Yam | https://wiki.stardewvalley.net/Crocus"
+      },
+      "seed_price": 38,
+      "sell_price": 0,
+      "first_seconds": 2880,
+      "repeat_seconds": 0,
+      "unlock_price": 950,
+      "processing_seconds": 0,
+      "regrow": false,
+      "return_seed": false
+    },
+    {
+      "id": "mixed_seeds",
+      "name": "混合种子",
+      "season": "春池（首版固定）",
+      "seed_cost": 30,
+      "sale_price": 0,
+      "grow_seconds": 3240,
+      "regrow_seconds": 0,
+      "mechanism": "mixed",
+      "unlock_cost": 0,
+      "initial_unlocked": true,
+      "product_id": "",
+      "raw_product_id": "",
+      "process_seconds": 0,
+      "yield": 1,
+      "replant_cost": 30,
+      "pool": [
+        {
+          "item_id": "cauliflower",
+          "product_id": "cauliflower",
+          "name": "花椰菜",
+          "sale_price": 175,
+          "sell_price": 175,
+          "weight": 0.3333333333333333
+        },
+        {
+          "item_id": "parsnip",
+          "product_id": "parsnip",
+          "name": "防风草",
+          "sale_price": 35,
+          "sell_price": 35,
+          "weight": 0.3333333333333333
+        },
+        {
+          "item_id": "potato",
+          "product_id": "potato",
+          "name": "土豆",
+          "sale_price": 80,
+          "sell_price": 80,
+          "weight": 0.3333333333333333
+        }
+      ],
+      "expected_sale_price": 96.66666666666667,
+      "notes": "已确认首版固定春池，按包单次成熟后换种；等概率花椰菜/防风草/土豆，不继承目标作物成熟期和连收。夏秋池保留为后续扩展。",
+      "source": {
+        "sheet": "作物生产",
+        "row": 56,
+        "seed": "https://wiki.stardewvalley.net/Mixed_Seeds",
+        "product": "https://wiki.stardewvalley.net/Mixed_Seeds"
+      },
+      "seed_price": 30,
+      "sell_price": 0,
+      "first_seconds": 3240,
+      "repeat_seconds": 0,
+      "unlock_price": 0,
+      "processing_seconds": 0,
+      "regrow": false,
+      "return_seed": false
+    },
+    {
+      "id": "mixed_flower_seeds",
+      "name": "混合花卉种子",
+      "season": "春池（首版固定）",
+      "seed_cost": 15,
+      "sale_price": 0,
+      "grow_seconds": 1260,
+      "regrow_seconds": 0,
+      "mechanism": "mixed",
+      "unlock_cost": 0,
+      "initial_unlocked": true,
+      "product_id": "",
+      "raw_product_id": "",
+      "process_seconds": 0,
+      "yield": 1,
+      "replant_cost": 15,
+      "pool": [
+        {
+          "item_id": "tulip",
+          "product_id": "tulip",
+          "name": "郁金香",
+          "sale_price": 30,
+          "sell_price": 30,
+          "weight": 0.5
+        },
+        {
+          "item_id": "blue_jazz",
+          "product_id": "blue_jazz",
+          "name": "蓝爵花",
+          "sale_price": 50,
+          "sell_price": 50,
+          "weight": 0.5
+        }
+      ],
+      "expected_sale_price": 40,
+      "notes": "已确认首版固定春池，按包单次成熟；等概率郁金香/蓝爵花。15为本作补购价，夏秋池保留为后续扩展。",
+      "source": {
+        "sheet": "作物生产",
+        "row": 57,
+        "seed": "https://wiki.stardewvalley.net/Mixed_Flower_Seeds",
+        "product": "https://wiki.stardewvalley.net/Mixed_Flower_Seeds"
+      },
+      "seed_price": 15,
+      "sell_price": 0,
+      "first_seconds": 1260,
+      "repeat_seconds": 0,
+      "unlock_price": 0,
+      "processing_seconds": 0,
+      "regrow": false,
+      "return_seed": false
+    }
+  ],
+  "items": [
+    {
+      "id": "blue_jazz",
+      "name": "蓝爵花",
+      "category": "crop",
+      "sale_price": 50,
+      "sell_price": 50,
+      "source": "作物生产!E5"
+    },
+    {
+      "id": "carrot",
+      "name": "胡萝卜",
+      "category": "crop",
+      "sale_price": 35,
+      "sell_price": 35,
+      "source": "作物生产!E6"
+    },
+    {
+      "id": "cauliflower",
+      "name": "花椰菜",
+      "category": "crop",
+      "sale_price": 175,
+      "sell_price": 175,
+      "source": "作物生产!E7"
+    },
+    {
+      "id": "coffee_bean",
+      "name": "咖啡豆",
+      "category": "crop",
+      "sale_price": 15,
+      "sell_price": 15,
+      "source": "作物生产!E8"
+    },
+    {
+      "id": "garlic",
+      "name": "大蒜",
+      "category": "crop",
+      "sale_price": 60,
+      "sell_price": 60,
+      "source": "作物生产!E9"
+    },
+    {
+      "id": "green_bean",
+      "name": "青豆",
+      "category": "crop",
+      "sale_price": 40,
+      "sell_price": 40,
+      "source": "作物生产!E10"
+    },
+    {
+      "id": "kale",
+      "name": "羽衣甘蓝",
+      "category": "crop",
+      "sale_price": 110,
+      "sell_price": 110,
+      "source": "作物生产!E11"
+    },
+    {
+      "id": "parsnip",
+      "name": "防风草",
+      "category": "crop",
+      "sale_price": 35,
+      "sell_price": 35,
+      "source": "作物生产!E12"
+    },
+    {
+      "id": "potato",
+      "name": "土豆",
+      "category": "crop",
+      "sale_price": 80,
+      "sell_price": 80,
+      "source": "作物生产!E13"
+    },
+    {
+      "id": "rhubarb",
+      "name": "大黄",
+      "category": "crop",
+      "sale_price": 220,
+      "sell_price": 220,
+      "source": "作物生产!E14"
+    },
+    {
+      "id": "strawberry",
+      "name": "草莓",
+      "category": "crop",
+      "sale_price": 120,
+      "sell_price": 120,
+      "source": "作物生产!E15"
+    },
+    {
+      "id": "tulip",
+      "name": "郁金香",
+      "category": "crop",
+      "sale_price": 30,
+      "sell_price": 30,
+      "source": "作物生产!E16"
+    },
+    {
+      "id": "unmilled_rice",
+      "name": "未碾米",
+      "category": "crop",
+      "sale_price": 30,
+      "sell_price": 30,
+      "source": "作物生产!O17"
+    },
+    {
+      "id": "rice",
+      "name": "大米",
+      "category": "crop",
+      "sale_price": 100,
+      "sell_price": 100,
+      "source": "作物生产!E17"
+    },
+    {
+      "id": "blueberry",
+      "name": "蓝莓",
+      "category": "crop",
+      "sale_price": 50,
+      "sell_price": 50,
+      "source": "作物生产!E18"
+    },
+    {
+      "id": "corn",
+      "name": "玉米",
+      "category": "crop",
+      "sale_price": 50,
+      "sell_price": 50,
+      "source": "作物生产!E19"
+    },
+    {
+      "id": "hops",
+      "name": "啤酒花",
+      "category": "crop",
+      "sale_price": 25,
+      "sell_price": 25,
+      "source": "作物生产!E20"
+    },
+    {
+      "id": "hot_pepper",
+      "name": "辣椒",
+      "category": "crop",
+      "sale_price": 40,
+      "sell_price": 40,
+      "source": "作物生产!E21"
+    },
+    {
+      "id": "melon",
+      "name": "甜瓜",
+      "category": "crop",
+      "sale_price": 250,
+      "sell_price": 250,
+      "source": "作物生产!E22"
+    },
+    {
+      "id": "poppy",
+      "name": "虞美人",
+      "category": "crop",
+      "sale_price": 140,
+      "sell_price": 140,
+      "source": "作物生产!E23"
+    },
+    {
+      "id": "radish",
+      "name": "萝卜",
+      "category": "crop",
+      "sale_price": 90,
+      "sell_price": 90,
+      "source": "作物生产!E24"
+    },
+    {
+      "id": "red_cabbage",
+      "name": "红叶卷心菜",
+      "category": "crop",
+      "sale_price": 260,
+      "sell_price": 260,
+      "source": "作物生产!E25"
+    },
+    {
+      "id": "starfruit",
+      "name": "杨桃",
+      "category": "crop",
+      "sale_price": 750,
+      "sell_price": 750,
+      "source": "作物生产!E26"
+    },
+    {
+      "id": "summer_spangle",
+      "name": "夏季亮片",
+      "category": "crop",
+      "sale_price": 90,
+      "sell_price": 90,
+      "source": "作物生产!E27"
+    },
+    {
+      "id": "summer_squash",
+      "name": "西葫芦",
+      "category": "crop",
+      "sale_price": 45,
+      "sell_price": 45,
+      "source": "作物生产!E28"
+    },
+    {
+      "id": "sunflower",
+      "name": "向日葵",
+      "category": "crop",
+      "sale_price": 80,
+      "sell_price": 80,
+      "source": "作物生产!E29"
+    },
+    {
+      "id": "tomato",
+      "name": "番茄",
+      "category": "crop",
+      "sale_price": 60,
+      "sell_price": 60,
+      "source": "作物生产!E30"
+    },
+    {
+      "id": "wheat",
+      "name": "小麦",
+      "category": "crop",
+      "sale_price": 25,
+      "sell_price": 25,
+      "source": "作物生产!E31"
+    },
+    {
+      "id": "amaranth",
+      "name": "苋菜",
+      "category": "crop",
+      "sale_price": 150,
+      "sell_price": 150,
+      "source": "作物生产!E32"
+    },
+    {
+      "id": "artichoke",
+      "name": "洋蓟",
+      "category": "crop",
+      "sale_price": 160,
+      "sell_price": 160,
+      "source": "作物生产!E33"
+    },
+    {
+      "id": "beet",
+      "name": "甜菜",
+      "category": "crop",
+      "sale_price": 100,
+      "sell_price": 100,
+      "source": "作物生产!E34"
+    },
+    {
+      "id": "bok_choy",
+      "name": "小白菜",
+      "category": "crop",
+      "sale_price": 80,
+      "sell_price": 80,
+      "source": "作物生产!E35"
+    },
+    {
+      "id": "broccoli",
+      "name": "西蓝花",
+      "category": "crop",
+      "sale_price": 70,
+      "sell_price": 70,
+      "source": "作物生产!E36"
+    },
+    {
+      "id": "cranberry",
+      "name": "蔓越莓",
+      "category": "crop",
+      "sale_price": 75,
+      "sell_price": 75,
+      "source": "作物生产!E37"
+    },
+    {
+      "id": "eggplant",
+      "name": "茄子",
+      "category": "crop",
+      "sale_price": 60,
+      "sell_price": 60,
+      "source": "作物生产!E38"
+    },
+    {
+      "id": "fairy_rose",
+      "name": "玫瑰仙子",
+      "category": "crop",
+      "sale_price": 290,
+      "sell_price": 290,
+      "source": "作物生产!E39"
+    },
+    {
+      "id": "grape",
+      "name": "葡萄",
+      "category": "crop",
+      "sale_price": 80,
+      "sell_price": 80,
+      "source": "作物生产!E40"
+    },
+    {
+      "id": "pumpkin",
+      "name": "南瓜",
+      "category": "crop",
+      "sale_price": 320,
+      "sell_price": 320,
+      "source": "作物生产!E41"
+    },
+    {
+      "id": "yam",
+      "name": "山药",
+      "category": "crop",
+      "sale_price": 160,
+      "sell_price": 160,
+      "source": "作物生产!E42"
+    },
+    {
+      "id": "powdermelon",
+      "name": "霜瓜",
+      "category": "crop",
+      "sale_price": 60,
+      "sell_price": 60,
+      "source": "作物生产!E43"
+    },
+    {
+      "id": "ancient_fruit",
+      "name": "远古果实",
+      "category": "crop",
+      "sale_price": 550,
+      "sell_price": 550,
+      "source": "作物生产!E44"
+    },
+    {
+      "id": "cactus_fruit",
+      "name": "仙人掌果子",
+      "category": "crop",
+      "sale_price": 75,
+      "sell_price": 75,
+      "source": "作物生产!E45"
+    },
+    {
+      "id": "fiber",
+      "name": "纤维",
+      "category": "crop",
+      "sale_price": 1,
+      "sell_price": 1,
+      "source": "作物生产!E46"
+    },
+    {
+      "id": "pineapple",
+      "name": "菠萝",
+      "category": "crop",
+      "sale_price": 300,
+      "sell_price": 300,
+      "source": "作物生产!E47"
+    },
+    {
+      "id": "qi_fruit",
+      "name": "齐瓜",
+      "category": "crop",
+      "sale_price": 1,
+      "sell_price": 1,
+      "source": "作物生产!E48"
+    },
+    {
+      "id": "sweet_gem_berry",
+      "name": "宝石甜莓",
+      "category": "crop",
+      "sale_price": 3000,
+      "sell_price": 3000,
+      "source": "作物生产!E49"
+    },
+    {
+      "id": "taro_root",
+      "name": "芋头",
+      "category": "crop",
+      "sale_price": 100,
+      "sell_price": 100,
+      "source": "作物生产!E50"
+    },
+    {
+      "id": "tea_leaves",
+      "name": "茶叶",
+      "category": "crop",
+      "sale_price": 50,
+      "sell_price": 50,
+      "source": "作物生产!E51"
+    },
+    {
+      "id": "wild_horseradish",
+      "name": "野山葵",
+      "category": "crop",
+      "sale_price": 50,
+      "sell_price": 50,
+      "source": "作物生产!X52"
+    },
+    {
+      "id": "daffodil",
+      "name": "黄水仙",
+      "category": "crop",
+      "sale_price": 30,
+      "sell_price": 30,
+      "source": "作物生产!X52"
+    },
+    {
+      "id": "leek",
+      "name": "韭葱",
+      "category": "crop",
+      "sale_price": 60,
+      "sell_price": 60,
+      "source": "作物生产!X52"
+    },
+    {
+      "id": "dandelion",
+      "name": "蒲公英",
+      "category": "crop",
+      "sale_price": 40,
+      "sell_price": 40,
+      "source": "作物生产!X52"
+    },
+    {
+      "id": "spice_berry",
+      "name": "香味浆果",
+      "category": "crop",
+      "sale_price": 80,
+      "sell_price": 80,
+      "source": "作物生产!X53"
+    },
+    {
+      "id": "sweet_pea",
+      "name": "甜豌豆",
+      "category": "crop",
+      "sale_price": 50,
+      "sell_price": 50,
+      "source": "作物生产!X53"
+    },
+    {
+      "id": "common_mushroom",
+      "name": "普通蘑菇",
+      "category": "crop",
+      "sale_price": 40,
+      "sell_price": 40,
+      "source": "作物生产!X54"
+    },
+    {
+      "id": "wild_plum",
+      "name": "野梅",
+      "category": "crop",
+      "sale_price": 80,
+      "sell_price": 80,
+      "source": "作物生产!X54"
+    },
+    {
+      "id": "hazelnut",
+      "name": "榛子",
+      "category": "crop",
+      "sale_price": 90,
+      "sell_price": 90,
+      "source": "作物生产!X54"
+    },
+    {
+      "id": "blackberry",
+      "name": "黑莓",
+      "category": "crop",
+      "sale_price": 20,
+      "sell_price": 20,
+      "source": "作物生产!X54"
+    },
+    {
+      "id": "winter_root",
+      "name": "冬根",
+      "category": "crop",
+      "sale_price": 70,
+      "sell_price": 70,
+      "source": "作物生产!X55"
+    },
+    {
+      "id": "crystal_fruit",
+      "name": "水晶果",
+      "category": "crop",
+      "sale_price": 150,
+      "sell_price": 150,
+      "source": "作物生产!X55"
+    },
+    {
+      "id": "snow_yam",
+      "name": "雪山药",
+      "category": "crop",
+      "sale_price": 100,
+      "sell_price": 100,
+      "source": "作物生产!X55"
+    },
+    {
+      "id": "crocus",
+      "name": "番红花",
+      "category": "crop",
+      "sale_price": 60,
+      "sell_price": 60,
+      "source": "作物生产!X55"
+    },
+    {
+      "id": "egg",
+      "name": "鸡蛋",
+      "category": "animal",
+      "sale_price": 50,
+      "sell_price": 50,
+      "source": "动物生产!F6"
+    },
+    {
+      "id": "duck_egg",
+      "name": "鸭蛋",
+      "category": "animal",
+      "sale_price": 95,
+      "sell_price": 95,
+      "source": "动物生产!F7"
+    },
+    {
+      "id": "wool",
+      "name": "羊毛",
+      "category": "animal",
+      "sale_price": 340,
+      "sell_price": 340,
+      "source": "动物生产!F8"
+    },
+    {
+      "id": "milk",
+      "name": "牛奶",
+      "category": "animal",
+      "sale_price": 125,
+      "sell_price": 125,
+      "source": "动物生产!F9"
+    },
+    {
+      "id": "goat_milk",
+      "name": "羊奶",
+      "category": "animal",
+      "sale_price": 225,
+      "sell_price": 225,
+      "source": "动物生产!F10"
+    },
+    {
+      "id": "truffle",
+      "name": "松露",
+      "category": "animal",
+      "sale_price": 625,
+      "sell_price": 625,
+      "source": "动物生产!F12"
+    },
+    {
+      "id": "void_egg",
+      "name": "虚空蛋",
+      "category": "animal",
+      "sale_price": 65,
+      "sell_price": 65,
+      "source": "动物生产!F13"
+    },
+    {
+      "id": "golden_egg",
+      "name": "金蛋",
+      "category": "animal",
+      "sale_price": 500,
+      "sell_price": 500,
+      "source": "动物生产!F14"
+    },
+    {
+      "id": "dinosaur_egg",
+      "name": "恐龙蛋",
+      "category": "animal",
+      "sale_price": 350,
+      "sell_price": 350,
+      "source": "动物生产!F15"
+    },
+    {
+      "id": "ostrich_egg",
+      "name": "鸵鸟蛋",
+      "category": "animal",
+      "sale_price": 600,
+      "sell_price": 600,
+      "source": "动物生产!F16"
+    },
+    {
+      "id": "silver_fish",
+      "name": "小银鱼",
+      "category": "fish",
+      "sale_price": 30,
+      "sell_price": 30,
+      "source": "鱼塘!C5"
+    },
+    {
+      "id": "blueback_fish",
+      "name": "青背鱼",
+      "category": "fish",
+      "sale_price": 50,
+      "sell_price": 50,
+      "source": "鱼塘!C6"
+    },
+    {
+      "id": "goldstripe_fish",
+      "name": "金纹鱼",
+      "category": "fish",
+      "sale_price": 70,
+      "sell_price": 70,
+      "source": "鱼塘!C7"
+    }
+  ],
+  "products": {
+    "blue_jazz": {
+      "id": "blue_jazz",
+      "name": "蓝爵花",
+      "category": "crop",
+      "sale_price": 50,
+      "sell_price": 50,
+      "source": "作物生产!E5"
+    },
+    "carrot": {
+      "id": "carrot",
+      "name": "胡萝卜",
+      "category": "crop",
+      "sale_price": 35,
+      "sell_price": 35,
+      "source": "作物生产!E6"
+    },
+    "cauliflower": {
+      "id": "cauliflower",
+      "name": "花椰菜",
+      "category": "crop",
+      "sale_price": 175,
+      "sell_price": 175,
+      "source": "作物生产!E7"
+    },
+    "coffee_bean": {
+      "id": "coffee_bean",
+      "name": "咖啡豆",
+      "category": "crop",
+      "sale_price": 15,
+      "sell_price": 15,
+      "source": "作物生产!E8"
+    },
+    "garlic": {
+      "id": "garlic",
+      "name": "大蒜",
+      "category": "crop",
+      "sale_price": 60,
+      "sell_price": 60,
+      "source": "作物生产!E9"
+    },
+    "green_bean": {
+      "id": "green_bean",
+      "name": "青豆",
+      "category": "crop",
+      "sale_price": 40,
+      "sell_price": 40,
+      "source": "作物生产!E10"
+    },
+    "kale": {
+      "id": "kale",
+      "name": "羽衣甘蓝",
+      "category": "crop",
+      "sale_price": 110,
+      "sell_price": 110,
+      "source": "作物生产!E11"
+    },
+    "parsnip": {
+      "id": "parsnip",
+      "name": "防风草",
+      "category": "crop",
+      "sale_price": 35,
+      "sell_price": 35,
+      "source": "作物生产!E12"
+    },
+    "potato": {
+      "id": "potato",
+      "name": "土豆",
+      "category": "crop",
+      "sale_price": 80,
+      "sell_price": 80,
+      "source": "作物生产!E13"
+    },
+    "rhubarb": {
+      "id": "rhubarb",
+      "name": "大黄",
+      "category": "crop",
+      "sale_price": 220,
+      "sell_price": 220,
+      "source": "作物生产!E14"
+    },
+    "strawberry": {
+      "id": "strawberry",
+      "name": "草莓",
+      "category": "crop",
+      "sale_price": 120,
+      "sell_price": 120,
+      "source": "作物生产!E15"
+    },
+    "tulip": {
+      "id": "tulip",
+      "name": "郁金香",
+      "category": "crop",
+      "sale_price": 30,
+      "sell_price": 30,
+      "source": "作物生产!E16"
+    },
+    "unmilled_rice": {
+      "id": "unmilled_rice",
+      "name": "未碾米",
+      "category": "crop",
+      "sale_price": 30,
+      "sell_price": 30,
+      "source": "作物生产!O17"
+    },
+    "rice": {
+      "id": "rice",
+      "name": "大米",
+      "category": "crop",
+      "sale_price": 100,
+      "sell_price": 100,
+      "source": "作物生产!E17"
+    },
+    "blueberry": {
+      "id": "blueberry",
+      "name": "蓝莓",
+      "category": "crop",
+      "sale_price": 50,
+      "sell_price": 50,
+      "source": "作物生产!E18"
+    },
+    "corn": {
+      "id": "corn",
+      "name": "玉米",
+      "category": "crop",
+      "sale_price": 50,
+      "sell_price": 50,
+      "source": "作物生产!E19"
+    },
+    "hops": {
+      "id": "hops",
+      "name": "啤酒花",
+      "category": "crop",
+      "sale_price": 25,
+      "sell_price": 25,
+      "source": "作物生产!E20"
+    },
+    "hot_pepper": {
+      "id": "hot_pepper",
+      "name": "辣椒",
+      "category": "crop",
+      "sale_price": 40,
+      "sell_price": 40,
+      "source": "作物生产!E21"
+    },
+    "melon": {
+      "id": "melon",
+      "name": "甜瓜",
+      "category": "crop",
+      "sale_price": 250,
+      "sell_price": 250,
+      "source": "作物生产!E22"
+    },
+    "poppy": {
+      "id": "poppy",
+      "name": "虞美人",
+      "category": "crop",
+      "sale_price": 140,
+      "sell_price": 140,
+      "source": "作物生产!E23"
+    },
+    "radish": {
+      "id": "radish",
+      "name": "萝卜",
+      "category": "crop",
+      "sale_price": 90,
+      "sell_price": 90,
+      "source": "作物生产!E24"
+    },
+    "red_cabbage": {
+      "id": "red_cabbage",
+      "name": "红叶卷心菜",
+      "category": "crop",
+      "sale_price": 260,
+      "sell_price": 260,
+      "source": "作物生产!E25"
+    },
+    "starfruit": {
+      "id": "starfruit",
+      "name": "杨桃",
+      "category": "crop",
+      "sale_price": 750,
+      "sell_price": 750,
+      "source": "作物生产!E26"
+    },
+    "summer_spangle": {
+      "id": "summer_spangle",
+      "name": "夏季亮片",
+      "category": "crop",
+      "sale_price": 90,
+      "sell_price": 90,
+      "source": "作物生产!E27"
+    },
+    "summer_squash": {
+      "id": "summer_squash",
+      "name": "西葫芦",
+      "category": "crop",
+      "sale_price": 45,
+      "sell_price": 45,
+      "source": "作物生产!E28"
+    },
+    "sunflower": {
+      "id": "sunflower",
+      "name": "向日葵",
+      "category": "crop",
+      "sale_price": 80,
+      "sell_price": 80,
+      "source": "作物生产!E29"
+    },
+    "tomato": {
+      "id": "tomato",
+      "name": "番茄",
+      "category": "crop",
+      "sale_price": 60,
+      "sell_price": 60,
+      "source": "作物生产!E30"
+    },
+    "wheat": {
+      "id": "wheat",
+      "name": "小麦",
+      "category": "crop",
+      "sale_price": 25,
+      "sell_price": 25,
+      "source": "作物生产!E31"
+    },
+    "amaranth": {
+      "id": "amaranth",
+      "name": "苋菜",
+      "category": "crop",
+      "sale_price": 150,
+      "sell_price": 150,
+      "source": "作物生产!E32"
+    },
+    "artichoke": {
+      "id": "artichoke",
+      "name": "洋蓟",
+      "category": "crop",
+      "sale_price": 160,
+      "sell_price": 160,
+      "source": "作物生产!E33"
+    },
+    "beet": {
+      "id": "beet",
+      "name": "甜菜",
+      "category": "crop",
+      "sale_price": 100,
+      "sell_price": 100,
+      "source": "作物生产!E34"
+    },
+    "bok_choy": {
+      "id": "bok_choy",
+      "name": "小白菜",
+      "category": "crop",
+      "sale_price": 80,
+      "sell_price": 80,
+      "source": "作物生产!E35"
+    },
+    "broccoli": {
+      "id": "broccoli",
+      "name": "西蓝花",
+      "category": "crop",
+      "sale_price": 70,
+      "sell_price": 70,
+      "source": "作物生产!E36"
+    },
+    "cranberry": {
+      "id": "cranberry",
+      "name": "蔓越莓",
+      "category": "crop",
+      "sale_price": 75,
+      "sell_price": 75,
+      "source": "作物生产!E37"
+    },
+    "eggplant": {
+      "id": "eggplant",
+      "name": "茄子",
+      "category": "crop",
+      "sale_price": 60,
+      "sell_price": 60,
+      "source": "作物生产!E38"
+    },
+    "fairy_rose": {
+      "id": "fairy_rose",
+      "name": "玫瑰仙子",
+      "category": "crop",
+      "sale_price": 290,
+      "sell_price": 290,
+      "source": "作物生产!E39"
+    },
+    "grape": {
+      "id": "grape",
+      "name": "葡萄",
+      "category": "crop",
+      "sale_price": 80,
+      "sell_price": 80,
+      "source": "作物生产!E40"
+    },
+    "pumpkin": {
+      "id": "pumpkin",
+      "name": "南瓜",
+      "category": "crop",
+      "sale_price": 320,
+      "sell_price": 320,
+      "source": "作物生产!E41"
+    },
+    "yam": {
+      "id": "yam",
+      "name": "山药",
+      "category": "crop",
+      "sale_price": 160,
+      "sell_price": 160,
+      "source": "作物生产!E42"
+    },
+    "powdermelon": {
+      "id": "powdermelon",
+      "name": "霜瓜",
+      "category": "crop",
+      "sale_price": 60,
+      "sell_price": 60,
+      "source": "作物生产!E43"
+    },
+    "ancient_fruit": {
+      "id": "ancient_fruit",
+      "name": "远古果实",
+      "category": "crop",
+      "sale_price": 550,
+      "sell_price": 550,
+      "source": "作物生产!E44"
+    },
+    "cactus_fruit": {
+      "id": "cactus_fruit",
+      "name": "仙人掌果子",
+      "category": "crop",
+      "sale_price": 75,
+      "sell_price": 75,
+      "source": "作物生产!E45"
+    },
+    "fiber": {
+      "id": "fiber",
+      "name": "纤维",
+      "category": "crop",
+      "sale_price": 1,
+      "sell_price": 1,
+      "source": "作物生产!E46"
+    },
+    "pineapple": {
+      "id": "pineapple",
+      "name": "菠萝",
+      "category": "crop",
+      "sale_price": 300,
+      "sell_price": 300,
+      "source": "作物生产!E47"
+    },
+    "qi_fruit": {
+      "id": "qi_fruit",
+      "name": "齐瓜",
+      "category": "crop",
+      "sale_price": 1,
+      "sell_price": 1,
+      "source": "作物生产!E48"
+    },
+    "sweet_gem_berry": {
+      "id": "sweet_gem_berry",
+      "name": "宝石甜莓",
+      "category": "crop",
+      "sale_price": 3000,
+      "sell_price": 3000,
+      "source": "作物生产!E49"
+    },
+    "taro_root": {
+      "id": "taro_root",
+      "name": "芋头",
+      "category": "crop",
+      "sale_price": 100,
+      "sell_price": 100,
+      "source": "作物生产!E50"
+    },
+    "tea_leaves": {
+      "id": "tea_leaves",
+      "name": "茶叶",
+      "category": "crop",
+      "sale_price": 50,
+      "sell_price": 50,
+      "source": "作物生产!E51"
+    },
+    "wild_horseradish": {
+      "id": "wild_horseradish",
+      "name": "野山葵",
+      "category": "crop",
+      "sale_price": 50,
+      "sell_price": 50,
+      "source": "作物生产!X52"
+    },
+    "daffodil": {
+      "id": "daffodil",
+      "name": "黄水仙",
+      "category": "crop",
+      "sale_price": 30,
+      "sell_price": 30,
+      "source": "作物生产!X52"
+    },
+    "leek": {
+      "id": "leek",
+      "name": "韭葱",
+      "category": "crop",
+      "sale_price": 60,
+      "sell_price": 60,
+      "source": "作物生产!X52"
+    },
+    "dandelion": {
+      "id": "dandelion",
+      "name": "蒲公英",
+      "category": "crop",
+      "sale_price": 40,
+      "sell_price": 40,
+      "source": "作物生产!X52"
+    },
+    "spice_berry": {
+      "id": "spice_berry",
+      "name": "香味浆果",
+      "category": "crop",
+      "sale_price": 80,
+      "sell_price": 80,
+      "source": "作物生产!X53"
+    },
+    "sweet_pea": {
+      "id": "sweet_pea",
+      "name": "甜豌豆",
+      "category": "crop",
+      "sale_price": 50,
+      "sell_price": 50,
+      "source": "作物生产!X53"
+    },
+    "common_mushroom": {
+      "id": "common_mushroom",
+      "name": "普通蘑菇",
+      "category": "crop",
+      "sale_price": 40,
+      "sell_price": 40,
+      "source": "作物生产!X54"
+    },
+    "wild_plum": {
+      "id": "wild_plum",
+      "name": "野梅",
+      "category": "crop",
+      "sale_price": 80,
+      "sell_price": 80,
+      "source": "作物生产!X54"
+    },
+    "hazelnut": {
+      "id": "hazelnut",
+      "name": "榛子",
+      "category": "crop",
+      "sale_price": 90,
+      "sell_price": 90,
+      "source": "作物生产!X54"
+    },
+    "blackberry": {
+      "id": "blackberry",
+      "name": "黑莓",
+      "category": "crop",
+      "sale_price": 20,
+      "sell_price": 20,
+      "source": "作物生产!X54"
+    },
+    "winter_root": {
+      "id": "winter_root",
+      "name": "冬根",
+      "category": "crop",
+      "sale_price": 70,
+      "sell_price": 70,
+      "source": "作物生产!X55"
+    },
+    "crystal_fruit": {
+      "id": "crystal_fruit",
+      "name": "水晶果",
+      "category": "crop",
+      "sale_price": 150,
+      "sell_price": 150,
+      "source": "作物生产!X55"
+    },
+    "snow_yam": {
+      "id": "snow_yam",
+      "name": "雪山药",
+      "category": "crop",
+      "sale_price": 100,
+      "sell_price": 100,
+      "source": "作物生产!X55"
+    },
+    "crocus": {
+      "id": "crocus",
+      "name": "番红花",
+      "category": "crop",
+      "sale_price": 60,
+      "sell_price": 60,
+      "source": "作物生产!X55"
+    },
+    "egg": {
+      "id": "egg",
+      "name": "鸡蛋",
+      "category": "animal",
+      "sale_price": 50,
+      "sell_price": 50,
+      "source": "动物生产!F6"
+    },
+    "duck_egg": {
+      "id": "duck_egg",
+      "name": "鸭蛋",
+      "category": "animal",
+      "sale_price": 95,
+      "sell_price": 95,
+      "source": "动物生产!F7"
+    },
+    "wool": {
+      "id": "wool",
+      "name": "羊毛",
+      "category": "animal",
+      "sale_price": 340,
+      "sell_price": 340,
+      "source": "动物生产!F8"
+    },
+    "milk": {
+      "id": "milk",
+      "name": "牛奶",
+      "category": "animal",
+      "sale_price": 125,
+      "sell_price": 125,
+      "source": "动物生产!F9"
+    },
+    "goat_milk": {
+      "id": "goat_milk",
+      "name": "羊奶",
+      "category": "animal",
+      "sale_price": 225,
+      "sell_price": 225,
+      "source": "动物生产!F10"
+    },
+    "truffle": {
+      "id": "truffle",
+      "name": "松露",
+      "category": "animal",
+      "sale_price": 625,
+      "sell_price": 625,
+      "source": "动物生产!F12"
+    },
+    "void_egg": {
+      "id": "void_egg",
+      "name": "虚空蛋",
+      "category": "animal",
+      "sale_price": 65,
+      "sell_price": 65,
+      "source": "动物生产!F13"
+    },
+    "golden_egg": {
+      "id": "golden_egg",
+      "name": "金蛋",
+      "category": "animal",
+      "sale_price": 500,
+      "sell_price": 500,
+      "source": "动物生产!F14"
+    },
+    "dinosaur_egg": {
+      "id": "dinosaur_egg",
+      "name": "恐龙蛋",
+      "category": "animal",
+      "sale_price": 350,
+      "sell_price": 350,
+      "source": "动物生产!F15"
+    },
+    "ostrich_egg": {
+      "id": "ostrich_egg",
+      "name": "鸵鸟蛋",
+      "category": "animal",
+      "sale_price": 600,
+      "sell_price": 600,
+      "source": "动物生产!F16"
+    },
+    "silver_fish": {
+      "id": "silver_fish",
+      "name": "小银鱼",
+      "category": "fish",
+      "sale_price": 30,
+      "sell_price": 30,
+      "source": "鱼塘!C5"
+    },
+    "blueback_fish": {
+      "id": "blueback_fish",
+      "name": "青背鱼",
+      "category": "fish",
+      "sale_price": 50,
+      "sell_price": 50,
+      "source": "鱼塘!C6"
+    },
+    "goldstripe_fish": {
+      "id": "goldstripe_fish",
+      "name": "金纹鱼",
+      "category": "fish",
+      "sale_price": 70,
+      "sell_price": 70,
+      "source": "鱼塘!C7"
+    }
+  },
+  "animals": [
+    {
+      "id": "chicken",
+      "name": "鸡",
+      "barn_id": "chicken_coop",
+      "min_level": 1,
+      "cost": 800,
+      "mature_seconds": 900,
+      "product_id": "egg",
+      "sale_price": 50,
+      "interval_seconds": 300,
+      "grass_per_meal": 2,
+      "yield": 1,
+      "initial_count": 4,
+      "basic_full_count": 12,
+      "source": {
+        "sheet": "动物生产",
+        "row": 6,
+        "animal": "https://wiki.stardewvalley.net/Chicken",
+        "product": "https://wiki.stardewvalley.net/Egg"
+      },
+      "shelter_id": "chicken_coop",
+      "price": 800,
+      "adult_seconds": 900,
+      "produce_seconds": 300,
+      "food_grass": 2,
+      "sell_price": 50
+    },
+    {
+      "id": "duck",
+      "name": "鸭",
+      "barn_id": "duck_coop",
+      "min_level": 1,
+      "cost": 1200,
+      "mature_seconds": 1200,
+      "product_id": "duck_egg",
+      "sale_price": 95,
+      "interval_seconds": 600,
+      "grass_per_meal": 2,
+      "yield": 1,
+      "initial_count": 0,
+      "basic_full_count": 12,
+      "source": {
+        "sheet": "动物生产",
+        "row": 7,
+        "animal": "https://wiki.stardewvalley.net/Duck",
+        "product": "https://wiki.stardewvalley.net/Duck_Egg"
+      },
+      "shelter_id": "duck_coop",
+      "price": 1200,
+      "adult_seconds": 1200,
+      "produce_seconds": 600,
+      "food_grass": 2,
+      "sell_price": 95
+    },
+    {
+      "id": "rabbit",
+      "name": "兔",
+      "barn_id": "rabbit_hutch",
+      "min_level": 1,
+      "cost": 8000,
+      "mature_seconds": 2700,
+      "product_id": "wool",
+      "sale_price": 340,
+      "interval_seconds": 1200,
+      "grass_per_meal": 2,
+      "yield": 1,
+      "initial_count": 0,
+      "basic_full_count": 12,
+      "source": {
+        "sheet": "动物生产",
+        "row": 8,
+        "animal": "https://wiki.stardewvalley.net/Rabbit",
+        "product": "https://wiki.stardewvalley.net/Wool"
+      },
+      "shelter_id": "rabbit_hutch",
+      "price": 8000,
+      "adult_seconds": 2700,
+      "produce_seconds": 1200,
+      "food_grass": 2,
+      "sell_price": 340
+    },
+    {
+      "id": "cow",
+      "name": "牛",
+      "barn_id": "cow_barn",
+      "min_level": 1,
+      "cost": 1500,
+      "mature_seconds": 1800,
+      "product_id": "milk",
+      "sale_price": 125,
+      "interval_seconds": 600,
+      "grass_per_meal": 4,
+      "yield": 1,
+      "initial_count": 0,
+      "basic_full_count": 12,
+      "source": {
+        "sheet": "动物生产",
+        "row": 9,
+        "animal": "https://wiki.stardewvalley.net/Cow",
+        "product": "https://wiki.stardewvalley.net/Milk"
+      },
+      "shelter_id": "cow_barn",
+      "price": 1500,
+      "adult_seconds": 1800,
+      "produce_seconds": 600,
+      "food_grass": 4,
+      "sell_price": 125
+    },
+    {
+      "id": "goat",
+      "name": "山羊",
+      "barn_id": "goat_barn",
+      "min_level": 1,
+      "cost": 4000,
+      "mature_seconds": 2400,
+      "product_id": "goat_milk",
+      "sale_price": 225,
+      "interval_seconds": 900,
+      "grass_per_meal": 4,
+      "yield": 1,
+      "initial_count": 0,
+      "basic_full_count": 12,
+      "source": {
+        "sheet": "动物生产",
+        "row": 10,
+        "animal": "https://wiki.stardewvalley.net/Goat",
+        "product": "https://wiki.stardewvalley.net/Goat_Milk"
+      },
+      "shelter_id": "goat_barn",
+      "price": 4000,
+      "adult_seconds": 2400,
+      "produce_seconds": 900,
+      "food_grass": 4,
+      "sell_price": 225
+    },
+    {
+      "id": "sheep",
+      "name": "绵羊",
+      "barn_id": "sheep_pen",
+      "min_level": 1,
+      "cost": 8000,
+      "mature_seconds": 2700,
+      "product_id": "wool",
+      "sale_price": 340,
+      "interval_seconds": 1200,
+      "grass_per_meal": 4,
+      "yield": 1,
+      "initial_count": 0,
+      "basic_full_count": 12,
+      "source": {
+        "sheet": "动物生产",
+        "row": 11,
+        "animal": "https://wiki.stardewvalley.net/Sheep",
+        "product": "https://wiki.stardewvalley.net/Wool"
+      },
+      "shelter_id": "sheep_pen",
+      "price": 8000,
+      "adult_seconds": 2700,
+      "produce_seconds": 1200,
+      "food_grass": 4,
+      "sell_price": 340
+    },
+    {
+      "id": "pig",
+      "name": "猪",
+      "barn_id": "pig_pen",
+      "min_level": 1,
+      "cost": 16000,
+      "mature_seconds": 3600,
+      "product_id": "truffle",
+      "sale_price": 625,
+      "interval_seconds": 1500,
+      "grass_per_meal": 4,
+      "yield": 1,
+      "initial_count": 0,
+      "basic_full_count": 12,
+      "source": {
+        "sheet": "动物生产",
+        "row": 12,
+        "animal": "https://wiki.stardewvalley.net/Pig",
+        "product": "https://wiki.stardewvalley.net/Truffle"
+      },
+      "shelter_id": "pig_pen",
+      "price": 16000,
+      "adult_seconds": 3600,
+      "produce_seconds": 1500,
+      "food_grass": 4,
+      "sell_price": 625
+    },
+    {
+      "id": "void_chicken",
+      "name": "虚空鸡",
+      "barn_id": "chicken_coop",
+      "min_level": 2,
+      "cost": 5000,
+      "mature_seconds": 1800,
+      "product_id": "void_egg",
+      "sale_price": 65,
+      "interval_seconds": 360,
+      "grass_per_meal": 2,
+      "yield": 1,
+      "initial_count": 0,
+      "basic_full_count": 0,
+      "source": {
+        "sheet": "动物生产",
+        "row": 13,
+        "animal": "https://wiki.stardewvalley.net/Void_Chicken",
+        "product": "https://wiki.stardewvalley.net/Void_Egg"
+      },
+      "shelter_id": "chicken_coop",
+      "price": 5000,
+      "adult_seconds": 1800,
+      "produce_seconds": 360,
+      "food_grass": 2,
+      "sell_price": 65
+    },
+    {
+      "id": "golden_chicken",
+      "name": "金鸡",
+      "barn_id": "chicken_coop",
+      "min_level": 3,
+      "cost": 16000,
+      "mature_seconds": 3600,
+      "product_id": "golden_egg",
+      "sale_price": 500,
+      "interval_seconds": 1800,
+      "grass_per_meal": 2,
+      "yield": 1,
+      "initial_count": 0,
+      "basic_full_count": 0,
+      "source": {
+        "sheet": "动物生产",
+        "row": 14,
+        "animal": "https://wiki.stardewvalley.net/Golden_Chicken",
+        "product": "https://wiki.stardewvalley.net/Golden_Egg"
+      },
+      "shelter_id": "chicken_coop",
+      "price": 16000,
+      "adult_seconds": 3600,
+      "produce_seconds": 1800,
+      "food_grass": 2,
+      "sell_price": 500
+    },
+    {
+      "id": "dinosaur",
+      "name": "恐龙",
+      "barn_id": "duck_coop",
+      "min_level": 3,
+      "cost": 10000,
+      "mature_seconds": 3600,
+      "product_id": "dinosaur_egg",
+      "sale_price": 350,
+      "interval_seconds": 1500,
+      "grass_per_meal": 2,
+      "yield": 1,
+      "initial_count": 0,
+      "basic_full_count": 0,
+      "source": {
+        "sheet": "动物生产",
+        "row": 15,
+        "animal": "https://wiki.stardewvalley.net/Dinosaur",
+        "product": "https://wiki.stardewvalley.net/Dinosaur_Egg"
+      },
+      "shelter_id": "duck_coop",
+      "price": 10000,
+      "adult_seconds": 3600,
+      "produce_seconds": 1500,
+      "food_grass": 2,
+      "sell_price": 350
+    },
+    {
+      "id": "ostrich",
+      "name": "鸵鸟",
+      "barn_id": "cow_barn",
+      "min_level": 3,
+      "cost": 16000,
+      "mature_seconds": 3600,
+      "product_id": "ostrich_egg",
+      "sale_price": 600,
+      "interval_seconds": 1800,
+      "grass_per_meal": 4,
+      "yield": 1,
+      "initial_count": 0,
+      "basic_full_count": 0,
+      "source": {
+        "sheet": "动物生产",
+        "row": 16,
+        "animal": "https://wiki.stardewvalley.net/Ostrich",
+        "product": "https://wiki.stardewvalley.net/Ostrich_Egg"
+      },
+      "shelter_id": "cow_barn",
+      "price": 16000,
+      "adult_seconds": 3600,
+      "produce_seconds": 1800,
+      "food_grass": 4,
+      "sell_price": 600
+    }
+  ],
+  "barns": [
+    {
+      "id": "chicken_coop",
+      "name": "鸡窝",
+      "costs": [
+        1200,
+        2400,
+        4800
+      ],
+      "capacities": [
+        4,
+        8,
+        12
+      ],
+      "initial_level": 1,
+      "levels": [
+        {
+          "level": 1,
+          "capacity": 4,
+          "cost": 1200
+        },
+        {
+          "level": 2,
+          "capacity": 8,
+          "cost": 2400
+        },
+        {
+          "level": 3,
+          "capacity": 12,
+          "cost": 4800
+        }
+      ],
+      "source": "参数与费用!A100:I100"
+    },
+    {
+      "id": "duck_coop",
+      "name": "鸭窝",
+      "costs": [
+        1100,
+        2200,
+        4400
+      ],
+      "capacities": [
+        4,
+        8,
+        12
+      ],
+      "initial_level": 0,
+      "levels": [
+        {
+          "level": 1,
+          "capacity": 4,
+          "cost": 1100
+        },
+        {
+          "level": 2,
+          "capacity": 8,
+          "cost": 2200
+        },
+        {
+          "level": 3,
+          "capacity": 12,
+          "cost": 4400
+        }
+      ],
+      "source": "参数与费用!A101:I101"
+    },
+    {
+      "id": "rabbit_hutch",
+      "name": "兔舍",
+      "costs": [
+        2000,
+        4000,
+        8000
+      ],
+      "capacities": [
+        4,
+        8,
+        12
+      ],
+      "initial_level": 0,
+      "levels": [
+        {
+          "level": 1,
+          "capacity": 4,
+          "cost": 2000
+        },
+        {
+          "level": 2,
+          "capacity": 8,
+          "cost": 4000
+        },
+        {
+          "level": 3,
+          "capacity": 12,
+          "cost": 8000
+        }
+      ],
+      "source": "参数与费用!A102:I102"
+    },
+    {
+      "id": "cow_barn",
+      "name": "牛棚",
+      "costs": [
+        1500,
+        3000,
+        6000
+      ],
+      "capacities": [
+        4,
+        8,
+        12
+      ],
+      "initial_level": 0,
+      "levels": [
+        {
+          "level": 1,
+          "capacity": 4,
+          "cost": 1500
+        },
+        {
+          "level": 2,
+          "capacity": 8,
+          "cost": 3000
+        },
+        {
+          "level": 3,
+          "capacity": 12,
+          "cost": 6000
+        }
+      ],
+      "source": "参数与费用!A103:I103"
+    },
+    {
+      "id": "goat_barn",
+      "name": "山羊棚",
+      "costs": [
+        1800,
+        3600,
+        7200
+      ],
+      "capacities": [
+        4,
+        8,
+        12
+      ],
+      "initial_level": 0,
+      "levels": [
+        {
+          "level": 1,
+          "capacity": 4,
+          "cost": 1800
+        },
+        {
+          "level": 2,
+          "capacity": 8,
+          "cost": 3600
+        },
+        {
+          "level": 3,
+          "capacity": 12,
+          "cost": 7200
+        }
+      ],
+      "source": "参数与费用!A104:I104"
+    },
+    {
+      "id": "sheep_pen",
+      "name": "羊圈",
+      "costs": [
+        2000,
+        4000,
+        8000
+      ],
+      "capacities": [
+        4,
+        8,
+        12
+      ],
+      "initial_level": 0,
+      "levels": [
+        {
+          "level": 1,
+          "capacity": 4,
+          "cost": 2000
+        },
+        {
+          "level": 2,
+          "capacity": 8,
+          "cost": 4000
+        },
+        {
+          "level": 3,
+          "capacity": 12,
+          "cost": 8000
+        }
+      ],
+      "source": "参数与费用!A105:I105"
+    },
+    {
+      "id": "pig_pen",
+      "name": "猪圈",
+      "costs": [
+        3000,
+        6000,
+        12000
+      ],
+      "capacities": [
+        4,
+        8,
+        12
+      ],
+      "initial_level": 0,
+      "levels": [
+        {
+          "level": 1,
+          "capacity": 4,
+          "cost": 3000
+        },
+        {
+          "level": 2,
+          "capacity": 8,
+          "cost": 6000
+        },
+        {
+          "level": 3,
+          "capacity": 12,
+          "cost": 12000
+        }
+      ],
+      "source": "参数与费用!A106:I106"
+    }
+  ],
+  "shelters": [
+    {
+      "id": "chicken_coop",
+      "name": "鸡窝",
+      "costs": [
+        1200,
+        2400,
+        4800
+      ],
+      "capacities": [
+        4,
+        8,
+        12
+      ],
+      "initial_level": 1,
+      "levels": [
+        {
+          "level": 1,
+          "capacity": 4,
+          "cost": 1200
+        },
+        {
+          "level": 2,
+          "capacity": 8,
+          "cost": 2400
+        },
+        {
+          "level": 3,
+          "capacity": 12,
+          "cost": 4800
+        }
+      ],
+      "source": "参数与费用!A100:I100"
+    },
+    {
+      "id": "duck_coop",
+      "name": "鸭窝",
+      "costs": [
+        1100,
+        2200,
+        4400
+      ],
+      "capacities": [
+        4,
+        8,
+        12
+      ],
+      "initial_level": 0,
+      "levels": [
+        {
+          "level": 1,
+          "capacity": 4,
+          "cost": 1100
+        },
+        {
+          "level": 2,
+          "capacity": 8,
+          "cost": 2200
+        },
+        {
+          "level": 3,
+          "capacity": 12,
+          "cost": 4400
+        }
+      ],
+      "source": "参数与费用!A101:I101"
+    },
+    {
+      "id": "rabbit_hutch",
+      "name": "兔舍",
+      "costs": [
+        2000,
+        4000,
+        8000
+      ],
+      "capacities": [
+        4,
+        8,
+        12
+      ],
+      "initial_level": 0,
+      "levels": [
+        {
+          "level": 1,
+          "capacity": 4,
+          "cost": 2000
+        },
+        {
+          "level": 2,
+          "capacity": 8,
+          "cost": 4000
+        },
+        {
+          "level": 3,
+          "capacity": 12,
+          "cost": 8000
+        }
+      ],
+      "source": "参数与费用!A102:I102"
+    },
+    {
+      "id": "cow_barn",
+      "name": "牛棚",
+      "costs": [
+        1500,
+        3000,
+        6000
+      ],
+      "capacities": [
+        4,
+        8,
+        12
+      ],
+      "initial_level": 0,
+      "levels": [
+        {
+          "level": 1,
+          "capacity": 4,
+          "cost": 1500
+        },
+        {
+          "level": 2,
+          "capacity": 8,
+          "cost": 3000
+        },
+        {
+          "level": 3,
+          "capacity": 12,
+          "cost": 6000
+        }
+      ],
+      "source": "参数与费用!A103:I103"
+    },
+    {
+      "id": "goat_barn",
+      "name": "山羊棚",
+      "costs": [
+        1800,
+        3600,
+        7200
+      ],
+      "capacities": [
+        4,
+        8,
+        12
+      ],
+      "initial_level": 0,
+      "levels": [
+        {
+          "level": 1,
+          "capacity": 4,
+          "cost": 1800
+        },
+        {
+          "level": 2,
+          "capacity": 8,
+          "cost": 3600
+        },
+        {
+          "level": 3,
+          "capacity": 12,
+          "cost": 7200
+        }
+      ],
+      "source": "参数与费用!A104:I104"
+    },
+    {
+      "id": "sheep_pen",
+      "name": "羊圈",
+      "costs": [
+        2000,
+        4000,
+        8000
+      ],
+      "capacities": [
+        4,
+        8,
+        12
+      ],
+      "initial_level": 0,
+      "levels": [
+        {
+          "level": 1,
+          "capacity": 4,
+          "cost": 2000
+        },
+        {
+          "level": 2,
+          "capacity": 8,
+          "cost": 4000
+        },
+        {
+          "level": 3,
+          "capacity": 12,
+          "cost": 8000
+        }
+      ],
+      "source": "参数与费用!A105:I105"
+    },
+    {
+      "id": "pig_pen",
+      "name": "猪圈",
+      "costs": [
+        3000,
+        6000,
+        12000
+      ],
+      "capacities": [
+        4,
+        8,
+        12
+      ],
+      "initial_level": 0,
+      "levels": [
+        {
+          "level": 1,
+          "capacity": 4,
+          "cost": 3000
+        },
+        {
+          "level": 2,
+          "capacity": 8,
+          "cost": 6000
+        },
+        {
+          "level": 3,
+          "capacity": 12,
+          "cost": 12000
+        }
+      ],
+      "source": "参数与费用!A106:I106"
+    }
+  ],
+  "fish": [
+    {
+      "id": "silver_fish",
+      "name": "小银鱼",
+      "product_id": "silver_fish",
+      "sale_price": 30,
+      "sell_price": 30,
+      "probability": 0.25,
+      "weight": 0.25,
+      "unlock_cost": 0,
+      "source": "鱼塘!A5:G5"
+    },
+    {
+      "id": "blueback_fish",
+      "name": "青背鱼",
+      "product_id": "blueback_fish",
+      "sale_price": 50,
+      "sell_price": 50,
+      "probability": 0.5,
+      "weight": 0.5,
+      "unlock_cost": 0,
+      "source": "鱼塘!A6:G6"
+    },
+    {
+      "id": "goldstripe_fish",
+      "name": "金纹鱼",
+      "product_id": "goldstripe_fish",
+      "sale_price": 70,
+      "sell_price": 70,
+      "probability": 0.25,
+      "weight": 0.25,
+      "unlock_cost": 0,
+      "source": "鱼塘!A7:G7"
+    }
+  ],
+  "parameters": {
+    "max_crop_regions": 6,
+    "max_plots_per_region": 16,
+    "yield_per_harvest": 1,
+    "max_grass_plots": 96,
+    "max_farmers_per_scene": 3,
+    "farmer_energy": 100,
+    "rest_energy_per_second": 2,
+    "support_energy": 20,
+    "action_seconds": 2,
+    "walk_seconds": 1,
+    "support_seconds": 5,
+    "task_energy": {
+      "sow": 2,
+      "water": 1,
+      "harvest": 1,
+      "cut_grass": 1,
+      "add_hay": 1,
+      "sow_grass": 2,
+      "collect_product": 1
+    },
+    "grass_growth_seconds": 180,
+    "grass_max_clumps": 4,
+    "grass_growth_min": 1,
+    "grass_growth_max": 3,
+    "grass_extra_probability": 0.65,
+    "grass_extra_min": 0,
+    "grass_extra_max": 2,
+    "grass_spread_probability": 0.25,
+    "grass_seed_cost": 100,
+    "meal_seconds": 300,
+    "hay_transfer_max": 4,
+    "fish_capacity": 12,
+    "fish_spawn_seconds": 180,
+    "net_cooldown_seconds": 20,
+    "autosave_seconds": 30,
+    "logic_seconds": 1,
+    "normal_fps": 30,
+    "power_saving_fps": 15,
+    "animal_refund_ratio": 0.5,
+    "auto_register_crop_products": true,
+    "auto_register_animal_products": true,
+    "pending_crop_reserve": true,
+    "allow_cancel_crop_switch": true,
+    "offline_progress": false,
+    "mother_grass_plots": 2,
+    "source": "参数与费用!A5:E60; desktop-farm-design-v0-5.docx table 61; confirmed user decisions"
+  },
+  "upgrades": {
+    "plot_costs": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      350,
+      700,
+      1050,
+      1400,
+      1750,
+      2100,
+      2450,
+      2800,
+      3150,
+      3500
+    ],
+    "region_costs": [
+      0,
+      0,
+      0,
+      0,
+      10000,
+      20000
+    ],
+    "grass_plot_costs": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      50,
+      50,
+      50,
+      50,
+      50,
+      50,
+      100,
+      100,
+      100,
+      100,
+      100,
+      100,
+      150,
+      150,
+      150,
+      150,
+      150,
+      150,
+      200,
+      200,
+      200,
+      200,
+      200,
+      200,
+      250,
+      250,
+      250,
+      250,
+      250,
+      250,
+      300,
+      300,
+      300,
+      300,
+      300,
+      300,
+      350,
+      350,
+      350,
+      350,
+      350,
+      350,
+      400,
+      400,
+      400,
+      400,
+      400,
+      400,
+      450,
+      450,
+      450,
+      450,
+      450,
+      450,
+      500,
+      500,
+      500,
+      500,
+      500,
+      500,
+      550,
+      550,
+      550,
+      550,
+      550,
+      550,
+      600,
+      600,
+      600,
+      600,
+      600,
+      600,
+      650,
+      650,
+      650,
+      650,
+      650,
+      650,
+      700,
+      700,
+      700,
+      700,
+      700,
+      700,
+      750,
+      750,
+      750,
+      750,
+      750,
+      750
+    ],
+    "farmer_costs": [
+      1000,
+      2000,
+      4000,
+      8000,
+      16000,
+      32000
+    ],
+    "hay_storage": [
+      {
+        "capacity": 24,
+        "cost": 0
+      },
+      {
+        "capacity": 64,
+        "cost": 400
+      },
+      {
+        "capacity": 128,
+        "cost": 1200
+      },
+      {
+        "capacity": 256,
+        "cost": 3000
+      }
+    ],
+    "source": "参数与费用!A73:J143"
+  },
+  "initial": {
+    "coins": 1000,
+    "crop_id": "parsnip",
+    "crop_regions": 4,
+    "plots_per_region": 6,
+    "seeds": {
+      "parsnip": 24
+    },
+    "grass_plots": 6,
+    "grass_clumps": 4,
+    "mother_grass_plots": 2,
+    "trough_hay": 8,
+    "warehouse_hay": 0,
+    "hay_capacity": 24,
+    "barn_levels": {
+      "chicken_coop": 1,
+      "duck_coop": 0,
+      "rabbit_hutch": 0,
+      "cow_barn": 0,
+      "goat_barn": 0,
+      "sheep_pen": 0,
+      "pig_pen": 0
+    },
+    "animals": [
+      {
+        "id": "chicken",
+        "count": 4
+      }
+    ],
+    "farmers_per_scene": 1,
+    "fish_count": 12,
+    "source": "参数与费用!A5:E43"
+  },
+  "source": {
+    "workbook": "C:/Users/Administrator/Downloads/production-values-v0-5.xlsx",
+    "design": "C:/Users/Administrator/Downloads/desktop-farm-design-v0-5.docx",
+    "snapshot": "data/source/workbook-v0.5.json",
+    "snapshot_sha256": "9beacaa73cc1884dd3e9d34f8d72ebc08545b3a8b9af45f30658298688706bad",
+    "formula_policy": "Use cached v0.5 values; runtime never recalculates workbook formulas.",
+    "decision_overrides": [
+      "Animal sale refunds 50% of standard purchase price, including gifted animals.",
+      "Crop and animal products auto-register then sell; fish remains a player choice.",
+      "Pending crop-switch seed budget remains reserved and can be cancelled."
+    ]
+  }
+}
