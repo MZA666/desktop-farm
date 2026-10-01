@@ -1,0 +1,177 @@
+{
+  "status": "development_proposal_not_runtime_config",
+  "version": "0.8",
+  "date": "2026-10-01",
+  "source_baseline": "v0.7.0",
+  "pending_decisions": [],
+  "seed_auto_order": {
+    "default_crop_id": "parsnip",
+    "recommended_scope": "entire_unreserved_seed_inventory_empty",
+    "manual_batch_sizes": [
+      1,
+      5,
+      10,
+      25
+    ],
+    "inventory_fallback_order": "production.json crops array order; preferred crop first; existing reservations excluded",
+    "fixed_order_source": "data/production.json crops array"
+  },
+  "farmer": {
+    "recommended_world_speed_px_per_second": 32,
+    "min_world_speed_px_per_second": 16,
+    "max_world_speed_px_per_second": 48,
+    "action_seconds": 2,
+    "production_semantics": "actual_world_distance_travel_before_action"
+  },
+  "interaction": {
+    "per_animal_cooldown_seconds": 120,
+    "global_reward_cooldown_seconds": 2,
+    "juvenile_reduction_seconds_per_click": 30,
+    "juvenile_lifetime_max_ratio": 0.2,
+    "adult_reduction_ratio_per_click": 0.05,
+    "adult_cycle_max_ratio": 0.1,
+    "adult_enabled": true,
+    "offline_cooldown_progress": false
+  },
+  "fish": {
+    "spawn_seconds": 180,
+    "catch_count_per_cast": 1,
+    "net_levels": [
+      {
+        "level": 0,
+        "cooldown_seconds": 20,
+        "upgrade_cost": 0
+      },
+      {
+        "level": 1,
+        "cooldown_seconds": 15,
+        "upgrade_cost": 200
+      },
+      {
+        "level": 2,
+        "cooldown_seconds": 10,
+        "upgrade_cost": 400
+      },
+      {
+        "level": 3,
+        "cooldown_seconds": 5,
+        "upgrade_cost": 800
+      }
+    ],
+    "pond_levels": [
+      {
+        "level": 0,
+        "capacity": 12,
+        "upgrade_cost": 0
+      },
+      {
+        "level": 1,
+        "capacity": 18,
+        "upgrade_cost": 300
+      },
+      {
+        "level": 2,
+        "capacity": 24,
+        "upgrade_cost": 600
+      },
+      {
+        "level": 3,
+        "capacity": 36,
+        "upgrade_cost": 1800
+      }
+    ]
+  },
+  "farmland": {
+    "initial_open_plots": 24,
+    "max_plots": 96,
+    "price_index_rule": "next plot cost uses current open count N: costs[N-24], for 24<=N<=95",
+    "additional_plot_costs": [
+      350,
+      397,
+      444,
+      491,
+      538,
+      585,
+      632,
+      679,
+      726,
+      773,
+      821,
+      868,
+      915,
+      962,
+      1009,
+      1056,
+      1103,
+      1150,
+      1197,
+      1244,
+      1291,
+      1338,
+      1385,
+      1432,
+      1480,
+      1527,
+      1574,
+      1621,
+      1668,
+      1715,
+      1762,
+      1809,
+      1856,
+      1903,
+      1950,
+      1997,
+      2044,
+      2091,
+      2139,
+      2186,
+      2233,
+      2280,
+      2327,
+      2374,
+      2421,
+      2468,
+      2515,
+      2562,
+      2609,
+      2656,
+      2703,
+      2750,
+      2797,
+      2845,
+      2892,
+      2939,
+      2986,
+      3033,
+      3080,
+      3127,
+      3174,
+      3221,
+      3268,
+      3315,
+      3362,
+      3409,
+      3456,
+      3504,
+      3551,
+      3598,
+      3645,
+      3692
+    ],
+    "total_additional_plot_cost": 145500,
+    "old_save_cost_adjustment": false
+  },
+  "grass": {
+    "max_patch_sites": 96,
+    "growth_seconds": 180,
+    "meal_seconds": 300,
+    "ordinary_min_root_clumps": 1,
+    "protected_source_patches": 2
+  },
+  "user_confirmed_rules": {
+    "seed_exhaustion_scope": "entire_unreserved_seed_inventory",
+    "animal_adult_interaction_bonus": true,
+    "farmer_speed_affects_travel_time": true
+  }
+}
