@@ -318,4 +318,3 @@ static func legacy_target_position(scene: String, target: String, state: Diction
 				if str(animal.get("id", "")) == target: return legacy_animal_position(target, state) + Vector2(26, 26)
 		"pond": return Vector2(128, 112)
 	return legacy_farmer_idle_position(scene, 0)
-
