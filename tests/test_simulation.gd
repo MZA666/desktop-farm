@@ -232,9 +232,10 @@ func _test_ranch() -> void:
 	var first_id := str(game.state.animals[0].id)
 	game.state.animals[0].adult = true
 	game.state.animals[0].ready = 1
+	game._collect_animal(game.state.animals[0])
 	var cash := game.balance()
 	check(game.command("sell_animal", {"instance_id": first_id}).ok, "Gift animal can be sold")
-	check(game.balance() == cash + 450 and game.state.animals.size() == 3, "Gift chicken sale refunds 400 and existing egg sells once")
+	check(game.balance() == cash + 400 and game.state.animals.size() == 3 and game.state.ground_products[0].quantity == 1, "Gift chicken sale refunds 400 and preserves its existing ground egg")
 	check(not game.command("sell_animal", {"instance_id": first_id}).ok, "Cannot sell same animal twice")
 	check(game.command("upgrade_shelter", {"shelter_id": "chicken_coop"}).ok, "Coop upgrades to level two")
 	check(game.command("buy_animal", {"animal_id": "void_chicken"}).ok, "Special chicken shares normal coop slots")
@@ -257,7 +258,9 @@ func _test_ranch() -> void:
 		animal.product_remaining = 1
 	all_types.tick(1)
 	all_types.tick(1000)
-	check(all_types.state.animals.all(func(a): return int(a.ready) == 1), "All animals keep at most one ready product until collection")
+	var pending := 0
+	for pile in all_types.state.ground_products: pending += int(pile.quantity)
+	check(all_types.state.animals.all(func(a): return int(a.ready) == 0 and int(a.production_cycle) >= 1) and pending > all_types.state.animals.size(), "All animals continuously produce into accumulating ground stock")
 	var recovery := fresh()
 	recovery.state.coins = 0
 	recovery.state.seeds = {}
@@ -467,7 +470,7 @@ func _test_full_scale() -> void:
 	var total_ms := float(Time.get_ticks_usec() - total_started) / 1000.0
 	check(JSON.stringify(game.snapshot()) == JSON.stringify(resumed.snapshot()), "Full-scale 30-minute result identical across halfway restore, including random streams")
 	check(float(game.state.elapsed) == 1800 and game.balance() >= 0, "Full-scale advances exactly 1800 active seconds without debt")
-	check(game.state.animals.all(func(a): return int(a.ready) >= 0 and int(a.ready) <= 1), "Full-scale animal backlog bounded to one each")
+	check(game.state.animals.all(func(a): return int(a.ready) == 0 and int(a.last_drop_cycle) == int(a.production_cycle) - 1), "Full-scale animals retain identified continuous production cycles")
 	check(game.state.grass.all(func(g): return int(g.clumps) >= 1 and int(g.clumps) <= 4), "Full-scale grass roots and clump cap maintained")
 	check(game.state.grass[0].clumps == 4 and game.state.grass[1].clumps == 4, "Full-scale mother grass remains untouched")
 	check(game.state.warehouse_hay <= 256 and game.state.trough_hay <= 256 and game.state.warehouse_hay >= 0 and game.state.trough_hay >= 0, "Full-scale both hay capacities and nonnegative stock respected")

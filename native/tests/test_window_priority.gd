@@ -3,9 +3,11 @@ extends SceneTree
 var test_failed := false
 
 const HOST = preload("res://scripts/desktop_host.gd")
+const WINDOWS = preload("res://native/tests/window_fixture.gd")
 const REPORT := "res://.review/host-priority-result.txt"
 var host: DesktopHost
 var toolbar: Window
+var scenery: Window
 var popup: Window
 var frames := 0
 var probe_pid := -1
@@ -16,12 +18,12 @@ func _initialize() -> void:
 
 func _start_test() -> void:
 	root.gui_embed_subwindows = false
-	toolbar = Window.new()
+	toolbar = root
+	scenery = WINDOWS.scene_for(root)
 	toolbar.title = "Controlled priority toolbar"
-	root.add_child(toolbar)
 	host = HOST.new()
 	root.add_child(host)
-	verify(host.start(root, toolbar, {"topmost": true, "interactive": true}))
+	verify(host.start(scenery, toolbar, {"topmost": true, "interactive": true}))
 	verify(not host.topmost, "Legacy topmost saves must use ordinary Windows Z order")
 	verify(not root.always_on_top and not toolbar.always_on_top)
 	popup = Window.new()
@@ -29,11 +31,13 @@ func _start_test() -> void:
 	popup.size = Vector2i(320, 160)
 	popup.position = Vector2i(600, 200)
 	root.add_child(popup)
+	popup.transient = true
+	popup.exclusive = false
 	popup.show()
+	verify(host.prepare_auxiliary_window(popup))
 	var handles: Array[String] = []
-	for window in [root, toolbar, popup]:
+	for window in [scenery, toolbar, popup]:
 		var handle := DisplayServer.window_get_native_handle(DisplayServer.WINDOW_HANDLE, window.get_window_id())
-		verify(bool(host.native.call("make_independent_window", handle)))
 		verify(not bool(host.native.call("window_is_topmost", handle)))
 		handles.append(str(handle))
 	if FileAccess.file_exists(REPORT):
@@ -54,7 +58,7 @@ func _process(_delta: float) -> bool:
 		host.set_collapsed(false)
 		var area := host.get_work_area()
 		var offset := 8 if frames % 30 == 0 else 0
-		host.set_position_clamped(Vector2i(area.position.x, area.end.y - root.size.y - offset))
+		host.set_position_clamped(Vector2i(area.position.x, area.end.y - int(round(host.logical_window_height() * host.dpi_scale)) - offset))
 		host.call("_layout_windows")
 	if FileAccess.file_exists(REPORT):
 		var passed := FileAccess.get_file_as_string(REPORT).strip_edges() == "1" and not test_failed

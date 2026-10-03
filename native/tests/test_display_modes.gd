@@ -24,6 +24,7 @@ func _initialize() -> void:
 			check(toolbar.y == mini(area.size.y, int(round(32 * scale))), "Collapsed toolbar keeps independent physical size")
 	check(HOST.scenery_size_for_area(Rect2i(), 1.0) == Vector2i.ZERO, "Missing display has no fake size")
 	check(HOST.scenery_size_for_area(areas[0], NAN) == Vector2i(1920, 420), "Invalid DPI falls back to 100 percent")
+	_test_split_geometry(areas)
 	var host := HOST.new()
 	check(host.display_mode == "expanded", "Fresh desktop defaults expanded")
 	check(host.set_display_mode("compact") and host.display_mode == "compact", "Mode API accepts compact")
@@ -38,6 +39,37 @@ func _initialize() -> void:
 	host.free()
 	print("DISPLAY_MODE_GEOMETRY_", "FAIL" if failed else "PASS", ": %d expanded/compact/collapsed DPI/work-area assertions" % assertions)
 	quit(1 if failed else 0)
+
+func _test_split_geometry(areas: Array[Rect2i]) -> void:
+	# Unattached Window objects are geometry fixtures, never real desktop UI.
+	var host := HOST.new()
+	var toolbar := Window.new()
+	var scene := Window.new()
+	host.toolbar_window=toolbar
+	host.scene_window=scene
+	for area in areas:
+		for scale in [1.0,1.25,1.5,2.0,3.0]:
+			for mode in ["expanded","compact"]:
+				for collapsed in [false,true]:
+					host._work_area=area
+					host.dpi_scale=scale
+					host.display_mode=mode
+					host.collapsed=collapsed
+					host._manual_position=false
+					host._layout_windows()
+					var toolbar_rect := Rect2i(toolbar.position,toolbar.size)
+					var scene_rect := Rect2i(scene.position,scene.size)
+					check(area.encloses(toolbar_rect), "Toolbar geometry stays entirely in monitor work area")
+					check(not toolbar_rect.intersects(scene_rect), "Toolbar and scenery have no native hit-test overlap")
+					check(scene.position.y==toolbar_rect.end.y, "Scenery begins immediately below the control toolbar")
+					if not collapsed and host._group_size.y>toolbar.size.y:
+						check(area.encloses(scene_rect), "Visible scenery fits remaining physical work area")
+						check(toolbar.size.y+scene.size.y==host._group_size.y, "One combined game footprint keeps420/240logical height")
+					else:
+						check(host.visible_scene_height()==0, "Collapsed or clamped-away scenery has no logical content")
+	toolbar.free()
+	scene.free()
+	host.free()
 
 func check(condition: bool, message: String) -> void:
 	assertions += 1

@@ -22,7 +22,7 @@ func _run() -> void:
 	var species := {}
 	for animal in controller.model.state.animals: species[str(animal.type_id)] = true
 	check(species.size() == 11, "Expanded benchmark fixture includes all eleven animal species")
-	check(controller.get_window().content_scale_size.y == 420 and controller.view.view_height == 352, "New game defaults to the expanded scene")
+	check(controller.scene_window.content_scale_size.y == 388 and controller.toolbar.content_scale_size.y == 32 and controller.view.view_height == 352, "Expanded scenery uses its own 388-pixel window below the 32-pixel main toolbar")
 	var review_directory := ProjectSettings.globalize_path("res://.review")
 	var directory_error := DirAccess.make_dir_recursive_absolute(review_directory)
 	check(directory_error == OK, "Controller test output directory can be created on a clean clone")
@@ -144,15 +144,24 @@ func _run() -> void:
 	controller.model.restore(shop_snapshot)
 	var sale_animal: Dictionary = controller.model.state.animals.filter(func(animal): return str(animal.type_id) == "chicken")[0]
 	var sale_instance: String = str(sale_animal.id)
-	sale_animal.ready = 1
+	sale_animal.adult = true
+	sale_animal.adult_remaining = 0.0
+	sale_animal.product_remaining = 0.0
+	controller.model._collect_animal(sale_animal)
 	var sale_snapshot: Dictionary = controller.model.snapshot()
 	var sale_details: Dictionary = controller._animal_sale_details(sale_instance)
-	check(sale_details.refund == 400 and sale_details.product_value == 50 and sale_details.total == 450, "Sale confirmation separates the 50 percent refund and mature product settlement")
+	check(sale_details.refund == 400 and sale_details.product_value == 0 and sale_details.total == 400, "Sale confirmation quotes only the 50 percent refund")
 	controller._begin_animal_sale(sale_instance)
 	check(controller.panel_name == "sell_confirm" and controller.popup_body.find_child("ConfirmAnimalSale", true, false) != null, "Animal sale opens a second confirmation step")
 	check(JSON.stringify(controller.model.snapshot()) == JSON.stringify(sale_snapshot), "Opening a sale confirmation does not sell or settle anything")
 	controller.popup_body.find_child("ConfirmAnimalSale", true, false).pressed.emit()
-	check(controller.model.balance() == int(sale_snapshot.coins) + 450 and controller.model.state.animals.size() == sale_snapshot.animals.size() - 1, "Confirming the sale commits refund and product settlement once")
+	check(controller.model.balance() == int(sale_snapshot.coins) + 400 and controller.model.state.animals.size() == sale_snapshot.animals.size() - 1, "Confirming the sale commits only one refund")
+	check(controller.model.state.ground_products == sale_snapshot.ground_products and controller.model.state.catalog == sale_snapshot.catalog, "Sale keeps independent ground produce and does not grant its discovery")
+	var saved_sale: Dictionary = controller.saves.load_save()
+	# Godot JSON decodes numbers as floats; compare equal serialized values,
+	# not strict Variant types inside the nested batches/claims arrays.
+	var expected_ground: Variant = JSON.parse_string(JSON.stringify(sale_snapshot.ground_products, "", true, true))
+	check(saved_sale.ok and saved_sale.data.ground_products == expected_ground, "Preserved ground produce is durable immediately after the sale")
 	var post_sale_cash: int = controller.model.balance()
 	controller._confirm_animal_sale()
 	check(controller.model.balance() == post_sale_cash, "Repeated sale confirmation cannot duplicate the refund")
@@ -185,15 +194,25 @@ func _run() -> void:
 	renderer.fish_clicked.connect(func(id: String): caught_ids.append(id))
 	renderer.set_scene("pond")
 	renderer.position = Vector2.ZERO
-	renderer._pond_bounds = Rect2(0, 0, 200, 120)
-	renderer._fish_hits = [{"id": "first", "rect": Rect2(30, 30, 20, 20)}, {"id": "second", "rect": Rect2(70, 30, 20, 20)}]
+	renderer.resize_view(Vector2(1536, 352))
+	renderer.page = 0
+	renderer.set("camera_y", 0.0)
+	renderer._update_camera()
+	var world_layout = preload("res://scripts/world_layout.gd")
+	var water_start := Vector2(720, 260)
+	var water_finish := Vector2(810, 260)
+	check(world_layout.fish_segment_safe(water_start, water_finish), "Synthetic drag fixture lies on a real safe water segment")
+	var drag_start: Vector2 = renderer._to_screen(water_start)
+	var drag_finish: Vector2 = renderer._to_screen(water_finish)
+	renderer._pond_bounds = Rect2(renderer._to_screen(world_layout.water_bounds().position), world_layout.water_bounds().size)
+	renderer._fish_hits = [{"id": "first", "rect": Rect2(drag_start + Vector2(20, -10), Vector2(20, 20))}, {"id": "second", "rect": Rect2(drag_start + Vector2(60, -10), Vector2(20, 20))}]
 	var press := InputEventMouseButton.new()
 	press.button_index = MOUSE_BUTTON_LEFT
-	press.position = Vector2(10, 40)
+	press.position = drag_start
 	press.pressed = true
 	renderer._input(press)
 	var move := InputEventMouseMotion.new()
-	move.position = Vector2(100, 40)
+	move.position = drag_finish
 	renderer._input(move)
 	check(caught_ids.is_empty(), "Dragging does not emit before release")
 	var release := InputEventMouseButton.new()
@@ -201,7 +220,7 @@ func _run() -> void:
 	release.position = move.position
 	release.pressed = false
 	renderer._input(release)
-	check(caught_ids == ["first"], "Crossing two fish emits only the first on one release")
+	check(caught_ids == ["first"], "Crossing two fish emits only the first on one release (caught=%s, start=%s, finish=%s, size=%s)" % [caught_ids, drag_start, drag_finish, Vector2(renderer.view_width, renderer.view_height)])
 	controller.host.shutdown()
 	controller.queue_free()
 	await process_frame
@@ -291,28 +310,28 @@ func _test_pond_modes_and_interaction(controller, blocker_path: String, valid_pa
 	check(controller.model.state.net_remaining == 7.0 and controller.model.state.fish_remaining == 37.0, "Both UI upgrades preserve active pond timers")
 	controller._close_panel()
 	controller.toolbar.find_child("DisplayMode", true, false).pressed.emit()
-	check(controller.model.state.settings.display_mode == "compact" and controller.get_window().content_scale_size.y == 240 and controller.view.view_height == 172, "Real display mode button selects the compact scene")
-	check(controller.saves.load_save().data.settings.display_mode == "compact" and controller.status_label.position.y == 220, "Compact mode and the bottom status location persist correctly")
+	check(controller.model.state.settings.display_mode == "compact" and controller.scene_window.content_scale_size.y == 208 and controller.view.view_height == 172, "Real display mode button selects the compact scenery window")
+	check(controller.saves.load_save().data.settings.display_mode == "compact" and controller.status_label.position.y == 188, "Compact mode and the scene-local bottom status location persist correctly")
 	controller._open_panel("settings")
 	var display: OptionButton = controller.popup_body.find_child("SettingsDisplayMode", true, false) as OptionButton
 	controller.saves.path = blocker_path.path_join("display-fails.json")
 	var before_display: Dictionary = controller.model.snapshot()
 	display.select(0)
 	display.item_selected.emit(0)
-	check(JSON.stringify(controller.model.snapshot()) == JSON.stringify(before_display) and display.selected == 1 and controller.get_window().content_scale_size.y == 240, "Failed display save keeps the model, actual height and selected settings item consistent")
+	check(JSON.stringify(controller.model.snapshot()) == JSON.stringify(before_display) and display.selected == 1 and controller.scene_window.content_scale_size.y == 208, "Failed display save keeps the model, actual scene height and selected settings item consistent")
 	controller.saves.path = valid_path
 	check(controller._save_now(), "Display setting save failure can be recovered")
 	display.select(0)
 	display.item_selected.emit(0)
-	check(controller.model.state.settings.display_mode == "expanded" and controller.get_window().content_scale_size.y == 420 and controller.view.view_height == 352, "Settings restore the expanded scene without scaling sprites down")
-	check(controller.saves.load_save().data.settings.display_mode == "expanded" and controller.status_label.position.y == 400, "Expanded mode and its bottom status location persist correctly")
-	var prior_window_size: Vector2i = controller.get_window().size
-	controller.get_window().size = Vector2i(640, 420)
+	check(controller.model.state.settings.display_mode == "expanded" and controller.scene_window.content_scale_size.y == 388 and controller.view.view_height == 352, "Settings restore the expanded scenery without scaling sprites down")
+	check(controller.saves.load_save().data.settings.display_mode == "expanded" and controller.status_label.position.y == 368, "Expanded mode and the scene-local bottom status location persist correctly")
+	var prior_window_size: Vector2i = controller.scene_window.size
+	controller.scene_window.size = Vector2i(640, 388)
 	controller._sync_layout()
-	var toolbar_row: HBoxContainer = controller.toolbar.get_child(1) as HBoxContainer
+	var toolbar_row: HBoxContainer = controller.toolbar_row
 	check(toolbar_row.get_combined_minimum_size().x <= 628, "Toolbar still fits the 640 logical pixel desktop width")
 	check(controller.toolbar.find_child("CameraUp", true, false).visible and controller.toolbar.find_child("CameraNext", true, false).visible and controller.display_mode_button.visible and controller.collapse_button.visible, "Narrow toolbar keeps both-axis camera, display mode and collapse controls reachable")
-	controller.get_window().size = prior_window_size
+	controller.scene_window.size = prior_window_size
 	controller._sync_layout()
 	var original_camera: float = float(controller.view.get("camera_y"))
 	controller.toolbar.find_child("CameraDown", true, false).pressed.emit()

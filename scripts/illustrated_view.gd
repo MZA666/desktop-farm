@@ -4,10 +4,11 @@ extends "res://scripts/farm_view.gd"
 ## Illustrated terrain is cached; live plants and actors share foot-depth order.
 ## All model coordinates stay in the world when the camera or height changes.
 signal animal_clicked(instance_id: String)
+signal shelter_clicked(shelter_id: String)
 const SCENE_ART = preload("res://scripts/scene_assets.gd")
 const POND_RULES = preload("res://scripts/pond_rules.gd")
-var camera_y := 96.0
-var _scene_camera := {"farm": 96.0, "ranch": 0.0, "pond": 72.0}
+var camera_y := 64.0
+var _scene_camera := {"farm": 64.0, "ranch": 0.0, "pond": 72.0}
 var _animal_hits: Array = []
 var _animal_tracks: Dictionary = {}
 var _feedback: Dictionary = {}
@@ -17,6 +18,17 @@ var _pan_origin := Vector2.ZERO
 var _ranch_visual_key := -1
 var _animal_hover := ""
 var _net_flash_until := 0.0
+var _fish_tracks: Dictionary = {}
+var _last_fish_sample := -1.0
+var _gait_tracks: Dictionary = {}
+var _shelter_hits: Array = []
+var _shelter_hover := ""
+var _shelter_counts: Dictionary = {}
+var _product_draws: Array = []
+const SHELTER_PORTRAITS := ["chicken", "duck", "rabbit", "cow", "goat", "sheep", "pig"]
+# Measured on the baked painting: barn art is not equally spaced like the
+# simulation exits. Labels belong to gables, not to animal world coordinates.
+const SHELTER_SIGN_ANCHORS := [Vector2(216,72), Vector2(426,48), Vector2(682,66), Vector2(954,44), Vector2(1206,70), Vector2(1498,58), Vector2(1746,74)]
 
 func _ready() -> void:
 	super._ready()
@@ -24,6 +36,14 @@ func _ready() -> void:
 
 func set_model(values: Dictionary, force := false) -> void:
 	_sample_animals(values)
+	_sample_fish(values)
+	_shelter_counts.clear()
+	for animal in values.get("animals", []):
+		var sid := str(animal.get("shelter_id", WORLD.ANIMAL_SHELTERS.get(str(animal.type_id), "")))
+		if not _shelter_counts.has(sid): _shelter_counts[sid] = {"total": 0, "kinds": {}}
+		var entry: Dictionary = _shelter_counts[sid]
+		entry.total = int(entry.total) + 1
+		entry.kinds[str(animal.type_id)] = int(entry.kinds.get(str(animal.type_id), 0)) + 1
 	super.set_model(values, force)
 	var visual_key := hash([values.get("grass", []), values.get("shelters", {}), values.get("pond", {}), values.get("trough_hay", 0), values.get("warehouse_hay", 0)])
 	if scene_name != "farm" and visual_key != _ranch_visual_key:
@@ -36,6 +56,8 @@ func set_scene(value: String) -> void:
 	camera_y = float(_scene_camera.get(scene_name, 0.0))
 	_animal_hits.clear()
 	_animal_hover = ""
+	_shelter_hover = ""
+	_fish_tracks.clear()
 	_update_camera()
 	_invalidate_scene()
 
@@ -55,6 +77,13 @@ func _update_camera() -> void:
 func _to_screen(world_position: Vector2) -> Vector2:
 	var inset := maxf(0.0, (view_width - WORLD.world_size(scene_name).x) * 0.5) if view_width >= WORLD.world_size(scene_name).x else 24.0
 	return world_position + Vector2(inset - camera_offset, -camera_y)
+
+func _to_world(screen_position: Vector2) -> Vector2:
+	return screen_position - _to_screen(Vector2.ZERO)
+
+func cancel_gestures() -> void:
+	super.cancel_gestures()
+	_panning = false
 
 func _camera_span() -> float:
 	return view_width if view_width >= WORLD.world_size(scene_name).x else maxf(192.0, view_width - 48.0)
@@ -86,8 +115,11 @@ func show_net_feedback() -> void:
 func _process(delta: float) -> void:
 	super._process(delta)
 	_animal_hover = ""
+	_shelter_hover = ""
 	if interactive and scene_name == "ranch":
 		var mouse := get_local_mouse_position()
+		for hit in _shelter_hits:
+			if (hit.rect as Rect2).has_point(mouse): _shelter_hover = str(hit.id); break
 		for index in range(_animal_hits.size() - 1, -1, -1):
 			if (_animal_hits[index].rect as Rect2).has_point(mouse):
 				_animal_hover = str(_animal_hits[index].id)
@@ -127,6 +159,11 @@ func _input(event: InputEvent) -> void:
 				get_viewport().set_input_as_handled()
 				return
 			if scene_name == "ranch" and event.button_index == MOUSE_BUTTON_LEFT:
+				for hit in _shelter_hits:
+					if (hit.rect as Rect2).has_point(mouse):
+						shelter_clicked.emit(str(hit.id))
+						get_viewport().set_input_as_handled()
+						return
 				for index in range(_animal_hits.size() - 1, -1, -1):
 					if (_animal_hits[index].rect as Rect2).has_point(mouse):
 						animal_clicked.emit(str(_animal_hits[index].id))
@@ -146,6 +183,7 @@ func _draw_static() -> void:
 	if background != null:
 		_draw_woodland_margins(background)
 		_canvas().draw_texture_rect(background, Rect2(_to_screen(Vector2.ZERO), WORLD.world_size(scene_name)), false)
+		_draw_margin_seams()
 	match scene_name:
 		"farm": _illustrated_soil()
 		"ranch": _illustrated_grass()
@@ -155,31 +193,49 @@ func _draw_static() -> void:
 	_scene_cache_ready = true
 	_redraw_animation()
 
-func _draw_woodland_margins(background: Texture2D) -> void:
-	# Wide desktops reveal illustrated border strips, preserving the shared
-	# world scale instead of flat bars or stretching the playable composition.
+func _draw_woodland_margins(_background: Texture2D) -> void:
+	# One continuous independent panorama per margin. Never replicate strips
+	# of the playable painting (which contain coops, boats and fences).
 	var left := _to_screen(Vector2.ZERO).x
 	var right := left + WORLD.world_size(scene_name).x
-	var source_height := minf(view_height, background.get_height() - camera_y)
+	var forest: Texture2D = SCENE_ART.border("farm")
+	if forest == null: return
+	var height := minf(view_height, forest.get_height() - camera_y)
 	if left > 0:
-		var width := minf(96, background.get_width() * 0.06)
-		var x := left
-		while x > 0:
-			var span := minf(width, x)
-			x -= span
-			_canvas().draw_texture_rect_region(background, Rect2(x, 0, span, source_height), Rect2(0, camera_y, span, source_height))
+		var span := minf(left, forest.get_width()-48)
+		_canvas().draw_texture_rect_region(forest, Rect2(0,0,left,height), Rect2(forest.get_width()-span-48,camera_y,span,height))
 	if right < view_width:
-		var width := minf(96, background.get_width() * 0.06)
-		var x := right
-		while x < view_width:
-			var span := minf(width, view_width - x)
-			_canvas().draw_texture_rect_region(background, Rect2(x, 0, span, source_height), Rect2(background.get_width() - span, camera_y, span, source_height))
-			x += span
+		var width := view_width - right
+		if scene_name == "pond":
+			var shore: Texture2D = SCENE_ART.border("pond")
+			var half := shore.get_width() * 0.5
+			var span := minf(width, half-48)
+			_canvas().draw_texture_rect_region(shore, Rect2(right,0,span,height), Rect2(half+48,camera_y,span,height))
+			if width > span:
+				_canvas().draw_texture_rect_region(forest, Rect2(right+span,0,width-span,height), Rect2(0,camera_y,minf(width-span,forest.get_width()),height))
+		else:
+			_canvas().draw_texture_rect_region(forest, Rect2(right,0,width,height), Rect2(48,camera_y,minf(width,forest.get_width()-48),height))
+
+func _draw_margin_seams() -> void:
+	# Crossfade only the decorative outside edges. The soil and navigable
+	# water remain the original painting with their measured world boundaries.
+	var left := _to_screen(Vector2.ZERO).x
+	var right := left+WORLD.world_size(scene_name).x
+	var forest: Texture2D = SCENE_ART.border("farm")
+	var height := minf(view_height,forest.get_height()-camera_y)
+	for column in range(48):
+		if left > 0:
+			_canvas().draw_texture_rect_region(forest,Rect2(left+column,0,1,height),Rect2(forest.get_width()-48+column,camera_y,1,height),Color(1,1,1,1.0-float(column)/47))
+		if right < view_width:
+			var texture: Texture2D = SCENE_ART.border("pond") if scene_name == "pond" else forest
+			var source_x := texture.get_width()*0.5 if scene_name == "pond" else 0.0
+			_canvas().draw_texture_rect_region(texture,Rect2(right-48+column,0,1,height),Rect2(source_x+column,camera_y,1,height),Color(1,1,1,float(column)/47))
 
 func _illustrated_soil() -> void:
 	for plot in model_state.get("plots", []):
 		var index := int(plot.get("index", 0))
-		var bounds := Rect2(_to_screen(WORLD.plot_position(index)), Vector2(WORLD.PLOT_SIZE, WORLD.PLOT_SIZE))
+		var world_bounds: Rect2 = WORLD.plot_rect(index)
+		var bounds := Rect2(_to_screen(world_bounds.position), world_bounds.size)
 		if not bounds.intersects(Rect2(Vector2.ZERO, Vector2(view_width, view_height))): continue
 		_plot_hits.append({"rect": bounds, "id": str(plot.id), "open": bool(plot.open), "index": index})
 		if not bool(plot.open):
@@ -189,7 +245,7 @@ func _illustrated_soil() -> void:
 		_canvas().draw_rect(bounds.grow(-1), Color(0.20, 0.09, 0.025, 0.32 if wet else 0.14))
 		# Small connected ridges let planted land remain part of natural soil.
 		for row in range(3):
-			var yy := bounds.position.y + 14 + row * 13
+			var yy := bounds.position.y + 8 + row * 10
 			_canvas().draw_line(Vector2(bounds.position.x + 4, yy), Vector2(bounds.end.x - 4, yy), Color(0.30, 0.15, 0.07, 0.38), 1)
 
 func _illustrated_grass() -> void:
@@ -230,6 +286,8 @@ func _actor_position(track: Dictionary) -> Vector2:
 func _draw_animated() -> void:
 	_fish_hits.clear()
 	_animal_hits.clear()
+	_shelter_hits.clear()
+	_product_draws.clear()
 	_animal_draws.clear()
 	if not _scene_cache_ready: return
 	_draw_target = _animation_layer
@@ -237,9 +295,11 @@ func _draw_animated() -> void:
 	if scene_name == "farm":
 		for plot in model_state.get("plots", []):
 			if not bool(plot.open) or str(plot.status) == "empty": continue
-			var foot := WORLD.plot_position(int(plot.index)) + Vector2(WORLD.PLOT_SIZE / 2, WORLD.PLOT_SIZE - 4)
+			var foot := WORLD.plot_crop_anchor(int(plot.index))
 			actors.append({"kind": "crop", "foot": foot, "data": plot})
 	elif scene_name == "ranch":
+		for pile in model_state.get("ground_products", []):
+			actors.append({"kind": "product", "foot": Vector2(float(pile.x), float(pile.y)), "data": pile})
 		for animal in model_state.get("animals", []):
 			var foot := Vector2(float(animal.get("x", 168)), float(animal.get("y", 184)))
 			var track: Dictionary = _animal_tracks.get(str(animal.id), {})
@@ -264,11 +324,15 @@ func _draw_animated() -> void:
 		match str(actor.kind):
 			"crop": _illustrated_crop(foot, actor.data)
 			"animal": _illustrated_animal(foot, actor.data)
-			"farmer": _illustrated_farmer(foot, actor.data, actor.get("track", {}))
+			"product": _illustrated_product(foot, actor.data)
+			"farmer": _illustrated_farmer(foot, actor.data, actor.get("track", {}), actor.foot)
 	var foreground: Texture2D = SCENE_ART.foreground(scene_name)
 	if foreground != null: _canvas().draw_texture_rect(foreground, Rect2(_to_screen(Vector2.ZERO), WORLD.world_size(scene_name)), false)
 	if scene_name == "farm": _draw_farm_overlay()
-	elif scene_name == "ranch": _animal_tooltip()
+	elif scene_name == "ranch":
+		_draw_shelter_signs()
+		if not _shelter_hover.is_empty(): _shelter_tooltip()
+		else: _animal_tooltip()
 	elif scene_name == "pond": _pond_hint()
 	_draw_target = null
 
@@ -311,32 +375,96 @@ func _illustrated_animal(foot: Vector2, animal: Dictionary) -> void:
 	_animal_hits.append({"id": str(animal.id), "rect": rect.grow(-3), "animal": animal})
 	_animal_draws.append({"position": foot, "animal": animal})
 	if bool(animal.get("hungry", false)): _draw_drop(foot + Vector2(size_value * 0.30, -size_value * 0.75), RED)
-	elif int(animal.get("ready", 0)) > 0: _star(foot + Vector2(size_value * 0.30, -size_value * 0.75), GOLD)
 	if float(animal.get("feedback_remaining", 0)) > 0 or float(_feedback.get(str(animal.id), 0)) > _animation_seconds:
 		var top := foot + Vector2(0, -size_value - 4 - sin(_animation_seconds * 4) * 2)
 		_canvas().draw_circle(top + Vector2(-3, -2), 4, Color("#ef8e8c"))
 		_canvas().draw_circle(top + Vector2(3, -2), 4, Color("#ef8e8c"))
 		_canvas().draw_colored_polygon(PackedVector2Array([top + Vector2(-7, -1), top + Vector2(7, -1), top + Vector2(0, 7)]), Color("#ef8e8c"))
 
-func _illustrated_farmer(foot: Vector2, farmer: Dictionary, track: Dictionary) -> void:
+func _illustrated_farmer(foot: Vector2, farmer: Dictionary, track: Dictionary, world_foot: Vector2) -> void:
 	var phase := str(farmer.get("phase", "idle"))
-	var walking := phase == "walking"
-	var action := str((farmer.get("task", {}) as Dictionary).get("action", "walk")) if phase == "acting" else "walk"
+	# Rendering trails the fixed simulation step slightly. Finish the visible
+	# approach before playing the action, and measure stride in world pixels:
+	# scrolling the camera must never advance a stationary farmer's legs.
+	var walking := phase == "walking" or (not track.is_empty() and world_foot.distance_to(track.target) > 0.15)
+	var action := str((farmer.get("task", {}) as Dictionary).get("action", "walk")) if phase == "acting" and not walking else "walk"
 	var direction := str(farmer.get("facing", "down"))
-	if not track.is_empty():
+	if walking and not track.is_empty():
 		var movement: Vector2 = (track.target as Vector2) - (track.from as Vector2)
 		if absf(movement.x) > absf(movement.y): direction = "left" if movement.x < 0 else "right"
 		elif absf(movement.y) > 0.1: direction = "up" if movement.y < 0 else "down"
-	var frame := posmod(floori(_animation_seconds * 6), 4) if walking or phase == "acting" else 0
+	var id := str(farmer.id)
+	var gait: Dictionary = _gait_tracks.get(id, {"foot": world_foot, "distance": 0.0})
+	if walking:
+		gait.distance = float(gait.distance) + (gait.foot as Vector2).distance_to(world_foot)
+	else: gait.distance = 0.0
+	gait.foot = world_foot
+	_gait_tracks[id] = gait
+	var count: int = SCENE_ART.farmer_frame_count(action)
+	var neutral := 6 if direction == "up" else 2
+	var frame := posmod(floori(float(gait.distance) / 3.0), count) if walking else (posmod(floori(_animation_seconds * 4), count) if phase == "acting" else neutral)
+	gait.frame = frame
+	gait.walking = walking
 	var texture: Texture2D = SCENE_ART.farmer(action, direction, frame)
 	_canvas().draw_circle(foot, 12, Color(0.18, 0.25, 0.08, 0.17))
 	if texture != null: _canvas().draw_texture_rect(texture, Rect2(foot - Vector2(32, 78), Vector2(64, 80)), false)
 	if str(farmer.get("mode", "")) == "resting": _label("z", foot + Vector2(24, -60), CREAM)
 
+func _illustrated_product(foot: Vector2, pile: Dictionary) -> void:
+	_product_draws.append({"id":str(pile.id),"foot":foot,"quantity":int(pile.quantity)})
+	var texture: Texture2D = ART.icon("item", str(pile.product_id))
+	_canvas().draw_circle(foot, 10, Color(0.18,0.25,0.08,0.20))
+	if texture != null: _canvas().draw_texture_rect(texture, Rect2(foot-Vector2(14,24),Vector2(28,28)),false)
+	if int(pile.quantity) > 1:
+		var label_text := str(int(pile.quantity))
+		var width := maxf(20, label_text.length()*7+6)
+		_box(Rect2(foot+Vector2(5,-4),Vector2(width,14)),Color("#68472d"))
+		_label(label_text,foot+Vector2(8,7),CREAM,10,width-4)
+
+func _draw_shelter_signs() -> void:
+	var shelters: Array = config.get("shelters", [])
+	for index in range(mini(7,shelters.size())):
+		var definition: Dictionary = shelters[index]
+		var sid := str(definition.id)
+		var level := int((model_state.get("shelters",{}) as Dictionary).get(sid,0))
+		var count: Dictionary = _shelter_counts.get(sid,{"total":0,"kinds":{}})
+		var anchor := _to_screen(SHELTER_SIGN_ANCHORS[index])
+		var rect := Rect2(anchor-Vector2(36,14),Vector2(72,28))
+		if not rect.intersects(Rect2(Vector2.ZERO,Vector2(view_width,view_height))): continue
+		_box(rect,Color("#674327"))
+		_box(rect.grow(-2),Color("#dca75e") if level > 0 else Color("#ada084"))
+		var portrait: Texture2D = SCENE_ART.portrait(SHELTER_PORTRAITS[index])
+		if portrait != null: _canvas().draw_texture_rect(portrait,Rect2(rect.position+Vector2(3,2),Vector2(24,24)),false,Color.WHITE if level>0 else Color(0.65,0.65,0.65))
+		var capacity := int((definition.get("capacities",[]) as Array)[level-1]) if level>0 else 0
+		if level > 0: _label("%d/%d" % [int(count.total),capacity],rect.position+Vector2(29,19),INK,12,40)
+		else:
+			_canvas().draw_arc(rect.position+Vector2(44,10),4,PI,TAU,8,INK,2)
+			_box(Rect2(rect.position+Vector2(39,10),Vector2(10,9)),INK)
+		var extras := 0
+		for kind in ["void_chicken","golden_chicken","dinosaur","ostrich"]:
+			if not (count.kinds as Dictionary).has(kind): continue
+			var badge: Texture2D = SCENE_ART.portrait(kind)
+			if badge != null: _canvas().draw_texture_rect(badge,Rect2(rect.end+Vector2(-20-extras*19,0),Vector2(18,18)),false)
+			extras += 1
+		_shelter_hits.append({"id":sid,"rect":rect,"definition":definition,"count":count,"level":level})
+
+func _shelter_tooltip() -> void:
+	for hit in _shelter_hits:
+		if str(hit.id) != _shelter_hover: continue
+		var names := PackedStringArray()
+		for kind in (hit.count.kinds as Dictionary): names.append("%s %d" % [str(_animals.get(kind,{}).get("name",kind)),int(hit.count.kinds[kind])])
+		var text := "点击建设扩展" if int(hit.level)==0 else (" · ".join(names) if not names.is_empty() else "尚未购买动物")
+		var origin := Vector2(clampf((hit.rect as Rect2).position.x,8,maxf(8,view_width-300)),minf(view_height-52,(hit.rect as Rect2).end.y+22))
+		_box(Rect2(origin,Vector2(292,47)),Color("#f0e0b9"))
+		_label("%s · %d级" % [str(hit.definition.name),int(hit.level)],origin+Vector2(8,17),INK,12,276)
+		_label(text,origin+Vector2(8,36),MUTED,11,276)
+		return
+
 func _illustrated_water() -> void:
 	var area: Rect2 = WORLD.water_bounds()
 	for index in range(18):
 		var center := _to_screen(area.position + Vector2(48 + (index * 113) % 1000, 38 + (index * 47) % 250))
+		if not WORLD.water_contains(_to_world(center)) or not WORLD.water_contains(_to_world(center+Vector2(20,3))): continue
 		var drift := sin(_animation_seconds * 0.75 + index) * 7
 		_canvas().draw_line(center + Vector2(drift, 0), center + Vector2(drift + 12, 0), Color(0.78, 0.95, 0.94, 0.34), 1)
 		_canvas().draw_line(center + Vector2(drift + 3, 3), center + Vector2(drift + 8, 3), Color(0.23, 0.67, 0.77, 0.27), 1)
@@ -351,24 +479,75 @@ func _illustrated_water() -> void:
 		_canvas().draw_line(dock + Vector2(-20 + index * 5, -20), dock + Vector2(-10 + index * 5, -8), Color("#d3b776"), 1)
 
 func _illustrated_fish(fish: Dictionary) -> void:
-	var area: Rect2 = WORLD.water_bounds()
 	var seed_value := absi(str(fish.id).hash())
 	var phase := float(seed_value % 1000) * 0.013
-	var travel := _animation_seconds * 0.08 + phase
-	var x := clampf(float(fish.get("x", 0.5)) + sin(travel) * 0.07, 0.05, 0.95)
-	var y := clampf(float(fish.get("y", 0.5)) + sin(travel * 0.66 + phase) * 0.035, 0.10, 0.90)
-	var center := _to_screen(area.position + area.size * Vector2(x, y)).floor()
+	var world_center: Vector2 = WORLD.fish_visual_position(fish)
+	var track: Dictionary = _fish_tracks.get(str(fish.id),{})
+	if not track.is_empty(): world_center = _fish_position(track)
+	var center := _to_screen(world_center)
 	var size_value := Vector2(46, 30)
 	var rect := Rect2(center - size_value / 2, size_value)
 	if not rect.intersects(Rect2(Vector2.ZERO, Vector2(view_width, view_height))): return
 	var texture: Texture2D = SCENE_ART.fish(str(fish.type_id), posmod(floori(_animation_seconds * 4 + phase), 4))
 	if texture != null:
 		var draw_rect := rect
-		if cos(travel) < 0:
+		if cos(float(fish.get("heading",0))) < 0:
 			draw_rect.position.x += draw_rect.size.x
 			draw_rect.size.x = -draw_rect.size.x
 		_canvas().draw_texture_rect(texture, draw_rect, false, Color(0.85, 0.96, 1, 0.85))
 	_fish_hits.append({"id": str(fish.id), "rect": rect})
+
+func _sample_fish(values: Dictionary) -> void:
+	var sample_time := float(values.get("elapsed",0))
+	var duration := clampf(sample_time-_last_fish_sample,1.0/30.0,1.0)
+	if sample_time < _last_fish_sample: _fish_tracks.clear()
+	_last_fish_sample = sample_time
+	var present := {}
+	for fish in values.get("fish",[]):
+		var id := str(fish.id)
+		present[id] = true
+		var point: Vector2 = WORLD.fish_visual_position(fish)
+		var previous: Dictionary = _fish_tracks.get(id,{})
+		if previous.is_empty() or _desktop_suspended:
+			_fish_tracks[id] = {"from":point,"target":point,"since":_animation_seconds,"duration":duration,"via":point}
+		elif (previous.target as Vector2).distance_squared_to(point)>0.000001:
+			var from := _fish_position(previous)
+			var via := from if WORLD.fish_segment_safe(from,point) else (previous.target as Vector2)
+			# A delayed UI sample can span several simulation turns. Never join
+			# those endpoints across a shore; resume the last verified model leg.
+			if not WORLD.fish_segment_safe(from,via) or not WORLD.fish_segment_safe(via,point):
+				from = Vector2(float(fish.previous_x),float(fish.previous_y))
+				via = from
+			_fish_tracks[id] = {"from":from,"target":point,"since":_animation_seconds,"duration":duration,"via":via}
+	for id in _fish_tracks.keys():
+		if not present.has(id): _fish_tracks.erase(id)
+
+func _fish_position(track: Dictionary) -> Vector2:
+	var from: Vector2 = track.from
+	var via: Vector2 = track.via
+	var target: Vector2 = track.target
+	var first := from.distance_to(via)
+	var total := first + via.distance_to(target)
+	if total<0.000001: return target
+	var distance := clampf((_animation_seconds-float(track.since))/maxf(0.03,float(track.duration)),0,1)*total
+	return from.move_toward(via,distance) if distance<first else via.move_toward(target,distance-first)
+
+func _water_input_contains(point: Vector2) -> bool:
+	return WORLD.water_contains(_to_world(point))
+
+func _track_net(point: Vector2) -> void:
+	if _net_candidate.is_empty():
+		var start := _to_world(_net_previous)
+		var finish := _to_world(point)
+		for interval in WORLD.net_segment_intervals(start,finish):
+			var safe_start := _to_screen(start.lerp(finish,interval.x))
+			var safe_finish := _to_screen(start.lerp(finish,interval.y))
+			for hit in _fish_hits:
+				if _segment_hits_rect(safe_start,safe_finish,hit.rect):
+					_net_candidate = str(hit.id)
+					break
+			if not _net_candidate.is_empty(): break
+	_net_previous = point
 
 func _pond_hint() -> void:
 	var cooldown := float(model_state.get("net_remaining", 0))
@@ -385,7 +564,7 @@ func _animal_tooltip() -> void:
 		var animal: Dictionary = hit.animal
 		var definition: Dictionary = _animals.get(str(animal.type_id), {})
 		var title := str(definition.get("name", animal.type_id)) + (" · 成年" if bool(animal.adult) else " · 幼年")
-		var detail := "缺粮，成长与产出暂停" if bool(animal.hungry) else ("产物待收" if int(animal.ready) > 0 else "点击互动 · 每只120秒奖励冷却")
+		var detail := "缺粮，成长与产出暂停" if bool(animal.hungry) else "点击互动 · 每只120秒奖励冷却"
 		var position_value := Vector2(clampf((hit.rect as Rect2).position.x, 8, maxf(8, view_width - 250)), 8)
 		_box(Rect2(position_value, Vector2(242, 45)), Color("#f0e0b9"))
 		_label(title, position_value + Vector2(8, 17), INK, 12, 226)

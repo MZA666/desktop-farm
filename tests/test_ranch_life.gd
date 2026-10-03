@@ -216,6 +216,7 @@ func _test_collection() -> void:
 	animal.adult = true
 	animal.adult_remaining = 0
 	animal.ready = 1
+	game._collect_animal(animal)
 	game._add_farmer("ranch")
 	var farmer: Dictionary = game.state.farmers[0]
 	var start := LIFE.point(animal) + Vector2(0, 48)
@@ -225,13 +226,13 @@ func _test_collection() -> void:
 	farmer.path_target_y = start.y
 	var cash := game.balance()
 	game.tick(0.2)
-	check(farmer.task.get("action", "") == "collect_product" and animal.ready == 1, "Worker claims animal ID and travels before collection")
+	check(farmer.task.get("action", "") == "collect_product" and farmer.task.target == game.state.ground_products[0].id and animal.ready == 0, "Worker claims the fixed ground product while animal keeps producing")
 	var copy := MODEL.new(values)
-	check(copy.restore(game.snapshot()).ok, "Moving-target collection path restores")
+	check(copy.restore(game.snapshot()).ok, "Fixed-target collection path restores")
 	game.tick(30)
 	copy.tick(30)
-	check(game.balance() == cash + 50 and animal.ready == 0, "Farmer reaches moving animal and collects exactly one egg")
-	check(animal.held_by.is_empty() and JSON.stringify(game.snapshot()) == JSON.stringify(copy.snapshot()), "Collection releases actor and resumes deterministically")
+	check(game.balance() == cash + 50 and game.state.ground_products.is_empty(), "Farmer reaches the stationary product and collects exactly one egg")
+	check(animal.held_by.is_empty() and animal.product_remaining < 300 and JSON.stringify(game.snapshot()) == JSON.stringify(copy.snapshot()), "Pickup never freezes or resets animal progress and resumes deterministically")
 
 func _test_validation() -> void:
 	var game := fresh()

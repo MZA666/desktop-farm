@@ -3,6 +3,7 @@ extends SceneTree
 const ART = preload("res://scripts/pixel_assets.gd")
 const VIEW = preload("res://scripts/farm_view.gd")
 const MODEL = preload("res://scripts/game_state.gd")
+const WORLD = preload("res://scripts/world_layout.gd")
 var failures: Array[String] = []
 var assertions := 0
 
@@ -50,7 +51,7 @@ func _run() -> void:
 	model.state.elapsed += 1
 	view.set_model(model.state)
 	check(view._scene_cache_ready, "An empty field does not bake all terrain for each elapsed second")
-	var fixture := {"elapsed": 10.0, "plots": [{"id": "p0", "index": 0, "open": true, "status": "unwatered"}, {"id": "p1", "index": 1, "open": true, "status": "empty"}, {"id": "p2", "index": 2, "open": false, "status": "empty"}], "farmers": [{"id": "worker", "scene": "farm", "x": 24.0, "y": 136.0, "phase": "idle"}]}
+	var fixture := {"elapsed": 10.0, "plots": [{"id": "p0", "index": 0, "open": true, "status": "unwatered"}, {"id": "p1", "index": 1, "open": true, "status": "empty"}, {"id": "p2", "index": 2, "open": false, "status": "empty"}], "farmers": [{"id": "worker", "scene": "farm", "x": 320.0, "y": 440.0, "phase": "idle"}]}
 	view.set_model(fixture, true)
 	view._plot_hits = [{"id": "p0", "index": 0, "open": true, "rect": Rect2(88, 20, 32, 32)}, {"id": "p1", "index": 1, "open": true, "rect": Rect2(88, 52, 32, 32)}, {"id": "p2", "index": 2, "open": false, "rect": Rect2(88, 84, 32, 32)}]
 	var watered: Array = []
@@ -74,33 +75,34 @@ func _run() -> void:
 	var track: Dictionary = view._farmer_tracks.worker
 	view._animation_seconds += 1
 	fixture.elapsed = 10.5
-	fixture.farmers[0].x = 40.0
+	fixture.farmers[0].x = 336.0
 	fixture.farmers[0].phase = "walking"
 	view.set_model(fixture)
 	track = view._farmer_tracks.worker
-	check(track.target == Vector2(40, 136) and track.from == Vector2(24, 136), "Farmer interpolation samples actual model feet rather than task targets")
+	check(track.target == Vector2(336, 440) and track.from == Vector2(320, 440), "Farmer interpolation samples actual model feet rather than task targets")
 	view._animation_seconds += 0.25
-	check(view._farmer_position(track).is_equal_approx(Vector2(32, 136)), "Thirty/fifteen FPS interpolation stays between physical model samples")
+	check(view._farmer_position(track).is_equal_approx(Vector2(328, 440)), "Thirty/fifteen FPS interpolation stays between physical model samples")
 	view._animation_seconds += 0.25
 	fixture.elapsed = 11.5
-	fixture.farmers[0].x = 72.0
+	fixture.farmers[0].x = 368.0
 	view.set_model(fixture)
 	track = view._farmer_tracks.worker
 	view._animation_seconds += 0.5
-	check(view._farmer_position(track).is_equal_approx(Vector2(56, 136)), "A one-second 32px model step takes a full second to render at the configured walking speed")
+	check(view._farmer_position(track).is_equal_approx(Vector2(352, 440)), "A one-second 32px model step takes a full second to render at the configured walking speed")
 	view.resize_view(Vector2(640, 172))
 	view._update_camera()
 	check(view.get_page_count() == 3 and view.camera_offset == 0, "Continuous1536px farmland paginates from viewport capacity")
 	view.page_next()
 	view._update_camera()
-	check(view.camera_offset == 592 and track.target == Vector2(72, 136), "Paging changes camera only and keeps the farmer's world coordinate")
+	check(view.camera_offset == 592 and track.target == Vector2(368, 440), "Paging changes camera only and keeps the farmer's world coordinate")
 	view.set_desktop_suspended(true)
 	fixture.elapsed = 20.0
-	fixture.farmers[0].x = 100.0
+	fixture.farmers[0].x = 400.0
 	view.set_model(fixture)
 	track = view._farmer_tracks.worker
-	check(track.from == Vector2(100, 136) and track.target == Vector2(100, 136), "Hidden simulation updates actor samples without replaying stale travel on restore")
+	check(track.from == Vector2(400, 440) and track.target == Vector2(400, 440), "Hidden simulation updates actor samples without replaying stale travel on restore")
 	view.set_desktop_suspended(false)
+	_test_obstacle_interpolation(view,fixture)
 	view.set_model(model.state, true)
 	view.set_desktop_suspended(true)
 	check(not view.is_processing() and not view._animation_layer.visible, "Desktop hide suspends drawing and animation")
@@ -119,6 +121,24 @@ func _run() -> void:
 	else:
 		for failure in failures: printerr("FAIL: " + failure)
 		quit(1)
+
+func _test_obstacle_interpolation(view: FarmView, fixture: Dictionary) -> void:
+	view.set_desktop_suspended(true)
+	fixture.elapsed=30.0
+	fixture.farmers[0].x=304.0
+	fixture.farmers[0].y=40.0
+	view.set_model(fixture)
+	view.set_desktop_suspended(false)
+	fixture.elapsed=31.0
+	fixture.farmers[0].x=208.0
+	fixture.farmers[0].y=216.0
+	view.set_model(fixture)
+	var track: Dictionary=view._farmer_tracks.worker
+	check(not WORLD.segment_walkable("farm",Vector2(304,40),Vector2(208,216)), "Regression fixture's direct interpolation crosses the farm tool shed")
+	check(track.has("route") and (track.route as Array).size()>1, "Visible worker interpolation follows a real detour instead of cutting through a building")
+	for index in range(16):
+		view._animation_seconds=float(track.since)+float(track.duration)*(index+1)/16.0
+		check(WORLD.is_walkable("farm",view._farmer_position(track)), "15/30FPS interpolated feet remain outside the shed")
 
 func _mouse(view: FarmView, position: Vector2, pressed: bool, shift := false) -> void:
 	var event := InputEventMouseButton.new()

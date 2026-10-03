@@ -13,6 +13,14 @@ func _init(save_path: String = "user://desktop-farm-save.json", values: Dictiona
 	config = values.duplicate(true)
 
 func save(data: Dictionary) -> Dictionary:
+	if FileAccess.file_exists(path):
+		var existing := _read(path)
+		if existing.ok and _unsupported_version(existing.data.get("version")):
+			return _failure("现有存档版本不受支持，拒绝用旧版本覆盖")
+	if not config.is_empty():
+		var checker := FarmState.new(config)
+		var checked := checker._validate(data)
+		if not checked.ok: return _failure("拒绝保存无效状态：" + str(checked.message))
 	var directory := path.get_base_dir()
 	var error := DirAccess.make_dir_recursive_absolute(directory)
 	if error != OK:
@@ -21,7 +29,8 @@ func save(data: Dictionary) -> Dictionary:
 	var file := FileAccess.open(temporary, FileAccess.WRITE)
 	if file == null:
 		return _failure("无法写入临时存档：%s" % error_string(FileAccess.get_open_error()))
-	file.store_string(JSON.stringify(data))
+	# Preserve sub-pixel actor coordinates and timers exactly across a restart.
+	file.store_string(JSON.stringify(data, "", true, true))
 	file.flush()
 	error = file.get_error()
 	file.close()
@@ -53,7 +62,7 @@ func load_save() -> Dictionary:
 	var raw := _read(path)
 	# An unknown future schema is not a corrupt current save. Do not replace it
 	# with an older backup merely because this executable cannot understand it.
-	if raw.ok and int(raw.data.get("version", -1)) not in [1, 2, FarmState.SAVE_VERSION]:
+	if raw.ok and _unsupported_version(raw.data.get("version")):
 		return _failure("不支持的存档版本：%s，请使用对应版本打开" % raw.data.version)
 	var result := _prepare_load(raw, path, false)
 	if result.ok:
@@ -96,19 +105,24 @@ func _prepare_load(result: Dictionary, source: String, from_backup: bool) -> Dic
 	if version == FarmState.SAVE_VERSION:
 		if not config.is_empty():
 			var checker := FarmState.new(config)
-			var checked := checker._validate(result.data)
+			var checked := checker.restore(result.data)
 			if not checked.ok: return checked
+			result.data = checker.snapshot()
 		return result
-	if version not in [1, 2] or config.is_empty():
+	if version not in [1, 2, 3] or config.is_empty():
 		return {"ok": false, "message": "不支持的存档版本：%s" % version}
 	var model := FarmState.new(config)
-	var migration: Dictionary = model.migrate_v1(result.data) if version == 1 else model.migrate_v2(result.data)
+	var migration: Dictionary
+	match version:
+		1: migration = model.migrate_v1(result.data)
+		2: migration = model.migrate_v2(result.data)
+		3: migration = model.migrate_v3(result.data)
 	if not migration.ok:
 		return migration
 	var checked := model.restore(migration.data)
 	if not checked.ok:
 		return checked
-	# Preserve the exact legacy file before writing v3. Every migration backup
+	# Preserve the exact legacy file before writing v4. Every migration backup
 	# has a unique name; no subsequent save or recovery can overwrite it.
 	var stamp := str(int(Time.get_unix_time_from_system())) + "-" + str(Time.get_ticks_usec())
 	var legacy_backup := path + ".version-v%d-" % version + stamp + ".json"
@@ -135,3 +149,6 @@ func _migration_failure(message: String) -> Dictionary:
 func _failure(message: String) -> Dictionary:
 	last_error = message
 	return {"ok": false, "message": message}
+
+func _unsupported_version(version: Variant) -> bool:
+	return not (version is int or version is float) or not is_finite(float(version)) or float(version) != floorf(float(version)) or int(version) not in [1, 2, 3, FarmState.SAVE_VERSION]

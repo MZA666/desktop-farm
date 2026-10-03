@@ -34,10 +34,10 @@ git push
 较大的功能可使用独立分支，完成后合入主分支：
 
 ```powershell
-git switch -c feature/new-feature
+git switch -c codex/new-feature
 ```
 
-发布可用带说明的标签，例如 `git tag -a v0.8.0 -m "v0.8.0 stage A"`，然后 `git push origin v0.8.0`。标签对应已验收的源码，试玩包来自本机 `dist/`，不随源码提交。阶段A为0.8.0，后续B/C依次使用0.8.1和0.8.2。
+发布可用带说明的标签，例如 `git tag -a v0.8.2 -m "v0.8.2 desktop and ground products"`，然后 `git push origin v0.8.2`。标签对应已验收源码，试玩包由本机 `dist/` 构建，不随源码提交。0.8.1已合并三场景、牧场生活与鱼塘升级；0.8.2为用户批准的七项试玩反馈优化，不再沿用旧B/C分版方案。
 
 ## 换电脑开发
 

@@ -1,9 +1,11 @@
 extends SceneTree
 
 const HOST = preload("res://scripts/desktop_host.gd")
+const WINDOWS = preload("res://native/tests/window_fixture.gd")
 const MENU_REPORT := "res://.review/tray-menu-result.txt"
 var host: DesktopHost
 var toolbar: Window
+var scenery: Window
 var second: RefCounted
 var second_window: Window
 var events: Array[String] = []
@@ -25,11 +27,11 @@ func check(condition: bool, message: String) -> void:
 
 func _start() -> void:
 	root.gui_embed_subwindows = false
-	toolbar = Window.new()
-	root.add_child(toolbar)
+	toolbar = root
+	scenery = WINDOWS.scene_for(root)
 	host = HOST.new()
 	root.add_child(host)
-	check(host.start(root, toolbar), "Fixture desktop host must start independently of the player")
+	check(host.start(scenery, toolbar), "Fixture desktop host must start independently of the player")
 	check(host.test_instance and host.tray_available, "Isolated fixture tray must be present")
 	check(not host.hotkey_available, "Host fixture must leave the player's Ctrl+Alt+F alone")
 	host.tray_action.connect(func(action: String): events.append(action))

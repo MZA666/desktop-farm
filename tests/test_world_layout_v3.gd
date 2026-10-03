@@ -1,6 +1,7 @@
 extends SceneTree
 
-const World = preload("res://scripts/world_layout.gd")
+## Frozen geometry is a migration contract; current geometry is tested in v4.
+const World = preload("res://scripts/world_layout_v3.gd")
 var failures: Array[String] = []
 var assertions := 0
 

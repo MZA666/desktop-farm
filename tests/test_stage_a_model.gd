@@ -41,7 +41,7 @@ func growing() -> FarmState:
 
 func _test_budget_and_library() -> void:
 	var game := fresh()
-	check(game.state.version == 3 and not game.state.has("regions"), "V3 retains independent plots and no region state")
+	check(game.state.version == 4 and game.state.layout_version == 4 and not game.state.has("regions"), "V4 retains independent plots and saves its layout version")
 	check(game.state.plots.size() == 96 and game.state.plots[23].open and not game.state.plots[24].open, "Initial first 24 of 96 plots open")
 	for i in range(96):
 		check(int(game.state.plots[i].index) == i and str(game.state.plots[i].id) == "plot_%d_%d" % [i / 16, i % 16], "Stable legacy ID and global index %d" % i)
@@ -110,7 +110,7 @@ func _test_claims_and_rollback() -> void:
 
 func _test_world_and_travel() -> void:
 	check(World.legacy_plot_position(0) == Vector2(64, 20) and World.legacy_plot_position(23) == Vector2(288, 84) and World.legacy_plot_position(95) == Vector2(1056, 84), "Legacy coordinate mapping remains available for strict migration")
-	check(World.plot_position(0) == Vector2(352, 112) and World.plot_position(23) == Vector2(744, 168) and World.plot_position(95) == Vector2(1192, 392), "New world keeps exact 16-by-6 independent plot coordinates")
+	check(World.plot_position(0) == Vector2(448, 144) and World.plot_position(23) == Vector2(798, 182) and World.plot_position(95) == Vector2(1198, 334), "V4 keeps all 96 stable plots inside the annotated compact field")
 	var game := fresh()
 	game.state.farmers = game.state.farmers.filter(func(f): return f.home == "farm")
 	game.tick(1)
@@ -147,6 +147,10 @@ func _test_world_and_travel() -> void:
 func legacy_fixture() -> Dictionary:
 	var data := fresh().snapshot()
 	data.version = 1
+	for fish in data.fish:
+		var normalized: Vector2 = World.fish_from_world(Vector2(fish.x, fish.y))
+		fish.x = normalized.x; fish.y = normalized.y
+		for key in ["previous_x", "previous_y", "target", "heading", "phase", "swim_index"]: fish.erase(key)
 	data.regions = []
 	for ri in range(6): data.regions.append({"index": ri, "unlocked": ri < 4, "current_crop_id": "parsnip", "pending_crop_id": ""})
 	for i in range(96):

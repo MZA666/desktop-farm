@@ -325,7 +325,7 @@ func _input(event: InputEvent) -> void:
 		for hit in _plot_hits:
 			if hit.rect.has_point(mouse): _farm_press_hit = hit; break
 		get_viewport().set_input_as_handled()
-	elif scene_name == "pond" and _pond_bounds.has_point(mouse):
+	elif scene_name == "pond" and _water_input_contains(mouse):
 		_net_dragging = true
 		_net_previous = mouse
 		_net_candidate = ""
@@ -362,6 +362,15 @@ func _track_net(point: Vector2) -> void:
 				_net_candidate = str(hit.id)
 				break
 	_net_previous = point
+
+func _water_input_contains(point: Vector2) -> bool:
+	return _pond_bounds.has_point(point)
+
+func cancel_gestures() -> void:
+	_farm_dragging = false
+	_net_dragging = false
+	_farm_press_hit = {}
+	_redraw_animation()
 
 func _segment_hits_rect(start: Vector2, finish: Vector2, rect: Rect2) -> bool:
 	var low := 0.0
@@ -824,10 +833,28 @@ func _sample_farmers(values: Dictionary) -> void:
 			_farmer_tracks[id] = {"from": foot, "target": foot, "since": _animation_seconds, "duration": duration, "left": false, "scene": scene}
 		elif (track.target as Vector2).distance_squared_to(foot) > 0.00001:
 			var drawn := _farmer_position(track)
-			_farmer_tracks[id] = {"from": drawn, "target": foot, "since": _animation_seconds, "duration": duration, "left": foot.x < drawn.x, "scene": scene}
+			var route: Array[Vector2] = [foot]
+			if not WORLD.segment_walkable(scene,drawn,foot):
+				route = WORLD.find_path(scene,drawn,foot)
+				if route.is_empty(): drawn = foot
+			var route_length := 0.0
+			var previous_point := drawn
+			for point in route:
+				route_length += previous_point.distance_to(point)
+				previous_point = point
+			_farmer_tracks[id] = {"from": drawn, "target": foot, "since": _animation_seconds, "duration": duration, "left": foot.x < drawn.x, "scene": scene,"route":route,"route_length":route_length}
 
 func _farmer_position(track: Dictionary) -> Vector2:
 	var progress := clampf((_animation_seconds - float(track.since)) / maxf(1.0 / 30.0, float(track.duration)), 0, 1)
+	if track.has("route"):
+		var remaining := progress*float(track.route_length)
+		var previous_point: Vector2 = track.from
+		for point in track.route:
+			var distance := previous_point.distance_to(point)
+			if remaining <= distance: return previous_point.move_toward(point,remaining)
+			remaining -= distance
+			previous_point = point
+		return track.target
 	return (track.from as Vector2).lerp(track.target as Vector2, progress)
 
 func _draw_farmers() -> void:

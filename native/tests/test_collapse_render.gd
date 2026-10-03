@@ -3,8 +3,10 @@ extends SceneTree
 var test_failed := false
 
 const HOST = preload("res://scripts/desktop_host.gd")
+const WINDOWS = preload("res://native/tests/window_fixture.gd")
 var host: DesktopHost
 var toolbar: Window
+var scenery: Window
 var label: Label
 var ticks := 0
 var first_pixels := PackedByteArray()
@@ -15,10 +17,10 @@ func _initialize() -> void:
 
 func _start_test() -> void:
 	root.gui_embed_subwindows = false
-	toolbar = Window.new()
+	toolbar = root
+	scenery = WINDOWS.scene_for(root)
 	toolbar.title = "Collapsed toolbar rendering validation"
 	toolbar.size = Vector2i(400, 32)
-	root.add_child(toolbar)
 	var background := ColorRect.new()
 	background.color = Color(0.15, 0.18, 0.21)
 	background.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
@@ -31,7 +33,8 @@ func _start_test() -> void:
 	toolbar.show()
 	host = HOST.new()
 	root.add_child(host)
-	verify(host.start(root, toolbar, {}))
+	host.status_changed.connect(func(message: String): print("HOST_STATUS ", message))
+	verify(host.start(scenery, toolbar, {}))
 	host.set_collapsed(true)
 
 func _process(_delta: float) -> bool:

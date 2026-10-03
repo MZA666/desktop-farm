@@ -4,6 +4,7 @@ extends RefCounted
 ## Pure 5 Hz world behaviour. Meal claims remain physical stock until an
 ## animal visits every claimed patch and finishes the complete meal.
 const WORLD = preload("res://scripts/world_layout.gd")
+const PRODUCTS = preload("res://scripts/ground_products.gd")
 const BEHAVIORS := ["leaving", "idle", "wandering", "to_food", "eating", "being_collected", "interacting"]
 
 static func point(object: Dictionary) -> Vector2:
@@ -43,7 +44,7 @@ static func initialize_animal(state: Dictionary, animal: Dictionary, kinds: Dict
 		"path": [], "target": {}, "decision_remaining": 0.0, "food_decision_remaining": 0.0, "meal": {}, "eating_remaining": 2.0,
 		"held_by": "", "hold_remaining": 0.0, "feedback_remaining": 0.0,
 		"last_reward_elapsed": -120.0, "juvenile_bonus_used": 0.0, "adult_bonus_used": 0.0,
-		"production_cycle": 0}, true)
+		"production_cycle": 0, "last_drop_cycle": -1}, true)
 
 static func _random(state: Dictionary) -> float:
 	state.rng.animal = (int(state.rng.animal) * 48271) % 2147483647
@@ -254,14 +255,8 @@ static func step(state: Dictionary, kinds: Dictionary, dt: float, meal_seconds :
 		if not animal.meal.is_empty():
 			animal.meal.remaining = maxf(0, float(animal.meal.remaining) - dt)
 			if float(animal.meal.remaining) <= 0 or not _meal_valid(state, animal, kinds): release_meal(animal)
-		var collector := _collector(state, animal)
-		if not collector.is_empty() and float(animal.hold_remaining) < 6.0:
-			animal.held_by = collector
-			animal.hold_remaining = float(animal.hold_remaining) + dt
-			animal.behavior = "being_collected"
-			continue
 		animal.held_by = ""
-		if collector.is_empty(): animal.hold_remaining = 0.0
+		animal.hold_remaining = 0.0
 		if not animal.meal.is_empty():
 			if not animal.path.is_empty():
 				animal.behavior = "to_food"
@@ -282,10 +277,10 @@ static func step(state: Dictionary, kinds: Dictionary, dt: float, meal_seconds :
 			_wander(state, animal)
 		else: animal.behavior = "interacting" if float(animal.feedback_remaining) > 0 else "idle"
 
-static func interact(state: Dictionary, animal: Dictionary, kinds: Dictionary) -> Dictionary:
+static func interact(state: Dictionary, animal: Dictionary, kinds: Dictionary, products: Dictionary = {}) -> Dictionary:
 	if not bool(state.settings.interactive): return {"ok": false, "message": "观察模式不能奖励动物"}
 	animal.feedback_remaining = 2.0
-	if animal.hungry or int(animal.ready) > 0: return {"ok": true, "message": "它需要食物" if animal.hungry else "产物等待农夫收取", "reward_seconds": 0.0}
+	if animal.hungry: return {"ok": true, "message": "它需要食物", "reward_seconds": 0.0}
 	var now := float(state.elapsed)
 	if now - float(animal.last_reward_elapsed) < 120.0 or now - float(state.ranch.global_reward_elapsed) < 2.0:
 		return {"ok": true, "message": "它很开心，奖励仍在冷却", "reward_seconds": 0.0}
@@ -303,14 +298,13 @@ static func interact(state: Dictionary, animal: Dictionary, kinds: Dictionary) -
 		animal.product_remaining = float(animal.product_remaining) - bonus
 		animal.adult_bonus_used = float(animal.adult_bonus_used) + bonus
 		if float(animal.product_remaining) <= 0:
-			animal.ready = 1
-			animal.queued_at = now
+			PRODUCTS.complete_cycle(state, animal, kind, products)
 	if bonus > 0:
 		animal.last_reward_elapsed = now
 		state.ranch.global_reward_elapsed = now
 	return {"ok": true, "message": "互动使进度加快 %.1f 秒" % bonus if bonus > 0 else "本阶段互动额度已用完", "reward_seconds": bonus}
 
-static func validate(state: Dictionary, kinds: Dictionary) -> String:
+static func validate(state: Dictionary, kinds: Dictionary, legacy := false) -> String:
 	if not state.get("ranch") is Dictionary or not _number(state.ranch.get("global_reward_elapsed")) or float(state.ranch.global_reward_elapsed) < -2.0 or float(state.ranch.global_reward_elapsed) > float(state.elapsed): return "全局互动计时无效"
 	if not _integer(state.rng.get("animal")) or int(state.rng.animal) <= 0 or int(state.rng.animal) >= 2147483647: return "动物随机流无效"
 	var ledger := {}
@@ -319,6 +313,7 @@ static func validate(state: Dictionary, kinds: Dictionary) -> String:
 		if not _position_valid(grass) or not _integer(grass.get("appearance")) or int(grass.appearance) < 0 or int(grass.appearance) >= 997: return "自然草点位置或外观无效"
 	for animal in state.animals:
 		var kind: Dictionary = kinds[str(animal.type_id)]
+		if not legacy and (not _integer(animal.get("last_drop_cycle")) or int(animal.last_drop_cycle) != int(animal.production_cycle) - 1 or int(animal.ready) != 0 or str(animal.get("held_by", "")).length() > 0 or float(animal.get("hold_remaining", 0)) != 0 or str(animal.get("behavior", "")) == "being_collected"): return "动物循环或旧收取冻结状态无效"
 		if str(animal.get("shelter_id", "")) != str(kind.shelter_id) or not _position_valid(animal) or not BEHAVIORS.has(str(animal.get("behavior", ""))) or not ["up", "down", "left", "right"].has(str(animal.get("facing", ""))): return "动物位置或行为无效"
 		if not animal.get("path") is Array or not animal.get("target") is Dictionary or not animal.get("meal") is Dictionary: return "动物路径或整餐预约无效"
 		for key in ["previous_x", "previous_y", "decision_remaining", "food_decision_remaining", "eating_remaining", "hold_remaining", "feedback_remaining", "last_reward_elapsed", "juvenile_bonus_used", "adult_bonus_used", "production_cycle"]:

@@ -19,6 +19,8 @@ var view: FarmView
 var host: DesktopHost
 var config: Dictionary
 var toolbar: Window
+var scene_window: Window
+var toolbar_row: HBoxContainer
 var popup: Window
 var popup_body: VBoxContainer
 var coin_label: Label
@@ -102,10 +104,11 @@ func _ready() -> void:
 	else: _load_game()
 	# The desktop game follows normal application Z order, including old saves.
 	model.state.settings.topmost = false
+	_build_scene_window()
 	view = VIEW.new()
 	# Reuse the same system-font resource for menus and scenery text.
 	view._font = theme.default_font as SystemFont
-	view.position = Vector2(0, 40)
+	view.position = Vector2(0, 8)
 	view.configure(config)
 	view.seed_preview_provider = Callable(model, "seed_preview")
 	view.set_model(model.state)
@@ -114,7 +117,9 @@ func _ready() -> void:
 	view.locked_plot_clicked.connect(func(_id: String): _open_panel("build"))
 	view.fish_clicked.connect(_cast_net)
 	view.connect("animal_clicked", Callable(self, "_interact_animal"))
-	add_child(view)
+	if view.has_signal("shelter_clicked"):
+		view.connect("shelter_clicked", Callable(self, "_open_shelter"))
+	scene_window.add_child(view)
 	_build_status()
 	_build_plant_controls()
 	_build_toolbar()
@@ -123,21 +128,25 @@ func _ready() -> void:
 	host.display_changed.connect(func(_area: Rect2i): _sync_layout())
 	host.tray_action.connect(_on_tray_action)
 	host.desktop_visibility_changed.connect(func(visible: bool, _reason: String):
+		if not visible: _cancel_pointer_actions()
 		view.set_process(visible and not bool(model.state.settings.collapsed))
 		if view.has_method("set_desktop_suspended"):
 			view.call("set_desktop_suspended", not visible or bool(model.state.settings.collapsed)))
 	host.register_auxiliary_window(popup)
-	var desktop_ok := host.start(get_window(), toolbar, model.state.settings)
+	var desktop_ok := host.start(scene_window, toolbar, model.state.settings)
 	if not desktop_ok and DisplayServer.get_name() != "headless":
 		if ClassDB.class_exists("DesktopNative") and host.native == null:
 			get_tree().quit(2)
 			return
-		get_window().size = Vector2i(1280, HOST.display_height_for_mode(str(model.state.settings.get("display_mode", "expanded"))))
-		get_window().position = Vector2i(80, 600)
 		toolbar.size = Vector2i(1280, 32)
-		toolbar.position = get_window().position
-	get_window().transparent_bg = true
-	get_window().size_changed.connect(_sync_layout)
+		toolbar.position = Vector2i(80, 600)
+		scene_window.size = Vector2i(1280, HOST.display_height_for_mode(str(model.state.settings.get("display_mode", "expanded"))) - 32)
+		scene_window.position = toolbar.position + Vector2i(0, 32)
+	scene_window.transparent_bg = true
+	scene_window.size_changed.connect(_sync_layout)
+	toolbar.size_changed.connect(_sync_layout)
+	toolbar.focus_exited.connect(_cancel_pointer_actions)
+	scene_window.focus_exited.connect(_cancel_pointer_actions)
 	toolbar.close_requested.connect(_quit_game)
 	_sync_layout()
 	_apply_settings()
@@ -224,26 +233,46 @@ func _load_game() -> void:
 			save_blocked = true
 			_show_message(saved.message)
 
+func _build_scene_window() -> void:
+	get_window().gui_embed_subwindows = false
+	scene_window = Window.new()
+	scene_window.name = "SceneryWindow"
+	scene_window.title = "桌面农场 · 场景"
+	scene_window.visible = false
+	scene_window.borderless = true
+	scene_window.unresizable = true
+	scene_window.transparent = true
+	scene_window.transparent_bg = true
+	scene_window.transient = true
+	scene_window.exclusive = false
+	add_child(scene_window)
+	scene_window.show()
+
 func _build_toolbar() -> void:
-	toolbar = Window.new()
-	toolbar.title = "桌面农场 · 控制栏"
+	toolbar = get_window()
+	toolbar.title = "桌面农场"
 	toolbar.borderless = true
 	toolbar.unresizable = true
 	toolbar.transparent = false
+	toolbar.transparent_bg = false
 	toolbar.theme = theme
 	toolbar.min_size = Vector2i(600, 32)
-	add_child(toolbar)
 	var background := ColorRect.new()
 	background.color = CREAM
 	background.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
-	toolbar.add_child(background)
+	# The main scene enters while the root Window is still adding children.
+	# Parent controls to this scene node; they still render in the root window.
+	add_child(background)
 	var row := HBoxContainer.new()
+	toolbar_row = row
+	row.theme = theme
+	row.name = "ToolbarActions"
 	row.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	row.offset_left = 6
 	row.offset_right = -6
 	row.offset_top = 1
 	row.offset_bottom = -1
-	toolbar.add_child(row)
+	add_child(row)
 	var grip := _label(row, "≡")
 	grip.mouse_filter = Control.MOUSE_FILTER_STOP
 	grip.tooltip_text = "按住拖动农场位置"
@@ -278,7 +307,7 @@ func _build_plant_controls() -> void:
 	plant_controls.position = Vector2(14, 182)
 	plant_controls.visible = false
 	plant_controls.theme = theme
-	add_child(plant_controls)
+	scene_window.add_child(plant_controls)
 	plant_selection_label = _label(plant_controls, "")
 	plant_selection_label.add_theme_color_override("font_color", CREAM)
 	plant_selection_button = _button(plant_controls, "种植所选", func(): _apply_selected_crop(planting_seed_id))
@@ -338,7 +367,7 @@ func _build_status() -> void:
 	bar.position = Vector2(0, 220)
 	bar.size = Vector2(1920, 20)
 	bar.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	add_child(bar)
+	scene_window.add_child(bar)
 	status_label = Label.new()
 	status_label.theme = theme
 	status_label.position = Vector2(10, 220)
@@ -346,7 +375,7 @@ func _build_status() -> void:
 	status_label.add_theme_font_size_override("font_size", 12)
 	status_label.clip_text = true
 	status_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	add_child(status_label)
+	scene_window.add_child(status_label)
 
 func _build_popup() -> void:
 	popup = Window.new()
@@ -360,6 +389,8 @@ func _build_popup() -> void:
 	popup.min_size = Vector2i(540, 360)
 	popup.theme = theme
 	popup.always_on_top = false
+	popup.transient = true
+	popup.exclusive = false
 	popup.close_requested.connect(_close_panel)
 	popup.window_input.connect(func(event: InputEvent):
 		if event.is_action_pressed("ui_cancel"): _close_panel())
@@ -383,20 +414,20 @@ func _build_popup() -> void:
 func _sync_layout() -> void:
 	if not is_instance_valid(view): return
 	var scale := host.dpi_scale if is_instance_valid(host) and host.ready_for_desktop else 1.0
-	var logical_width := maxi(640, int(round(get_window().size.x / scale)))
+	var logical_width := maxi(640, int(round(scene_window.size.x / scale)))
 	var display_mode := str(model.state.settings.get("display_mode", "expanded"))
 	var logical_height := host.logical_window_height() if host.ready_for_desktop else (32 if bool(model.state.settings.collapsed) else HOST.display_height_for_mode(display_mode))
 	var scene_height := host.visible_scene_height() if host.ready_for_desktop else (0 if bool(model.state.settings.collapsed) else HOST.scene_height_for_mode(display_mode))
-	get_window().content_scale_size = Vector2i(logical_width, logical_height)
-	get_window().content_scale_mode = Window.CONTENT_SCALE_MODE_CANVAS_ITEMS
+	scene_window.content_scale_size = Vector2i(logical_width, maxi(1, logical_height - 32))
+	scene_window.content_scale_mode = Window.CONTENT_SCALE_MODE_CANVAS_ITEMS
 	toolbar.content_scale_size = Vector2i(logical_width, 32)
 	toolbar.content_scale_mode = Window.CONTENT_SCALE_MODE_CANVAS_ITEMS
 	view.resize_view(Vector2(logical_width, maxi(1, scene_height)))
-	get_node("StatusBackground").position.y = maxi(32, logical_height - 20)
-	status_label.position.y = maxi(32, logical_height - 20)
-	get_node("StatusBackground").size.x = logical_width
+	scene_window.get_node("StatusBackground").position.y = maxi(0, logical_height - 52)
+	status_label.position.y = maxi(0, logical_height - 52)
+	scene_window.get_node("StatusBackground").size.x = logical_width
 	status_label.size.x = logical_width - 20
-	plant_controls.position.y = maxi(40, logical_height - 58)
+	plant_controls.position.y = maxi(8, logical_height - 90)
 	# Keep every action reachable at narrow desktop widths without forcing a
 	# taller strip. The management hub also contains both shop entry points.
 	for button_name in ["SeedShop", "SeedInventory", "AnimalShop"]:
@@ -407,7 +438,7 @@ func _sync_layout() -> void:
 	coin_label.visible = logical_width >= 850
 	page_label.visible = logical_width >= 850
 	mode_button.visible = logical_width >= 850
-	(toolbar.get_child(1) as HBoxContainer).add_theme_constant_override("separation", 6 if logical_width >= 850 else 2)
+	toolbar_row.add_theme_constant_override("separation", 6 if logical_width >= 850 else 2)
 	if is_instance_valid(catalog_grid): catalog_grid.columns = _catalog_columns()
 	_refresh_labels()
 
@@ -517,7 +548,7 @@ func _apply_settings() -> void:
 	host.set_display_mode(str(settings.get("display_mode", "expanded")))
 	host.set_collapsed(bool(settings.collapsed))
 	if not host.ready_for_desktop:
-		get_window().size.y = 32 if bool(settings.collapsed) else HOST.display_height_for_mode(str(settings.get("display_mode", "expanded")))
+		scene_window.size.y = 1 if bool(settings.collapsed) else HOST.display_height_for_mode(str(settings.get("display_mode", "expanded"))) - 32
 	view.set_process(host.is_desktop_visible() and not bool(settings.collapsed))
 	if view.has_method("set_desktop_suspended"):
 		view.call("set_desktop_suspended", not host.is_desktop_visible() or bool(settings.collapsed))
@@ -538,19 +569,27 @@ func _cast_net(id: String) -> void:
 func _interact_animal(id: String) -> void:
 	if _act("interact_animal", {"instance_id": id}, false): view.call("show_animal_feedback", id)
 
+func _open_shelter(id: String) -> void:
+	if int(model.state.shelters.get(id, 0)) <= 0:
+		_open_panel("build")
+		return
+	animal_shelter_filter = id
+	animal_shop_mode = "owned"
+	_open_panel("animals")
+
 func _open_panel(name: String) -> void:
 	panel_name = name
 	_render_panel()
 	var area := host.get_work_area() if is_instance_valid(host) and host.ready_for_desktop else Rect2i(Vector2i.ZERO, DisplayServer.screen_get_usable_rect().size)
 	popup.size = Vector2i(mini(760, maxi(540, area.size.x - 40)), mini(500, maxi(360, area.size.y - 100)))
-	popup.position = area.position + Vector2i((area.size.x - popup.size.x) / 2, maxi(20, area.size.y - get_window().size.y - popup.size.y - 16))
+	popup.position = area.position + Vector2i((area.size.x - popup.size.x) / 2, maxi(20, area.size.y - host.logical_window_height() - popup.size.y - 16))
 	if is_instance_valid(catalog_grid): catalog_grid.columns = _catalog_columns()
 	popup.show()
 	# This HWND must keep rendering when the scenery viewport is suspended.
 	RenderingServer.viewport_set_parent_viewport(popup.get_viewport_rid(), RID())
 	if is_instance_valid(host) and host.native != null:
 		var popup_handle := DisplayServer.window_get_native_handle(DisplayServer.WINDOW_HANDLE, popup.get_window_id())
-		host.native.call("make_independent_window", popup_handle)
+		host.prepare_auxiliary_window(popup)
 		host.native.call("show_window", popup_handle)
 	popup.grab_focus()
 	host.refresh_desktop_visibility()
@@ -893,7 +932,7 @@ func _refresh_animal_quotes() -> void:
 
 func _panel_owned_animals() -> void:
 	_title("我的动物 · %d 只" % model.state.animals.size())
-	_paragraph("出售退还标准购入价的50%，赠送动物也退款。若有成熟产物，会先登记图鉴并自动出售。")
+	_paragraph("出售退还标准购入价的50%，赠送动物也退款。已经落地的产物会留在牧场，由农夫继续拾取。")
 	var shown := 0
 	for animal in model.state.animals:
 		var instance := str(animal.id)
@@ -918,8 +957,8 @@ func _refresh_owned_animal_cards() -> void:
 		var kind: Dictionary = model.animal_types[str(animal.type_id)]
 		controls.status.text = "%s · 编号%s · %s%s" % [kind.name, instance.trim_prefix("animal_"), "成年" if animal.adult else "幼崽", " · 饥饿" if animal.hungry else ""]
 		var details := _animal_sale_details(instance)
-		controls.product.text = "另有成熟产物待结算：%s +%d" % [details.product_name, details.product_value]
-		controls.product.visible = int(details.product_value) > 0
+		controls.product.text = "已落地产物独立保留，由农夫拾取后自动出售。"
+		controls.product.visible = true
 		controls.button.disabled = save_blocked or startup_blocked
 
 func _animal_sale_details(instance: String) -> Dictionary:
@@ -928,9 +967,8 @@ func _animal_sale_details(instance: String) -> Dictionary:
 		var kind: Dictionary = model.animal_types[str(animal.type_id)]
 		var product: Dictionary = config.products.get(str(kind.product_id), {})
 		var refund := floori(float(kind.price) * 0.5)
-		var product_value := int(kind.sell_price) if int(animal.ready) > 0 else 0
 		return {"exists": true, "name": str(kind.name), "kind": str(kind.id), "refund": refund,
-			"product_name": str(product.get("name", "产物")), "product_value": product_value, "total": refund + product_value}
+			"product_name": str(product.get("name", "产物")), "product_value": 0, "total": refund}
 	return {"exists": false}
 
 func _begin_animal_sale(instance: String) -> void:
@@ -951,7 +989,7 @@ func _panel_sell_confirm() -> void:
 	_wrapped_label(card, "退款：%d 金币（标准购入价的50%%）" % int(details.refund))
 	var product_label := _wrapped_label(card, "")
 	var total_label := _wrapped_label(card, "")
-	_wrapped_label(card, "出售后这只动物会离开牧场，可在商店重新购买。成熟产物如已被农夫收取，不会重复结算。", MUTED)
+	_wrapped_label(card, "出售后这只动物会离开牧场，可在商店重新购买。已经落地的产物和农夫拾取任务继续保留。", MUTED)
 	var controls := HFlowContainer.new()
 	popup_body.add_child(controls)
 	_button(controls, "取消，保留动物", func(): _open_panel("animals"))
@@ -967,7 +1005,7 @@ func _refresh_sale_confirmation() -> void:
 		_sale_controls.button.disabled = true
 		_sale_controls.product.text = "这只动物已经不在牧场，请返回商店。"
 		return
-	_sale_controls.product.text = "待结算产物：%s · +%d 金币，并登记图鉴" % [details.product_name, details.product_value] if int(details.product_value) > 0 else "待结算产物：无"
+	_sale_controls.product.text = "已落地产物保留在牧场，不计入本次动物退款。"
 	_sale_controls.total.text = "本次合计 +%d 金币 · 释放1个棚位" % int(details.total)
 	_sale_controls.button.disabled = not bool(_preview_command("sell_animal", {"instance_id": sell_selection}).ok)
 
@@ -991,7 +1029,13 @@ func _panel_farmers() -> void:
 	for farmer in model.state.farmers:
 		var farmer_id := str(farmer.id)
 		var row := _row()
-		_expand_label(row, "%s · 本岗%s · 在%s · 精力%d · %s" % [farmer.id, SCENE_NAMES[str(farmer.home)], SCENE_NAMES.get(str(farmer.scene), "途中"), int(farmer.energy), _farmer_mode(str(farmer.mode))])
+		var worker_label := _expand_label(row, "%s · 本岗%s · 在%s · 精力%d · %s" % [farmer.id, SCENE_NAMES[str(farmer.home)], SCENE_NAMES.get(str(farmer.scene), "途中"), int(farmer.energy), _farmer_mode(str(farmer.mode))])
+		var task: Dictionary = farmer.get("task", {})
+		if str(task.get("action", "")) == "collect_product":
+			for pile in model.state.get("ground_products", []):
+				if str(pile.id) == str(task.get("target", "")):
+					worker_label.tooltip_text = "拾取地面%s · 此处待收%d份，每次收取1份" % [str(pile.get("name", "产物")), int(pile.quantity)]
+					break
 		var choice := OptionButton.new()
 		row.add_child(choice)
 		for id in ["farm", "ranch", "pond"]: choice.add_item(SCENE_NAMES[id])
@@ -1001,7 +1045,7 @@ func _panel_farmers() -> void:
 func _panel_catalog() -> void:
 	popup.title = "收藏图鉴"
 	_title("收藏图鉴")
-	_paragraph("作物与动物产物收获后自动登记并出售。鱼需捕获后选择登记，登记会消耗这条鱼。点击图标查看详情与获取来源。")
+	_paragraph("作物收获、动物落地产物拾取后自动登记并出售。首次捕获的鱼自动消耗登记，此后同种鱼直接出售。点击图标查看详情与获取来源。")
 	_catalog_count_label = _wrapped_label(popup_body, "已发现 %d / %d" % [model.state.catalog.size(), config.items.size()])
 	_catalog_count_label.add_theme_font_size_override("font_size", 16)
 	var search := LineEdit.new()
@@ -1160,12 +1204,12 @@ func _panel_settings() -> void:
 	_button(row, "恢复屏幕底部位置", func():
 		var area := host.get_work_area()
 		if area.size.x > 0:
-			host.set_position_clamped(Vector2i(area.position.x, area.end.y - get_window().size.y))
+			host.set_position_clamped(Vector2i(area.position.x, area.end.y - int(round(host.logical_window_height() * host.dpi_scale))))
 			_act("settings", {"values": {"window_position": host.export_settings().window_position}}, false))
 	_button(row, "打开存档目录", func(): OS.shell_open(saves.path.get_base_dir()))
 	_paragraph("入门：种子商店购买入库，种子库选择品种后可框选地块安排种植；动物商店购买与出售动物；经营可扩建、管理农夫和查看图鉴。农夫自动播种、浇水和收获，鱼塘需手动捕鱼。窄屏可用 ‹ › 切换页面。")
 	_paragraph("时间：关机、退出和休眠均暂停，不计算离线收益；收起、切场景和锁屏仍继续生产。捕鱼首次自动登记图鉴，已登记的鱼自动出售；经营首页可以升级渔网和鱼塘容量。")
-	_paragraph("经济：补种预算持续预留，菜单显示可投资金币；购买不足时不会扣款。成熟作物和动物产物最多等待1份，不会腐烂。")
+	_paragraph("经济：补种预算持续预留，菜单显示可投资金币；购买不足时不会扣款。成熟作物等待收获；动物每轮产物落地后继续生产，农夫逐份拾取，待收产物不会腐烂。")
 	_paragraph("存档路径：" + saves.path)
 	_paragraph("版本 %s · Windows 11 本地试玩 · 原创像素场景与角色。" % ProjectSettings.get_setting("application/config/version"))
 
@@ -1299,11 +1343,21 @@ func _drag_toolbar(event: InputEvent) -> void:
 		_dragging = event.pressed
 		if event.pressed:
 			_drag_mouse = DisplayServer.mouse_get_position()
-			_drag_origin = get_window().position
+			var stored: Array = host.export_settings().window_position
+			_drag_origin = Vector2i(int(stored[0]), int(stored[1]))
 		else:
 			_act("settings", {"values": {"window_position": host.export_settings().window_position}}, false)
 	elif event is InputEventMouseMotion and _dragging:
+		if not Input.is_mouse_button_pressed(MOUSE_BUTTON_LEFT): _dragging = false; return
 		host.set_position_clamped(_drag_origin + DisplayServer.mouse_get_position() - _drag_mouse)
+
+func _cancel_pointer_actions() -> void:
+	_dragging = false
+	if not is_instance_valid(view): return
+	view.set("_farm_dragging", false)
+	view.set("_net_dragging", false)
+	view.set("_panning", false)
+	view.queue_redraw()
 
 func _parse_benchmark_options() -> bool:
 	# Duration activates this normal-entry test runner. Fixture-only controller
@@ -1398,15 +1452,15 @@ func _run_benchmark() -> void:
 		draw_sums[0] += Performance.get_monitor(Performance.RENDER_TOTAL_DRAW_CALLS_IN_FRAME)
 		# Actual API order: RenderInfoType, RenderInfo. Child viewports render
 		# independently while the collapsed scenery viewport is suspended.
-		draw_sums[1] += get_window().get_render_info(Viewport.RENDER_INFO_TYPE_CANVAS, Viewport.RENDER_INFO_DRAW_CALLS_IN_FRAME)
+		draw_sums[1] += scene_window.get_render_info(Viewport.RENDER_INFO_TYPE_CANVAS, Viewport.RENDER_INFO_DRAW_CALLS_IN_FRAME)
 		draw_sums[2] += toolbar.get_render_info(Viewport.RENDER_INFO_TYPE_CANVAS, Viewport.RENDER_INFO_DRAW_CALLS_IN_FRAME)
 		draw_sums[3] += popup.get_render_info(Viewport.RENDER_INFO_TYPE_CANVAS, Viewport.RENDER_INFO_DRAW_CALLS_IN_FRAME)
 		var record_time := float(Time.get_ticks_usec() - started) / 1000000.0
 		if benchmark_options.record and record_time >= record_due:
 			await RenderingServer.frame_post_draw
-			var frame_image := get_window().get_texture().get_image()
+			var frame_image := _composed_frame()
 			recorded_frames.append(Marshalls.raw_to_base64(frame_image.save_jpg_to_buffer(0.88)))
-			recording_samples.append({"wall": record_time, "elapsed": model.state.elapsed, "animals": model.state.animals.duplicate(true)})
+			recording_samples.append({"wall": record_time, "elapsed": model.state.elapsed, "animals": model.state.animals.duplicate(true), "farmers": model.state.farmers.duplicate(true), "ground_products": model.state.ground_products.duplicate(true)})
 			record_due = record_time + 1.0 / 6.0
 	var wall := float(Time.get_ticks_usec() - started) / 1000000.0
 	var logic_delta := float(model.state.elapsed) - logic_started
@@ -1427,14 +1481,15 @@ func _run_benchmark() -> void:
 		"visibility_start": visibility_start, "visibility_end": _benchmark_visibility(),
 		"population": {"plots": model.state.plots.filter(func(p): return p.open).size(),
 			"grass": model.state.grass.filter(func(g): return g.open).size(), "animals": model.state.animals.size(),
-			"farmers": model.state.farmers.size(), "fish": model.state.fish.size()},
+			"farmers": model.state.farmers.size(), "fish": model.state.fish.size(), "ground_piles": model.state.ground_products.size(),
+			"ground_units": model.state.ground_products.reduce(func(total,pile): return total+int(pile.quantity),0)},
 		"save_path": "user://test-data/benchmark-save.json", "save_absolute_path": saves.path, "save_ok": saved, "native_ready": host.ready_for_desktop,
 		"executable_path": OS.get_executable_path(), "resource_root": ProjectSettings.globalize_path("res://"),
 		"main_scene_resource": scene_file_path,
 		"main_scene_physical_file_exists": FileAccess.file_exists(ProjectSettings.globalize_path("res://scenes/main.tscn")),
 		"editor_feature": OS.has_feature("editor"), "debug_feature": OS.has_feature("debug"),
 		"video_adapter": RenderingServer.get_video_adapter_name(), "api_version": RenderingServer.get_video_adapter_api_version(),
-		"dpi_scale": host.dpi_scale, "window_pixels": [get_window().size.x, get_window().size.y],
+		"dpi_scale": host.dpi_scale, "window_pixels": [toolbar.size.x, scene_window.size.y + toolbar.size.y],
 		"screen_pixels": [DisplayServer.screen_get_size().x, DisplayServer.screen_get_size().y]}
 	var written := _benchmark_write("benchmark-runtime.json", result)
 	if benchmark_options.record:
@@ -1448,7 +1503,7 @@ func _benchmark_recording(frames: Array, samples: Array, wall: float) -> bool:
 	if not _benchmark_write("motion-samples.json", {"seconds": wall, "samples": samples}): return false
 	var file := FileAccess.open(str(benchmark_options.output).path_join("ranch-motion-60s.html"), FileAccess.WRITE)
 	if file == null: return false
-	file.store_string("<!doctype html><meta charset='utf-8'><title>桌面农场0.8.1实际运行录像</title><style>body{background:#263c29;color:#f6ecd4;font:16px sans-serif;margin:20px}img{width:100%;image-rendering:pixelated}button{padding:8px 18px}input{width:75%}</style><h2>牧场实际运行录像 · " + str(snappedf(wall, 0.1)) + "秒</h2><p>来自正式EXE的真实渲染。下方进度可拖动，包含实际模型坐标记录；录制独立于性能测量。</p><img id='v'><p><button id='b'>暂停</button> <input id='s' type='range' min='0' max='" + str(frames.size() - 1) + "' value='0'> <span id='t'></span></p><script>const frames=" + JSON.stringify(frames) + ";const times=" + JSON.stringify(samples.map(func(sample): return sample.wall)) + ";let i=0,playing=true;const v=document.querySelector('#v'),s=document.querySelector('#s'),t=document.querySelector('#t');function show(){v.src='data:image/jpeg;base64,'+frames[i];s.value=i;t.textContent=times[i].toFixed(1)+'秒'}s.oninput=()=>{i=+s.value;show()};document.querySelector('#b').onclick=()=>{playing=!playing;b.textContent=playing?'暂停':'播放'};function next(){if(playing){i=(i+1)%frames.length;show()}let delay=i+1<times.length?(times[i+1]-times[i])*1000:170;setTimeout(next,Math.max(30,delay))}show();next()</script>")
+	file.store_string("<!doctype html><meta charset='utf-8'><title>桌面农场0.8.2实际运行录像</title><style>body{background:#263c29;color:#f6ecd4;font:16px sans-serif;margin:20px}img{width:100%;image-rendering:pixelated}button{padding:8px 18px}input{width:75%}</style><h2>牧场实际运行录像 · " + str(snappedf(wall, 0.1)) + "秒</h2><p>来自正式EXE的真实渲染。下方进度可拖动，包含实际模型坐标记录；录制独立于性能测量。</p><img id='v'><p><button id='b'>暂停</button> <input id='s' type='range' min='0' max='" + str(frames.size() - 1) + "' value='0'> <span id='t'></span></p><script>const frames=" + JSON.stringify(frames) + ";const times=" + JSON.stringify(samples.map(func(sample): return sample.wall)) + ";let i=0,playing=true;const v=document.querySelector('#v'),s=document.querySelector('#s'),t=document.querySelector('#t');function show(){v.src='data:image/jpeg;base64,'+frames[i];s.value=i;t.textContent=times[i].toFixed(1)+'秒'}s.oninput=()=>{i=+s.value;show()};document.querySelector('#b').onclick=()=>{playing=!playing;b.textContent=playing?'暂停':'播放'};function next(){if(playing){i=(i+1)%frames.length;show()}let delay=i+1<times.length?(times[i+1]-times[i])*1000:170;setTimeout(next,Math.max(30,delay))}show();next()</script>")
 	file.close()
 	return true
 
@@ -1475,6 +1530,10 @@ func _make_benchmark_fixture() -> void:
 			animal.adult_remaining = 0.0
 			animal.hungry = false
 			animal.food_remaining = 300.0
+			# Exercise fixed stacks in the full-scale release render benchmark.
+			for unused in range(3):
+				animal.product_remaining = 0.0
+				model.PRODUCTS.complete_cycle(model.state,animal,model.animal_types[str(animal.type_id)])
 	model.state.farmers = []
 	model.state.paid_hires = 6
 	for id in SCENE_NAMES:
@@ -1486,6 +1545,7 @@ func _make_benchmark_fixture() -> void:
 
 func _notification(what: int) -> void:
 	if what == NOTIFICATION_WM_CLOSE_REQUEST: _quit_game()
+	elif what == NOTIFICATION_APPLICATION_FOCUS_OUT: _cancel_pointer_actions()
 
 func _quit_game() -> void:
 	if quitting: return
@@ -1504,7 +1564,7 @@ func _smoke_capture() -> void:
 		host.shutdown()
 		get_tree().quit(8)
 		return
-	for window in [get_window(), toolbar]:
+	for window in [scene_window, toolbar]:
 		var handle := DisplayServer.window_get_native_handle(DisplayServer.WINDOW_HANDLE, window.get_window_id())
 		if bool(host.native.call("window_is_topmost", handle)):
 			push_error("UI_WINDOW_STILL_TOPMOST")
@@ -1513,9 +1573,7 @@ func _smoke_capture() -> void:
 			return
 	print("UI_STARTUP_WINDOW_OK")
 	await RenderingServer.frame_post_draw
-	var frame := get_viewport().get_texture().get_image()
-	var toolbar_frame := toolbar.get_texture().get_image()
-	frame.blit_rect(toolbar_frame, Rect2i(Vector2i.ZERO, toolbar_frame.get_size()), Vector2i.ZERO)
+	var frame := _composed_frame()
 	frame.save_png(smoke_path)
 	print("UI_SMOKE_CAPTURE ", smoke_path)
 	if not _smoke_require(str(model.state.settings.display_mode) == "expanded" and view.view_height == host.visible_scene_height(), "UI_EXPANDED_HEIGHT_FAILED"): return
@@ -1680,10 +1738,15 @@ func _smoke_click(local_position: Vector2) -> void:
 	view._input(event)
 
 func _smoke_save_scene(path: String) -> void:
-	var frame := get_viewport().get_texture().get_image()
+	_composed_frame().save_png(path)
+
+func _composed_frame() -> Image:
 	var toolbar_frame := toolbar.get_texture().get_image()
+	var scenery := scene_window.get_texture().get_image()
+	var frame := Image.create(toolbar_frame.get_width(), toolbar_frame.get_height() + scenery.get_height(), false, Image.FORMAT_RGBA8)
 	frame.blit_rect(toolbar_frame, Rect2i(Vector2i.ZERO, toolbar_frame.get_size()), Vector2i.ZERO)
-	frame.save_png(path)
+	frame.blit_rect(scenery, Rect2i(Vector2i.ZERO, scenery.get_size()), Vector2i(0, toolbar_frame.get_height()))
+	return frame
 
 func _smoke_require(value: bool, code: String) -> bool:
 	if value: return true

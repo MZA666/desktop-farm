@@ -3,6 +3,7 @@ extends RefCounted
 
 ## Scene art is baked offline. Getters only load/cache immutable runtime textures.
 const ROOT := "res://assets/pixel/v0.8.1/runtime/"
+const EXTRA_ROOT := "res://assets/pixel/v0.8.2/runtime/"
 const ICONS = preload("res://scripts/pixel_assets.gd")
 const CROP_IDS = ICONS.CROP_IDS
 const ANIMAL_IDS := ["chicken", "duck", "rabbit", "cow", "goat", "sheep", "pig", "void_chicken", "golden_chicken", "dinosaur", "ostrich"]
@@ -62,11 +63,50 @@ static func fish(id: String, frame := 0) -> Texture2D:
 
 static func farmer(action: String, direction := "down", frame := 0) -> Texture2D:
 	var row: int = maxi(0, DIRECTIONS.find(direction))
+	if action in ["idle", "walk", "walking"]:
+		return _extra_region("farmer-walk", posmod(frame, 8), row, FARMER_CELL)
+	if action in ["collect_product", "pickup"]:
+		return _extra_region("pickup", posmod(frame, 8), 0, FARMER_CELL)
 	if action == "water": row = 4
 	elif action in ["sow", "sow_grass", "plant"]: row = 5
 	elif action in ["harvest", "collect_product", "cut_grass"]: row = 6
 	elif action in ["pet", "feed", "interact_animal"]: row = 7
 	return _region("farmer", posmod(frame, 4), row, FARMER_CELL)
+
+static func farmer_frame_count(action: String) -> int:
+	return 8 if action in ["idle", "walk", "walking", "collect_product", "pickup"] else 4
+
+static func border(scene: String) -> Texture2D:
+	var kind := "pond-margins" if scene == "pond" else "woodland"
+	var key := "extra:" + kind
+	if not _atlases.has(key): _atlases[key] = _load_texture(EXTRA_ROOT + kind + ".png")
+	return _atlases[key]
+
+static func portrait(id: String) -> Texture2D:
+	var key := "portrait:" + id
+	if _regions.has(key): return _regions[key]
+	var sprite := animal(id, "down", 0)
+	if sprite == null: return null
+	var portrait_texture := AtlasTexture.new()
+	portrait_texture.atlas = sprite
+	portrait_texture.region = Rect2(24, 14, 48, 48)
+	portrait_texture.filter_clip = true
+	_regions[key] = portrait_texture
+	return portrait_texture
+
+static func _extra_region(kind: String, column: int, row: int, cell: Vector2i) -> Texture2D:
+	var key := "extra:%s:%d:%d" % [kind, column, row]
+	if _regions.has(key): return _regions[key]
+	var atlas_key := "extra:" + kind
+	if not _atlases.has(atlas_key): _atlases[atlas_key] = _load_texture(EXTRA_ROOT + kind + "-atlas.png")
+	var texture: Texture2D = _atlases[atlas_key]
+	if texture == null: return null
+	var region := AtlasTexture.new()
+	region.atlas = texture
+	region.region = Rect2(Vector2(column * cell.x, row * cell.y), Vector2(cell))
+	region.filter_clip = true
+	_regions[key] = region
+	return region
 
 static func grass(variant := 0) -> Texture2D:
 	return _region("nature", posmod(variant, 4), 3, NATURE_CELL)

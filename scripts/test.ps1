@@ -1,5 +1,5 @@
 param(
-    [ValidateSet('All', 'Simulation', 'StageA', 'SaveMigration', 'Native', 'Controller', 'PixelArt', 'PondRules', 'RanchLife', 'WorldLayout', 'DisplayModes', 'SceneAssets')][string]$Suite = 'All',
+    [ValidateSet('All', 'Simulation', 'StageA', 'SaveMigration', 'Native', 'Controller', 'PixelArt', 'PondRules', 'RanchLife', 'GroundProducts', 'WorldLayout', 'WorldLayoutV4', 'DisplayModes', 'SceneAssets')][string]$Suite = 'All',
     [string]$PythonPath = '',
     [switch]$SkipConfig,
     [switch]$SkipImport
@@ -55,7 +55,9 @@ $checks = @(
     @{ Name = 'PixelArt'; Script = 'res://tests/test_pixel_art.gd'; Fixture = $false },
     @{ Name = 'PondRules'; Script = 'res://tests/test_pond_rules.gd'; Fixture = $false },
     @{ Name = 'RanchLife'; Script = 'res://tests/test_ranch_life.gd'; Fixture = $false },
+    @{ Name = 'GroundProducts'; Script = 'res://tests/test_ground_products.gd'; Fixture = $false },
     @{ Name = 'WorldLayout'; Script = 'res://tests/test_world_layout_v3.gd'; Fixture = $false },
+    @{ Name = 'WorldLayoutV4'; Script = 'res://tests/test_world_layout_v4.gd'; Fixture = $false },
     @{ Name = 'DisplayModes'; Script = 'res://native/tests/test_display_modes.gd'; Fixture = $false },
     @{ Name = 'SceneAssets'; Script = 'res://tests/test_scene_assets.gd'; Fixture = $false }
 )

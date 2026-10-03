@@ -1,8 +1,10 @@
 extends SceneTree
 
 const HOST = preload("res://scripts/desktop_host.gd")
+const WINDOWS = preload("res://native/tests/window_fixture.gd")
 var host: DesktopHost
 var toolbar: Window
+var scenery: Window
 var stage := 0
 var frames := 0
 var hidden_elapsed := 0
@@ -14,15 +16,15 @@ func _initialize() -> void:
 
 func _start_test() -> void:
 	root.gui_embed_subwindows = false
-	toolbar = Window.new()
+	toolbar = root
+	scenery = WINDOWS.scene_for(root)
 	toolbar.title = "Collapse validation toolbar"
 	toolbar.size = Vector2i(400, 32)
-	root.add_child(toolbar)
 	toolbar.show()
 	host = HOST.new()
 	root.add_child(host)
 	host.status_changed.connect(func(message: String): print(message))
-	verify(host.start(root, toolbar, {}))
+	verify(host.start(scenery, toolbar, {}))
 	print("WINDOW_IDS root=", root.get_window_id(), " toolbar=", toolbar.get_window_id(), " logical_visible=", toolbar.visible)
 	print("BEFORE_COLLAPSE toolbar_native_visible=", host.native.call("window_is_visible", DisplayServer.window_get_native_handle(DisplayServer.WINDOW_HANDLE, toolbar.get_window_id())))
 	verify(bool(host.native.call("is_visible")))

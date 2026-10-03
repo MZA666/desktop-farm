@@ -12,3 +12,4 @@ dist/
 *.tmp
 *.bak
 __pycache__/
+docs/screenshots/**/*.import

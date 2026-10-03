@@ -14,6 +14,7 @@
 typedef struct {
     GDExtensionObjectPtr object;
     HWND hwnd;
+    HWND main_hwnd;
     LONG_PTR previous_style;
     HANDLE singleton;
     int attached;
@@ -248,6 +249,15 @@ static LRESULT CALLBACK power_subclass(HWND hwnd, UINT msg, WPARAM wparam,
     return DefSubclassProc(hwnd, msg, wparam, lparam);
 }
 
+static LRESULT CALLBACK main_input_subclass(HWND hwnd, UINT msg, WPARAM wp,
+        LPARAM lp, UINT_PTR id, DWORD_PTR data) {
+    (void)id; (void)data;
+    /* A real click on the control strip both activates it and reaches Godot.
+     * This never activates a window from a timer or visibility refresh. */
+    if (msg == WM_MOUSEACTIVATE) return MA_ACTIVATE;
+    return DefSubclassProc(hwnd, msg, wp, lp);
+}
+
 /* Public C entry points also permit a standalone Windows integration probe. */
 __declspec(dllexport) int desktop_make_normal_window(HWND hwnd) {
     if (!IsWindow(hwnd)) return 0;
@@ -269,6 +279,7 @@ __declspec(dllexport) int desktop_show_without_raise(HWND hwnd) {
 __declspec(dllexport) int desktop_apply_style(HWND hwnd, int interactive) {
     if (!IsWindow(hwnd)) return 0;
     LONG_PTR style = GetWindowLongPtrW(hwnd, GWL_EXSTYLE);
+    style &= ~(LONG_PTR)WS_EX_APPWINDOW;
     style |= WS_EX_LAYERED | WS_EX_NOACTIVATE | WS_EX_TOOLWINDOW;
     if (interactive) style &= ~(LONG_PTR)WS_EX_TRANSPARENT;
     else style |= WS_EX_TRANSPARENT;
@@ -287,6 +298,10 @@ __declspec(dllexport) uint64_t desktop_awake_msec(void) {
 
 static void detach(DesktopState *state) {
     shutdown_shell(state);
+    if (IsWindow(state->main_hwnd)) {
+        RemoveWindowSubclass(state->main_hwnd, main_input_subclass, (UINT_PTR)state);
+    }
+    state->main_hwnd = NULL;
     if (state->attached && IsWindow(state->hwnd)) {
         RemoveWindowSubclass(state->hwnd, power_subclass, (UINT_PTR)state);
         SetWindowLongPtrW(state->hwnd, GWL_EXSTYLE, state->previous_style);
@@ -406,6 +421,61 @@ static int make_independent_window(int64_t handle) {
     return GetWindow(hwnd, GW_OWNER) == NULL && desktop_make_normal_window(hwnd);
 }
 
+__declspec(dllexport) int desktop_configure_main_window(HWND hwnd) {
+    if (!IsWindow(hwnd) || (GetWindowLongPtrW(hwnd, GWL_STYLE) & WS_CHILD)) return 0;
+    LONG_PTR style = GetWindowLongPtrW(hwnd, GWL_EXSTYLE);
+    style &= ~(LONG_PTR)(WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE | WS_EX_TRANSPARENT | WS_EX_LAYERED);
+    style |= WS_EX_APPWINDOW;
+    SetLastError(0);
+    if (!SetWindowLongPtrW(hwnd, GWL_EXSTYLE, style) && GetLastError()) return 0;
+    if (GetWindow(hwnd, GW_OWNER) != NULL) {
+        SetLastError(0);
+        if (!SetWindowLongPtrW(hwnd, GWLP_HWNDPARENT, 0) && GetLastError()) return 0;
+    }
+    if (!SetWindowPos(hwnd, NULL, 0, 0, 0, 0,
+            SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE | SWP_FRAMECHANGED)) return 0;
+    return desktop_make_normal_window(hwnd);
+}
+
+__declspec(dllexport) int desktop_configure_owned_window(HWND hwnd, HWND owner) {
+    if (!IsWindow(hwnd) || !IsWindow(owner) || hwnd == owner ||
+            (GetWindowLongPtrW(hwnd, GWL_STYLE) & WS_CHILD)) return 0;
+    LONG_PTR style = GetWindowLongPtrW(hwnd, GWL_EXSTYLE);
+    style &= ~(LONG_PTR)WS_EX_APPWINDOW;
+    style |= WS_EX_TOOLWINDOW;
+    SetLastError(0);
+    if (!SetWindowLongPtrW(hwnd, GWL_EXSTYLE, style) && GetLastError()) return 0;
+    if (GetWindow(hwnd, GW_OWNER) != owner) {
+        SetLastError(0);
+        if (!SetWindowLongPtrW(hwnd, GWLP_HWNDPARENT, (LONG_PTR)owner) && GetLastError()) return 0;
+    }
+    if (!SetWindowPos(hwnd, NULL, 0, 0, 0, 0,
+            SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE | SWP_FRAMECHANGED)) return 0;
+    return GetWindow(hwnd, GW_OWNER) == owner && desktop_make_normal_window(hwnd);
+}
+
+static int configure_main_window(DesktopState *state, int64_t handle) {
+    HWND hwnd = (HWND)(intptr_t)handle;
+    DWORD process_id = 0; GetWindowThreadProcessId(hwnd, &process_id);
+    if (process_id != GetCurrentProcessId() || !desktop_configure_main_window(hwnd)) {
+        state->shell_error = GetLastError(); return 0;
+    }
+    if (state->main_hwnd != hwnd && IsWindow(state->main_hwnd)) {
+        RemoveWindowSubclass(state->main_hwnd, main_input_subclass, (UINT_PTR)state);
+    }
+    if (!SetWindowSubclass(hwnd, main_input_subclass, (UINT_PTR)state, 0)) {
+        state->shell_error = GetLastError(); return 0;
+    }
+    state->main_hwnd = hwnd;
+    return 1;
+}
+
+static int configure_owned_window(DesktopState *state, int64_t handle) {
+    HWND hwnd = (HWND)(intptr_t)handle;
+    DWORD process_id = 0; GetWindowThreadProcessId(hwnd, &process_id);
+    return process_id == GetCurrentProcessId() && desktop_configure_owned_window(hwnd, state->main_hwnd);
+}
+
 static int show_window(int64_t handle) {
     HWND hwnd = (HWND)(intptr_t)handle;
     DWORD process_id = 0;
@@ -459,7 +529,8 @@ typedef enum { ATTACH, INTERACTIVE, AREA, AWAKE, SINGLE, RELEASE,
     SET_VISIBLE, IS_VISIBLE, WINDOW_IS_VISIBLE, INDEPENDENT_WINDOW, SHOW_WINDOW,
     WINDOW_IS_TOPMOST, WINDOW_HIDE, ACTION_CALLBACK, INSTALL_TRAY, REGISTER_HOTKEY,
     TRAY_REGISTERED, HOTKEY_REGISTERED, SHELL_ERROR, SHELL_HANDLE, SHELL_FLAGS,
-    TEST_NAMESPACE, FOREGROUND_FULLSCREEN } Method;
+    TEST_NAMESPACE, FOREGROUND_FULLSCREEN, MAIN_WINDOW, OWNED_WINDOW,
+    WINDOW_OWNER, WINDOW_EXSTYLE, WINDOW_ENABLED } Method;
 typedef struct { const char *name; Method id; GDExtensionVariantType ret, arg; } MethodSpec;
 static const MethodSpec methods[] = {
     {"attach", ATTACH, GDEXTENSION_VARIANT_TYPE_BOOL, GDEXTENSION_VARIANT_TYPE_INT},
@@ -490,7 +561,12 @@ static const MethodSpec methods[] = {
     {"shell_window_handle", SHELL_HANDLE, GDEXTENSION_VARIANT_TYPE_INT, GDEXTENSION_VARIANT_TYPE_NIL},
     {"set_shell_state", SHELL_FLAGS, GDEXTENSION_VARIANT_TYPE_NIL, GDEXTENSION_VARIANT_TYPE_INT},
     {"set_test_namespace", TEST_NAMESPACE, GDEXTENSION_VARIANT_TYPE_BOOL, GDEXTENSION_VARIANT_TYPE_BOOL},
-    {"foreground_is_fullscreen", FOREGROUND_FULLSCREEN, GDEXTENSION_VARIANT_TYPE_BOOL, GDEXTENSION_VARIANT_TYPE_NIL}
+    {"foreground_is_fullscreen", FOREGROUND_FULLSCREEN, GDEXTENSION_VARIANT_TYPE_BOOL, GDEXTENSION_VARIANT_TYPE_NIL},
+    {"configure_main_window", MAIN_WINDOW, GDEXTENSION_VARIANT_TYPE_BOOL, GDEXTENSION_VARIANT_TYPE_INT},
+    {"configure_owned_window", OWNED_WINDOW, GDEXTENSION_VARIANT_TYPE_BOOL, GDEXTENSION_VARIANT_TYPE_INT},
+    {"window_owner_handle", WINDOW_OWNER, GDEXTENSION_VARIANT_TYPE_INT, GDEXTENSION_VARIANT_TYPE_INT},
+    {"window_extended_style", WINDOW_EXSTYLE, GDEXTENSION_VARIANT_TYPE_INT, GDEXTENSION_VARIANT_TYPE_INT},
+    {"window_is_enabled", WINDOW_ENABLED, GDEXTENSION_VARIANT_TYPE_BOOL, GDEXTENSION_VARIANT_TYPE_INT}
 };
 
 static void execute(Method id, DesktopState *state, int64_t integer,
@@ -533,6 +609,11 @@ static void execute(Method id, DesktopState *state, int64_t integer,
             break;
         case FOREGROUND_FULLSCREEN: *(GDExtensionBool *)result =
             (GDExtensionBool)desktop_foreground_fullscreen(state->hwnd); break;
+        case MAIN_WINDOW: *(GDExtensionBool *)result = (GDExtensionBool)configure_main_window(state, integer); break;
+        case OWNED_WINDOW: *(GDExtensionBool *)result = (GDExtensionBool)configure_owned_window(state, integer); break;
+        case WINDOW_OWNER: *(int64_t *)result = (int64_t)(intptr_t)GetWindow((HWND)(intptr_t)integer, GW_OWNER); break;
+        case WINDOW_EXSTYLE: *(int64_t *)result = (int64_t)GetWindowLongPtrW((HWND)(intptr_t)integer, GWL_EXSTYLE); break;
+        case WINDOW_ENABLED: *(GDExtensionBool *)result = IsWindowEnabled((HWND)(intptr_t)integer) != 0; break;
     }
 }
 

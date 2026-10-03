@@ -47,6 +47,8 @@ var _last_visibility_reason := "visible"
 var _window_viewport_active: Dictionary = {}
 var _window_logical_visible: Dictionary = {}
 var _window_native_id: Dictionary = {}
+var _group_position := Vector2i.ZERO
+var _group_size := Vector2i.ZERO
 
 func acquire_instance() -> bool:
 	# Acquire before any player-save load/migration. A second instance must not
@@ -108,16 +110,18 @@ func start(scene: Window, toolbar: Window = null, settings: Dictionary = {}) -> 
 		toolbar_window.always_on_top = topmost
 		toolbar_window.visible = true
 		var toolbar_handle := DisplayServer.window_get_native_handle(DisplayServer.WINDOW_HANDLE, toolbar_window.get_window_id())
-		if not bool(native.call("make_independent_window", toolbar_handle)):
-			status_changed.emit("无法建立独立的桌面工具栏。")
+		if not bool(native.call("configure_main_window", toolbar_handle)):
+			status_changed.emit("无法建立桌面农场控制入口（错误 %d）。" % int(native.call("shell_last_error")))
 			shutdown()
 			return false
-		# Only the scenery HWND is layered and click-through. This independent
-		# native window keeps toolbar controls usable in observation mode.
+		if not bool(native.call("configure_owned_window", handle)):
+			status_changed.emit("无法建立农场所属窗口。")
+			shutdown()
+			return false
+		# Only scenery is layered/click-through. The root toolbar owns the
+		# scenery; independent rendering does not mean independent taskbar apps.
 		DisplayServer.window_set_flag(DisplayServer.WINDOW_FLAG_MOUSE_PASSTHROUGH, false, toolbar_window.get_window_id())
-		# Native top-level windows must also be independent in the renderer.
-		# Disabling the hidden scenery viewport must not freeze toolbar updates.
-		RenderingServer.viewport_set_parent_viewport(toolbar_window.get_viewport_rid(), RID())
+	RenderingServer.viewport_set_parent_viewport(scene_window.get_viewport_rid(), RID())
 	ready_for_desktop = true
 	tray_available = bool(native.call("install_tray"))
 	if not tray_available:
@@ -148,8 +152,9 @@ func start(scene: Window, toolbar: Window = null, settings: Dictionary = {}) -> 
 	# Make the native window fit wholly inside the chosen monitor before
 	# querying its DPI/work area, so MonitorFromWindow cannot select a
 	# neighbouring monitor based on the old wide window's overlap.
-	scene_window.size = scenery_size_for_area(target_area, 1.0, display_mode, collapsed)
-	scene_window.position = target_area.position
+	_group_position = target_area.position
+	_group_size = scenery_size_for_area(target_area, 1.0, display_mode, collapsed)
+	_scene_geometry(target_area, 1.0)
 	dpi_scale = float(native.call("get_dpi_scale"))
 	_work_area = native.call("get_work_area")
 	_layout_windows()
@@ -210,8 +215,17 @@ func register_auxiliary_window(window: Window) -> void:
 	if ready_for_desktop:
 		_apply_desktop_visibility()
 
+func prepare_auxiliary_window(window: Window) -> bool:
+	if not ready_for_desktop or native == null or not is_instance_valid(window): return false
+	var handle := DisplayServer.window_get_native_handle(DisplayServer.WINDOW_HANDLE, window.get_window_id())
+	RenderingServer.viewport_set_parent_viewport(window.get_viewport_rid(), RID())
+	return bool(native.call("configure_owned_window", handle))
+
 func is_desktop_visible() -> bool:
-	return not user_hidden and not fullscreen_suppressed
+	return not user_hidden and not fullscreen_suppressed and not _owner_minimized()
+
+func _owner_minimized() -> bool:
+	return is_instance_valid(toolbar_window) and toolbar_window.mode == Window.MODE_MINIMIZED
 
 func set_user_hidden(hidden: bool) -> void:
 	if hidden and ready_for_desktop and not tray_available and not hotkey_available:
@@ -232,17 +246,24 @@ func refresh_desktop_visibility() -> void:
 func _apply_desktop_visibility() -> void:
 	if not ready_for_desktop or native == null:
 		return
-	var visible := is_desktop_visible()
-	var scene_visible := visible and not collapsed
+	var group_allowed := not user_hidden and not fullscreen_suppressed
+	var owner_minimized := _owner_minimized()
+	var visible := group_allowed and not owner_minimized
+	var scene_visible := visible and not collapsed and _group_size.y > toolbar_size_for_area(_work_area, dpi_scale).y
+	# Restore the stable owner before its dependants, and hide dependants before
+	# the owner. No visibility refresh activates or raises an already shown HWND.
+	if is_instance_valid(toolbar_window):
+		var handle := DisplayServer.window_get_native_handle(DisplayServer.WINDOW_HANDLE, toolbar_window.get_window_id())
+		# A minimized root must keep WS_VISIBLE so its one taskbar entry remains
+		# available for restoration. Suppress only its owned content/rendering;
+		# showing owned windows while iconic would undo Windows' minimize hiding.
+		if group_allowed: native.call("show_window", handle)
+		_set_window_viewport_active(toolbar_window, visible)
 	if not bool(native.call("set_visible", scene_visible)):
 		status_changed.emit("更新桌面显示状态失败。")
 	if _viewport_active != scene_visible:
 		RenderingServer.viewport_set_active(scene_window.get_viewport_rid(), scene_visible)
 		_viewport_active = scene_visible
-	if is_instance_valid(toolbar_window):
-		var handle := DisplayServer.window_get_native_handle(DisplayServer.WINDOW_HANDLE, toolbar_window.get_window_id())
-		native.call("show_window" if visible else "hide_window", handle)
-		_set_window_viewport_active(toolbar_window, visible)
 	for window in _auxiliary_windows:
 		if not is_instance_valid(window):
 			continue
@@ -258,9 +279,12 @@ func _apply_desktop_visibility() -> void:
 		var should_show := visible and window.visible
 		native.call("show_window" if should_show else "hide_window", handle)
 		_set_window_viewport_active(window, should_show)
+	if not group_allowed and is_instance_valid(toolbar_window):
+		var toolbar_handle := DisplayServer.window_get_native_handle(DisplayServer.WINDOW_HANDLE, toolbar_window.get_window_id())
+		native.call("hide_window", toolbar_handle)
 	var flags := (1 if interactive else 0) | (2 if user_hidden else 0) | (4 if fullscreen_suppressed else 0) | (8 if collapsed else 0)
 	native.call("set_shell_state", flags)
-	var reason := "user_hidden" if user_hidden else ("fullscreen" if fullscreen_suppressed else "visible")
+	var reason := "user_hidden" if user_hidden else ("fullscreen" if fullscreen_suppressed else ("minimized" if owner_minimized else "visible"))
 	if visible != _last_desktop_visible or reason != _last_visibility_reason:
 		_last_desktop_visible = visible
 		_last_visibility_reason = reason
@@ -367,7 +391,7 @@ static func toolbar_size_for_area(area: Rect2i, scale: float) -> Vector2i:
 ## short or high-DPI display the world is cropped, never rescaled/simulated.
 func logical_window_height() -> int:
 	var safe_scale := dpi_scale if is_finite(dpi_scale) and dpi_scale > 0.0 else 1.0
-	if is_instance_valid(scene_window): return maxi(1, int(floor(scene_window.size.y / safe_scale)))
+	if _group_size.y > 0: return maxi(1, int(floor(_group_size.y / safe_scale)))
 	var size := scenery_size_for_area(_work_area, safe_scale, display_mode, collapsed)
 	return maxi(1, int(floor(size.y / safe_scale))) if size.y > 0 else (TOOLBAR_HEIGHT if collapsed else display_height_for_mode(display_mode))
 
@@ -383,41 +407,38 @@ func set_position_clamped(position: Vector2i) -> void:
 	if not is_instance_valid(scene_window):
 		return
 	_manual_position = true
-	var clamped := clamped_position(position, scene_window.size, _work_area)
-	if scene_window.position != clamped:
-		scene_window.position = clamped
-	_align_toolbar()
+	_group_position = clamped_position(position, _group_size, _work_area)
+	_scene_geometry(_work_area, dpi_scale)
 
 func _layout_windows() -> void:
 	if not is_instance_valid(scene_window) or _work_area.size.x <= 0:
 		return
-	var size := scenery_size_for_area(_work_area, dpi_scale, display_mode, collapsed)
-	var height := size.y
-	if scene_window.size != size:
-		scene_window.size = size
+	_group_size = scenery_size_for_area(_work_area, dpi_scale, display_mode, collapsed)
 	if _manual_position:
-		set_position_clamped(scene_window.position)
+		_group_position = clamped_position(_group_position, _group_size, _work_area)
 	else:
-		var position := Vector2i(_work_area.position.x, _work_area.end.y - height)
-		if scene_window.position != position:
-			scene_window.position = position
-	_align_toolbar()
+		_group_position = Vector2i(_work_area.position.x, _work_area.end.y - _group_size.y)
+	_scene_geometry(_work_area, dpi_scale)
 
-func _align_toolbar() -> void:
+func _scene_geometry(area: Rect2i, scale: float) -> void:
 	if not is_instance_valid(toolbar_window) or not is_instance_valid(scene_window):
 		return
-	var size := toolbar_size_for_area(_work_area, dpi_scale)
-	var position := scene_window.position
+	var size := toolbar_size_for_area(area, scale)
+	var position := _group_position
 	if collapsed:
-		position.y = _work_area.end.y - size.y
+		position.y = area.end.y - size.y
 	# Avoid native move/show work when a settings refresh changes no geometry.
 	if toolbar_window.size != size:
 		toolbar_window.size = size
 	if toolbar_window.position != position:
 		toolbar_window.position = position
+	var scene_size := Vector2i(_group_size.x, maxi(1, _group_size.y - size.y))
+	var scene_position := position + Vector2i(0, size.y)
+	if scene_window.size != scene_size: scene_window.size = scene_size
+	if scene_window.position != scene_position: scene_window.position = scene_position
 
 func export_settings() -> Dictionary:
-	var position := scene_window.position if is_instance_valid(scene_window) else Vector2i.ZERO
+	var position := _group_position
 	return {"topmost": topmost, "interactive": interactive, "collapsed": collapsed,
 		"power_saving": power_saving, "display_mode": display_mode, "window_position": [position.x, position.y]}
 
@@ -429,8 +450,11 @@ func diagnostics() -> Dictionary:
 		"tray_available": tray_available, "hotkey_available": hotkey_available,
 		"user_hidden": user_hidden, "fullscreen_suppressed": fullscreen_suppressed,
 		"desktop_visible": is_desktop_visible(), "test_instance": test_instance,
+		"owner_minimized": _owner_minimized(),
 		"display_mode": display_mode, "logical_window_height": logical_window_height(),
 		"visible_scene_height": visible_scene_height(),
+		"group_position": _group_position, "group_size": _group_size,
+		"toolbar_is_root": toolbar_window == get_tree().root if is_inside_tree() else false,
 		"clock_source": "QueryUnbiasedInterruptTime" if native else "unavailable"}
 
 func shutdown() -> void:

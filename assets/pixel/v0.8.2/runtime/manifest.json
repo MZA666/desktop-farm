@@ -1,0 +1,1024 @@
+{
+	"atlases": {
+		"farmer-walk": {
+			"authored_columns": 4,
+			"authored_contact_order_by_direction": {
+				"down": [
+					0,
+					1,
+					2,
+					3
+				],
+				"left": [
+					0,
+					1,
+					2,
+					3
+				],
+				"right": [
+					0,
+					1,
+					2,
+					3
+				],
+				"up": [
+					0,
+					2,
+					1,
+					3
+				]
+			},
+			"authored_direction_frames": [
+				4,
+				4,
+				4,
+				4
+			],
+			"cell": [
+				64,
+				80
+			],
+			"cells": 32,
+			"columns": 8,
+			"common_scale": 0.257627118644068,
+			"directions": [
+				"down",
+				"right",
+				"up",
+				"left"
+			],
+			"neutral_runtime_phase_by_direction": {
+				"down": 2,
+				"left": 2,
+				"right": 2,
+				"up": 6
+			},
+			"path": "res://assets/pixel/v0.8.2/runtime/farmer-walk-atlas.png",
+			"row_edges": [
+				0,
+				330,
+				644,
+				934,
+				1287
+			],
+			"rows": 4,
+			"runtime_direction_frames": [
+				8,
+				8,
+				8,
+				8
+			],
+			"runtime_phase_policy": "Each original contact is held for two phases. Up uses original contacts in order0,2,1,3 to alternate actual left/right boots; no generated in-betweens or mirrored legs.",
+			"runtime_source_columns_by_direction": {
+				"down": [
+					0,
+					0,
+					1,
+					1,
+					2,
+					2,
+					3,
+					3
+				],
+				"left": [
+					0,
+					0,
+					1,
+					1,
+					2,
+					2,
+					3,
+					3
+				],
+				"right": [
+					0,
+					0,
+					1,
+					1,
+					2,
+					2,
+					3,
+					3
+				],
+				"up": [
+					0,
+					0,
+					2,
+					2,
+					1,
+					1,
+					3,
+					3
+				]
+			},
+			"source": "farmer-walk",
+			"sprites": [
+				{
+					"column": 0,
+					"foot_anchor": [
+						32,
+						78
+					],
+					"offset": [
+						5,
+						2
+					],
+					"row": 0,
+					"scale": 0.257627118644068,
+					"source_bounds": [
+						89,
+						35,
+						206,
+						295
+					],
+					"source_column": 0
+				},
+				{
+					"column": 1,
+					"foot_anchor": [
+						32,
+						78
+					],
+					"offset": [
+						5,
+						2
+					],
+					"row": 0,
+					"scale": 0.257627118644068,
+					"source_bounds": [
+						89,
+						35,
+						206,
+						295
+					],
+					"source_column": 0
+				},
+				{
+					"column": 2,
+					"foot_anchor": [
+						32,
+						78
+					],
+					"offset": [
+						5,
+						2
+					],
+					"row": 0,
+					"scale": 0.257627118644068,
+					"source_bounds": [
+						360,
+						34,
+						204,
+						295
+					],
+					"source_column": 1
+				},
+				{
+					"column": 3,
+					"foot_anchor": [
+						32,
+						78
+					],
+					"offset": [
+						5,
+						2
+					],
+					"row": 0,
+					"scale": 0.257627118644068,
+					"source_bounds": [
+						360,
+						34,
+						204,
+						295
+					],
+					"source_column": 1
+				},
+				{
+					"column": 4,
+					"foot_anchor": [
+						32,
+						78
+					],
+					"offset": [
+						6,
+						2
+					],
+					"row": 0,
+					"scale": 0.257627118644068,
+					"source_bounds": [
+						651,
+						34,
+						203,
+						295
+					],
+					"source_column": 2
+				},
+				{
+					"column": 5,
+					"foot_anchor": [
+						32,
+						78
+					],
+					"offset": [
+						6,
+						2
+					],
+					"row": 0,
+					"scale": 0.257627118644068,
+					"source_bounds": [
+						651,
+						34,
+						203,
+						295
+					],
+					"source_column": 2
+				},
+				{
+					"column": 6,
+					"foot_anchor": [
+						32,
+						78
+					],
+					"offset": [
+						5,
+						2
+					],
+					"row": 0,
+					"scale": 0.257627118644068,
+					"source_bounds": [
+						930,
+						34,
+						204,
+						295
+					],
+					"source_column": 3
+				},
+				{
+					"column": 7,
+					"foot_anchor": [
+						32,
+						78
+					],
+					"offset": [
+						5,
+						2
+					],
+					"row": 0,
+					"scale": 0.257627118644068,
+					"source_bounds": [
+						930,
+						34,
+						204,
+						295
+					],
+					"source_column": 3
+				},
+				{
+					"column": 0,
+					"foot_anchor": [
+						32,
+						78
+					],
+					"offset": [
+						4,
+						3
+					],
+					"row": 1,
+					"scale": 0.257627118644068,
+					"source_bounds": [
+						79,
+						341,
+						216,
+						293
+					],
+					"source_column": 0
+				},
+				{
+					"column": 1,
+					"foot_anchor": [
+						32,
+						78
+					],
+					"offset": [
+						4,
+						3
+					],
+					"row": 1,
+					"scale": 0.257627118644068,
+					"source_bounds": [
+						79,
+						341,
+						216,
+						293
+					],
+					"source_column": 0
+				},
+				{
+					"column": 2,
+					"foot_anchor": [
+						32,
+						78
+					],
+					"offset": [
+						3,
+						3
+					],
+					"row": 1,
+					"scale": 0.257627118644068,
+					"source_bounds": [
+						356,
+						341,
+						220,
+						293
+					],
+					"source_column": 1
+				},
+				{
+					"column": 3,
+					"foot_anchor": [
+						32,
+						78
+					],
+					"offset": [
+						3,
+						3
+					],
+					"row": 1,
+					"scale": 0.257627118644068,
+					"source_bounds": [
+						356,
+						341,
+						220,
+						293
+					],
+					"source_column": 1
+				},
+				{
+					"column": 4,
+					"foot_anchor": [
+						32,
+						78
+					],
+					"offset": [
+						4,
+						3
+					],
+					"row": 1,
+					"scale": 0.257627118644068,
+					"source_bounds": [
+						637,
+						341,
+						219,
+						293
+					],
+					"source_column": 2
+				},
+				{
+					"column": 5,
+					"foot_anchor": [
+						32,
+						78
+					],
+					"offset": [
+						4,
+						3
+					],
+					"row": 1,
+					"scale": 0.257627118644068,
+					"source_bounds": [
+						637,
+						341,
+						219,
+						293
+					],
+					"source_column": 2
+				},
+				{
+					"column": 6,
+					"foot_anchor": [
+						32,
+						78
+					],
+					"offset": [
+						4,
+						3
+					],
+					"row": 1,
+					"scale": 0.257627118644068,
+					"source_bounds": [
+						921,
+						341,
+						216,
+						293
+					],
+					"source_column": 3
+				},
+				{
+					"column": 7,
+					"foot_anchor": [
+						32,
+						78
+					],
+					"offset": [
+						4,
+						3
+					],
+					"row": 1,
+					"scale": 0.257627118644068,
+					"source_bounds": [
+						921,
+						341,
+						216,
+						293
+					],
+					"source_column": 3
+				},
+				{
+					"column": 0,
+					"foot_anchor": [
+						32,
+						78
+					],
+					"offset": [
+						7,
+						5
+					],
+					"row": 2,
+					"scale": 0.257627118644068,
+					"source_bounds": [
+						89,
+						649,
+						195,
+						282
+					],
+					"source_column": 0
+				},
+				{
+					"column": 1,
+					"foot_anchor": [
+						32,
+						78
+					],
+					"offset": [
+						7,
+						5
+					],
+					"row": 2,
+					"scale": 0.257627118644068,
+					"source_bounds": [
+						89,
+						649,
+						195,
+						282
+					],
+					"source_column": 0
+				},
+				{
+					"column": 4,
+					"foot_anchor": [
+						32,
+						78
+					],
+					"offset": [
+						6,
+						5
+					],
+					"row": 2,
+					"scale": 0.257627118644068,
+					"source_bounds": [
+						367,
+						648,
+						197,
+						283
+					],
+					"source_column": 1
+				},
+				{
+					"column": 5,
+					"foot_anchor": [
+						32,
+						78
+					],
+					"offset": [
+						6,
+						5
+					],
+					"row": 2,
+					"scale": 0.257627118644068,
+					"source_bounds": [
+						367,
+						648,
+						197,
+						283
+					],
+					"source_column": 1
+				},
+				{
+					"column": 2,
+					"foot_anchor": [
+						32,
+						78
+					],
+					"offset": [
+						7,
+						5
+					],
+					"row": 2,
+					"scale": 0.257627118644068,
+					"source_bounds": [
+						652,
+						649,
+						196,
+						282
+					],
+					"source_column": 2
+				},
+				{
+					"column": 3,
+					"foot_anchor": [
+						32,
+						78
+					],
+					"offset": [
+						7,
+						5
+					],
+					"row": 2,
+					"scale": 0.257627118644068,
+					"source_bounds": [
+						652,
+						649,
+						196,
+						282
+					],
+					"source_column": 2
+				},
+				{
+					"column": 6,
+					"foot_anchor": [
+						32,
+						78
+					],
+					"offset": [
+						6,
+						5
+					],
+					"row": 2,
+					"scale": 0.257627118644068,
+					"source_bounds": [
+						937,
+						648,
+						199,
+						282
+					],
+					"source_column": 3
+				},
+				{
+					"column": 7,
+					"foot_anchor": [
+						32,
+						78
+					],
+					"offset": [
+						6,
+						5
+					],
+					"row": 2,
+					"scale": 0.257627118644068,
+					"source_bounds": [
+						937,
+						648,
+						199,
+						282
+					],
+					"source_column": 3
+				},
+				{
+					"column": 0,
+					"foot_anchor": [
+						32,
+						78
+					],
+					"offset": [
+						3,
+						4
+					],
+					"row": 3,
+					"scale": 0.257627118644068,
+					"source_bounds": [
+						72,
+						936,
+						223,
+						289
+					],
+					"source_column": 0
+				},
+				{
+					"column": 1,
+					"foot_anchor": [
+						32,
+						78
+					],
+					"offset": [
+						3,
+						4
+					],
+					"row": 3,
+					"scale": 0.257627118644068,
+					"source_bounds": [
+						72,
+						936,
+						223,
+						289
+					],
+					"source_column": 0
+				},
+				{
+					"column": 2,
+					"foot_anchor": [
+						32,
+						78
+					],
+					"offset": [
+						4,
+						4
+					],
+					"row": 3,
+					"scale": 0.257627118644068,
+					"source_bounds": [
+						362,
+						938,
+						216,
+						289
+					],
+					"source_column": 1
+				},
+				{
+					"column": 3,
+					"foot_anchor": [
+						32,
+						78
+					],
+					"offset": [
+						4,
+						4
+					],
+					"row": 3,
+					"scale": 0.257627118644068,
+					"source_bounds": [
+						362,
+						938,
+						216,
+						289
+					],
+					"source_column": 1
+				},
+				{
+					"column": 4,
+					"foot_anchor": [
+						32,
+						78
+					],
+					"offset": [
+						3,
+						3
+					],
+					"row": 3,
+					"scale": 0.257627118644068,
+					"source_bounds": [
+						645,
+						938,
+						225,
+						292
+					],
+					"source_column": 2
+				},
+				{
+					"column": 5,
+					"foot_anchor": [
+						32,
+						78
+					],
+					"offset": [
+						3,
+						3
+					],
+					"row": 3,
+					"scale": 0.257627118644068,
+					"source_bounds": [
+						645,
+						938,
+						225,
+						292
+					],
+					"source_column": 2
+				},
+				{
+					"column": 6,
+					"foot_anchor": [
+						32,
+						78
+					],
+					"offset": [
+						2,
+						3
+					],
+					"row": 3,
+					"scale": 0.257627118644068,
+					"source_bounds": [
+						930,
+						935,
+						229,
+						292
+					],
+					"source_column": 3
+				},
+				{
+					"column": 7,
+					"foot_anchor": [
+						32,
+						78
+					],
+					"offset": [
+						2,
+						3
+					],
+					"row": 3,
+					"scale": 0.257627118644068,
+					"source_bounds": [
+						930,
+						935,
+						229,
+						292
+					],
+					"source_column": 3
+				}
+			]
+		},
+		"pickup": {
+			"authored_columns": 8,
+			"cell": [
+				64,
+				80
+			],
+			"cells": 8,
+			"columns": 8,
+			"common_scale": 0.419889502762431,
+			"path": "res://assets/pixel/v0.8.2/runtime/pickup-atlas.png",
+			"row_edges": [
+				0,
+				202,
+				401,
+				595,
+				794,
+				992
+			],
+			"rows": 1,
+			"runtime_phase_policy": "Eight original frames from the last row; no reflection or manual paint.",
+			"runtime_source_columns": [
+				0,
+				1,
+				2,
+				3,
+				4,
+				5,
+				6,
+				7
+			],
+			"source": "farmer-second-draft",
+			"source_sheet_columns": 8,
+			"source_sheet_row": 4,
+			"source_sheet_rows": 5,
+			"sprites": [
+				{
+					"column": 0,
+					"foot_anchor": [
+						32,
+						78
+					],
+					"offset": [
+						5,
+						2
+					],
+					"row": 0,
+					"scale": 0.419889502762431,
+					"source_bounds": [
+						37,
+						796,
+						128,
+						180
+					],
+					"source_column": 0
+				},
+				{
+					"column": 1,
+					"foot_anchor": [
+						32,
+						78
+					],
+					"offset": [
+						6,
+						5
+					],
+					"row": 0,
+					"scale": 0.419889502762431,
+					"source_bounds": [
+						234,
+						803,
+						125,
+						173
+					],
+					"source_column": 1
+				},
+				{
+					"column": 2,
+					"foot_anchor": [
+						32,
+						78
+					],
+					"offset": [
+						5,
+						10
+					],
+					"row": 0,
+					"scale": 0.419889502762431,
+					"source_bounds": [
+						431,
+						817,
+						128,
+						162
+					],
+					"source_column": 2
+				},
+				{
+					"column": 3,
+					"foot_anchor": [
+						32,
+						78
+					],
+					"offset": [
+						6,
+						17
+					],
+					"row": 0,
+					"scale": 0.419889502762431,
+					"source_bounds": [
+						632,
+						833,
+						123,
+						146
+					],
+					"source_column": 3
+				},
+				{
+					"column": 4,
+					"foot_anchor": [
+						32,
+						78
+					],
+					"offset": [
+						5,
+						16
+					],
+					"row": 0,
+					"scale": 0.419889502762431,
+					"source_bounds": [
+						829,
+						832,
+						126,
+						147
+					],
+					"source_column": 4
+				},
+				{
+					"column": 5,
+					"foot_anchor": [
+						32,
+						78
+					],
+					"offset": [
+						6,
+						12
+					],
+					"row": 0,
+					"scale": 0.419889502762431,
+					"source_bounds": [
+						1032,
+						817,
+						122,
+						158
+					],
+					"source_column": 5
+				},
+				{
+					"column": 6,
+					"foot_anchor": [
+						32,
+						78
+					],
+					"offset": [
+						5,
+						5
+					],
+					"row": 0,
+					"scale": 0.419889502762431,
+					"source_bounds": [
+						1226,
+						801,
+						127,
+						175
+					],
+					"source_column": 6
+				},
+				{
+					"column": 7,
+					"foot_anchor": [
+						32,
+						78
+					],
+					"offset": [
+						4,
+						2
+					],
+					"row": 0,
+					"scale": 0.419889502762431,
+					"source_bounds": [
+						1423,
+						795,
+						130,
+						181
+					],
+					"source_column": 7
+				}
+			]
+		},
+		"pond-margins": {
+			"aspect_preserved": true,
+			"cell": [
+				1536,
+				512
+			],
+			"cells": 1,
+			"path": "res://assets/pixel/v0.8.2/runtime/pond-margins.png",
+			"playable": false,
+			"source": "pond-margins",
+			"source_size": [
+				2172,
+				724
+			]
+		},
+		"woodland": {
+			"aspect_preserved": true,
+			"cell": [
+				1536,
+				512
+			],
+			"cells": 1,
+			"path": "res://assets/pixel/v0.8.2/runtime/woodland.png",
+			"playable": false,
+			"source": "woodland",
+			"source_size": [
+				2172,
+				724
+			]
+		}
+	},
+	"foot_anchor": [
+		32,
+		78
+	],
+	"generator": "OpenAI imagegen",
+	"prompt_provenance": "Original assets generated with the Codex built-in imagegen tool. Prompt constraints and source lineage are recorded in assets/pixel/v0.8.2/generation-prompts.md; generation calls remain in the development conversation.",
+	"resampling": "nearest",
+	"source_preserved": true,
+	"sources": {
+		"farmer-second-draft": {
+			"height": 992,
+			"path": "res://assets/pixel/v0.8.2/source/farmer-second-draft.png",
+			"sha256": "f72a899268f7f51dfd8004c2e6ff9917bf3b1f68c19ce49b2287fbd35d8b4a98",
+			"width": 1585
+		},
+		"farmer-walk": {
+			"height": 1287,
+			"path": "res://assets/pixel/v0.8.2/source/farmer-walk.png",
+			"sha256": "b8d4d3746b8a704ae5dde58ab4c00a1bc24f3178941e1465b67f6d8b05dbb655",
+			"width": 1222
+		},
+		"pond-margins": {
+			"height": 724,
+			"path": "res://assets/pixel/v0.8.2/source/pond-margins.png",
+			"sha256": "befe0a014d8ba06a9b01a4caf56a6feb5cf68ec58d6b8be2c47457de72803b7c",
+			"width": 2172
+		},
+		"woodland": {
+			"height": 724,
+			"path": "res://assets/pixel/v0.8.2/source/woodland.png",
+			"sha256": "03a2fb4d19c1d51fd72779d73f7cbdddec1646fe32eef0ceb9839756dc7179f1",
+			"width": 2172
+		}
+	},
+	"status": "ready",
+	"transparent_rgb_cleanup_alpha_max": 8,
+	"trim_alpha_threshold": 24,
+	"version": "0.8.2"
+}

@@ -32,7 +32,7 @@ func _run() -> void:
 		return
 	var initial_model: FarmState = MODEL.new(values)
 	check(initial_model.restore(loaded.data).ok, "Migrated startup passes strict v3 validation")
-	check(loaded.data.version == 3 and not loaded.data.has("regions"), "Migration removes region state and initializes real world")
+	check(loaded.data.version == 4 and loaded.data.layout_version == 4 and not loaded.data.has("regions"), "Migration removes region state and initializes current world")
 	check(initial_model.balance() == 1000 and initial_model.protection() == 480, "Initial coins and seed protection preserved")
 	check(loaded.data.plots.filter(func(p): return p.open).size() == 24, "Original open count preserved")
 	check(FileAccess.get_sha256(initial_path + ".bak") == FileAccess.get_sha256(loaded.migration_backup), "Original v1 and versioned backup retain exact bytes")
@@ -120,13 +120,17 @@ func _test_v2() -> void:
 	model.tick(1)
 	var v2 := model.snapshot()
 	v2.version = 2
-	for key in ["pond", "ranch"]: v2.erase(key)
+	for key in ["pond", "ranch", "layout_version", "ground_products"]: v2.erase(key)
+	for fish in v2.fish:
+		var normalized: Vector2 = preload("res://scripts/world_layout.gd").fish_from_world(Vector2(fish.x, fish.y))
+		fish.x = normalized.x; fish.y = normalized.y
+		for key in ["previous_x", "previous_y", "target", "heading", "phase", "swim_index"]: fish.erase(key)
 	v2.rng.erase("animal")
 	v2.settings.erase("display_mode")
 	for grass in v2.grass:
 		for key in ["x", "y", "appearance"]: grass.erase(key)
 	for animal in v2.animals:
-		for key in ["shelter_id", "x", "y", "previous_x", "previous_y", "facing", "behavior", "path", "target", "decision_remaining", "food_decision_remaining", "meal", "eating_remaining", "held_by", "hold_remaining", "feedback_remaining", "last_reward_elapsed", "juvenile_bonus_used", "adult_bonus_used", "production_cycle"]: animal.erase(key)
+		for key in ["shelter_id", "x", "y", "previous_x", "previous_y", "facing", "behavior", "path", "target", "decision_remaining", "food_decision_remaining", "meal", "eating_remaining", "held_by", "hold_remaining", "feedback_remaining", "last_reward_elapsed", "juvenile_bonus_used", "adult_bonus_used", "production_cycle", "last_drop_cycle"]: animal.erase(key)
 	v2.animals[0].food_remaining = 123.0
 	v2.animals[0].hungry = false
 	v2.animals[0].adult = true
@@ -159,8 +163,8 @@ func _test_v2() -> void:
 	if not loaded.ok:
 		printerr(loaded.message)
 		return
-	check(loaded.data.version == 3 and loaded.data.pond.net_level == 0 and loaded.data.pond.capacity_level == 0, "New upgrade fields begin at zero without fish gifts")
-	check(loaded.data.animals[0].food_remaining == 123 and loaded.data.animals[0].ready == 1 and loaded.data.animals[0].product_remaining == 0, "Animal meal interval and pending product survive migration")
+	check(loaded.data.version == 4 and loaded.data.pond.net_level == 0 and loaded.data.pond.capacity_level == 0, "New upgrade fields begin at zero without fish gifts")
+	check(loaded.data.animals[0].food_remaining == 123 and loaded.data.animals[0].ready == 0 and loaded.data.animals[0].product_remaining == 300 and loaded.data.ground_products[0].quantity == 1, "Animal meal interval is preserved while old ready product drops and starts next cycle")
 	var same_seeds: bool = loaded.data.seeds.size() == v2.seeds.size()
 	for id in v2.seeds: same_seeds = same_seeds and int(loaded.data.seeds.get(id, -1)) == int(v2.seeds[id])
 	var paid: Dictionary = loaded.data.farmers[0].task
@@ -187,7 +191,7 @@ func _test_v2() -> void:
 
 func _write(path: String, data: Dictionary) -> void:
 	var file := FileAccess.open(path, FileAccess.WRITE)
-	file.store_string(JSON.stringify(data))
+	file.store_string(JSON.stringify(data, "", true, true))
 	file.close()
 
 func _finish() -> void:

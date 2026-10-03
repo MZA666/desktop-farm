@@ -1,9 +1,11 @@
 extends SceneTree
 
 const HOST = preload("res://scripts/desktop_host.gd")
+const WINDOWS = preload("res://native/tests/window_fixture.gd")
 const PREFIX := "res://.review/fullscreen-host"
 var host: DesktopHost
 var toolbar: Window
+var scenery: Window
 var popup: Window
 var frames := 0
 var phase := 0
@@ -26,11 +28,11 @@ func check(condition: bool, message: String) -> void:
 
 func _start() -> void:
 	root.gui_embed_subwindows = false
-	toolbar = Window.new()
-	root.add_child(toolbar)
+	toolbar = root
+	scenery = WINDOWS.scene_for(root)
 	host = HOST.new()
 	root.add_child(host)
-	check(host.start(root, toolbar), "Fixture host must start")
+	check(host.start(scenery, toolbar), "Fixture host must start")
 	popup = Window.new()
 	popup.visible = false
 	popup.size = Vector2i(320, 160)
@@ -39,7 +41,7 @@ func _start() -> void:
 	popup.show()
 	RenderingServer.viewport_set_parent_viewport(popup.get_viewport_rid(), RID())
 	var handle := DisplayServer.window_get_native_handle(DisplayServer.WINDOW_HANDLE, popup.get_window_id())
-	host.native.call("make_independent_window", handle)
+	host.prepare_auxiliary_window(popup)
 	host.register_auxiliary_window(popup)
 	for suffix in ["phase", "ack", "result"]:
 		var path := ProjectSettings.globalize_path(PREFIX + "." + suffix)
@@ -69,24 +71,24 @@ func _process(_delta: float) -> bool:
 			host.refresh_desktop_visibility()
 			check(host.fullscreen_suppressed == (phase % 2 == 0), "Only borderless whole-screen app is fullscreen; ordinary maximized app must not suppress")
 			if phase % 2 == 0:
-				check(not visible(root) and not visible(toolbar) and not visible(popup), "Fullscreen must hide every registered game HWND")
+				check(not visible(scenery) and not visible(toolbar) and not visible(popup), "Fullscreen must hide every registered game HWND")
 			if phase == 1:
-				check(visible(root) and visible(toolbar) and visible(popup), "Ordinary maximization keeps farm windows available")
+				check(visible(scenery) and visible(toolbar) and visible(popup), "Ordinary maximization keeps farm windows available")
 			elif phase == 2:
 				host.set_user_hidden(true)
 			elif phase == 3:
-				check(not visible(root) and not visible(toolbar) and not visible(popup), "Manual session hiding wins over automatic fullscreen restoration")
+				check(not visible(scenery) and not visible(toolbar) and not visible(popup), "Manual session hiding wins over automatic fullscreen restoration")
 				host.set_user_hidden(false)
-				check(visible(root) and visible(toolbar) and visible(popup), "Explicit show restores the prior open popup")
+				check(visible(scenery) and visible(toolbar) and visible(popup), "Explicit show restores the prior open popup")
 			elif phase == 4:
 				host.set_collapsed(true)
 			elif phase == 5:
-				check(not visible(root) and visible(toolbar) and visible(popup), "Exiting fullscreen preserves user's collapsed scenery and open popup")
+				check(not visible(scenery) and visible(toolbar) and visible(popup), "Exiting fullscreen preserves user's collapsed scenery and open popup")
 				popup.hide()
 			elif phase == 7:
-				check(not visible(root) and visible(toolbar) and not visible(popup), "A closed popup must stay closed after another fullscreen round")
+				check(not visible(scenery) and visible(toolbar) and not visible(popup), "A closed popup must stay closed after another fullscreen round")
 				host.set_collapsed(false)
-				check(visible(root) and visible(toolbar) and not visible(popup), "Expansion restores only intended windows")
+				check(visible(scenery) and visible(toolbar) and not visible(popup), "Expansion restores only intended windows")
 			var file := FileAccess.open(PREFIX + ".ack", FileAccess.WRITE)
 			file.store_string(str(phase))
 			file.close()
