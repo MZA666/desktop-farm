@@ -41,7 +41,7 @@ func growing() -> FarmState:
 
 func _test_budget_and_library() -> void:
 	var game := fresh()
-	check(game.state.version == 2 and not game.state.has("regions"), "V2 has independent plots and no region state")
+	check(game.state.version == 3 and not game.state.has("regions"), "V3 retains independent plots and no region state")
 	check(game.state.plots.size() == 96 and game.state.plots[23].open and not game.state.plots[24].open, "Initial first 24 of 96 plots open")
 	for i in range(96):
 		check(int(game.state.plots[i].index) == i and str(game.state.plots[i].id) == "plot_%d_%d" % [i / 16, i % 16], "Stable legacy ID and global index %d" % i)
@@ -109,7 +109,8 @@ func _test_claims_and_rollback() -> void:
 	check(special.command("set_crop", {"plot_ids": ["plot_0_0"], "crop_id": "parsnip"}).ok and special.seed_preview("plot_0_0").source == "automatic", "Explicit replacement discards the original-plot seed")
 
 func _test_world_and_travel() -> void:
-	check(World.plot_position(0) == Vector2(64, 20) and World.plot_position(23) == Vector2(288, 84) and World.plot_position(95) == Vector2(1056, 84), "Fixed three-row world has exact first/initial-last/full-last coordinates")
+	check(World.legacy_plot_position(0) == Vector2(64, 20) and World.legacy_plot_position(23) == Vector2(288, 84) and World.legacy_plot_position(95) == Vector2(1056, 84), "Legacy coordinate mapping remains available for strict migration")
+	check(World.plot_position(0) == Vector2(352, 112) and World.plot_position(23) == Vector2(744, 168) and World.plot_position(95) == Vector2(1192, 392), "New world keeps exact 16-by-6 independent plot coordinates")
 	var game := fresh()
 	game.state.farmers = game.state.farmers.filter(func(f): return f.home == "farm")
 	game.tick(1)
@@ -124,8 +125,8 @@ func _test_world_and_travel() -> void:
 	var saved := game.snapshot()
 	var resumed := fresh()
 	check(resumed.restore(saved).ok, "Walking position, target and phase restore")
-	game.tick(20)
-	resumed.tick(20)
+	game.tick(30)
+	resumed.tick(30)
 	check(JSON.stringify(game.snapshot()) == JSON.stringify(resumed.snapshot()), "Real-distance work deterministic across restore")
 	check(game.state.plots[0].status == "growing" and target == World.target_position("farm", "plot_0_0", game.state), "Only arrival plus full actions starts growth")
 	var invalid := saved.duplicate(true)
@@ -184,7 +185,7 @@ func _test_migration() -> void:
 	if migrated.ok:
 		check(migrated.data.plots.filter(func(p): return p.open).size() == 24 and not migrated.data.has("regions"), "Migration retains exact opened plots and removes regions")
 		check(migrated.data.farmers[0].phase == "acting" and migrated.data.farmers[0].remaining == 1.75 and migrated.data.seeds.parsnip == 23, "Prepaid old action and remaining time retain their seed")
-		check(migrated.data.plots[1].crop_id == "mixed_seeds" and migrated.data.plots[1].remaining == 123 and migrated.data.plots[1].product == data.plots[1].product and migrated.data.rng == data.rng, "Migration retains mixed package, frozen random product, timing and RNG")
+		check(migrated.data.plots[1].crop_id == "mixed_seeds" and migrated.data.plots[1].remaining == 123 and migrated.data.plots[1].product == data.plots[1].product and migrated.data.rng.crop == data.rng.crop and migrated.data.rng.grass == data.rng.grass and migrated.data.rng.fish == data.rng.fish, "Migration retains mixed package, frozen random product, timing and production RNG")
 		check(migrated.data.plots[2].status == "processing" and migrated.data.plots[2].remaining == 99 and migrated.data.plots[2].product == data.plots[2].product, "Migration preserves in-progress serial rice processing")
 		check(game.restore(data).ok and game.state.seed_reservations.size() == 1, "Restore accepts valid V1 and binds pending stock")
 		var coins := game.balance()

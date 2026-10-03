@@ -13,7 +13,7 @@ func _initialize() -> void:
 	verify(HOST.visible_area_for_point(Vector2i(-6000, 0), screens) == Rect2i())
 	verify(HOST.visible_area_for_point(Vector2i(-1920, 0), screens) == screens[1])
 	for scale in [1.0, 1.5, 2.0]:
-		var size := HOST.scenery_size_for_area(screens[1], scale)
+		var size := HOST.scenery_size_for_area(screens[1], scale, "compact")
 		verify(size == Vector2i(1920, int(240 * scale)), "100/150/200 percent DPI must produce correct physical scenery height")
 		var point := HOST.clamped_position(Vector2i(-9999, 9999), size, screens[1])
 		verify(point.x == -1920 and point.y == 1040 - size.y, "DPI scaling must clamp inside negative-coordinate monitor work area")

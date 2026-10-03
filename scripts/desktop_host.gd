@@ -9,7 +9,10 @@ signal status_changed(message: String)
 signal tray_action(action: String)
 signal desktop_visibility_changed(visible: bool, reason: String)
 
-const SCENE_HEIGHT := 240
+const EXPANDED_HEIGHT := 420
+const COMPACT_HEIGHT := 240
+const SCENE_HEIGHT := EXPANDED_HEIGHT
+const SCENE_CHROME_HEIGHT := 68
 const TOOLBAR_HEIGHT := 32
 const NATIVE_READY_MASK := 1 | 2 | 8 | 16 | 32 | 64 | 128
 
@@ -20,6 +23,7 @@ var interactive := false
 var collapsed := false
 var power_saving := false
 var topmost := false
+var display_mode := "expanded"
 var dpi_scale := 1.0
 var ready_for_desktop := false
 var user_hidden := false
@@ -83,6 +87,8 @@ func start(scene: Window, toolbar: Window = null, settings: Dictionary = {}) -> 
 	interactive = bool(settings.get("interactive", false))
 	collapsed = bool(settings.get("collapsed", false))
 	power_saving = bool(settings.get("power_saving", false))
+	display_mode = str(settings.get("display_mode", "expanded"))
+	if display_mode not in ["expanded", "compact"]: display_mode = "expanded"
 	scene_window.borderless = true
 	scene_window.unresizable = true
 	scene_window.transparent = true
@@ -142,7 +148,7 @@ func start(scene: Window, toolbar: Window = null, settings: Dictionary = {}) -> 
 	# Make the native window fit wholly inside the chosen monitor before
 	# querying its DPI/work area, so MonitorFromWindow cannot select a
 	# neighbouring monitor based on the old wide window's overlap.
-	scene_window.size = Vector2i(target_area.size.x, mini(target_area.size.y, SCENE_HEIGHT))
+	scene_window.size = scenery_size_for_area(target_area, 1.0, display_mode, collapsed)
 	scene_window.position = target_area.position
 	dpi_scale = float(native.call("get_dpi_scale"))
 	_work_area = native.call("get_work_area")
@@ -312,12 +318,22 @@ func set_topmost(_enabled: bool) -> void:
 		toolbar_window.always_on_top = false
 
 func set_collapsed(enabled: bool) -> void:
+	var changed := collapsed != enabled
 	collapsed = enabled
 	if is_instance_valid(toolbar_window):
 		if not toolbar_window.visible:
 			toolbar_window.visible = true
 		_layout_windows()
 	_apply_desktop_visibility()
+	if changed and _work_area.size.x > 0: display_changed.emit(_work_area)
+
+func set_display_mode(mode: String) -> bool:
+	if mode not in ["expanded", "compact"]: return false
+	if display_mode == mode: return true
+	display_mode = mode
+	_layout_windows()
+	if _work_area.size.x > 0: display_changed.emit(_work_area)
+	return true
 
 func set_power_saving(enabled: bool) -> void:
 	power_saving = enabled
@@ -332,8 +348,31 @@ static func visible_area_for_point(point: Vector2i, areas: Array[Rect2i]) -> Rec
 			return area
 	return Rect2i()
 
-static func scenery_size_for_area(area: Rect2i, scale: float) -> Vector2i:
-	return Vector2i(area.size.x, mini(area.size.y, maxi(1, int(round(SCENE_HEIGHT * scale)))))
+static func display_height_for_mode(mode: String) -> int:
+	return COMPACT_HEIGHT if mode == "compact" else EXPANDED_HEIGHT
+
+static func scene_height_for_mode(mode: String) -> int:
+	return display_height_for_mode(mode) - SCENE_CHROME_HEIGHT
+
+static func scenery_size_for_area(area: Rect2i, scale: float, mode: String = "expanded", is_collapsed: bool = false) -> Vector2i:
+	if area.size.x <= 0 or area.size.y <= 0: return Vector2i.ZERO
+	var safe_scale := scale if is_finite(scale) and scale > 0.0 else 1.0
+	var height := TOOLBAR_HEIGHT if is_collapsed else display_height_for_mode(mode)
+	return Vector2i(area.size.x, mini(area.size.y, maxi(1, int(round(height * safe_scale)))))
+
+static func toolbar_size_for_area(area: Rect2i, scale: float) -> Vector2i:
+	return scenery_size_for_area(area, scale, "expanded", true)
+
+## Effective logical heights follow the clamped physical work area. On a
+## short or high-DPI display the world is cropped, never rescaled/simulated.
+func logical_window_height() -> int:
+	var safe_scale := dpi_scale if is_finite(dpi_scale) and dpi_scale > 0.0 else 1.0
+	if is_instance_valid(scene_window): return maxi(1, int(floor(scene_window.size.y / safe_scale)))
+	var size := scenery_size_for_area(_work_area, safe_scale, display_mode, collapsed)
+	return maxi(1, int(floor(size.y / safe_scale))) if size.y > 0 else (TOOLBAR_HEIGHT if collapsed else display_height_for_mode(display_mode))
+
+func visible_scene_height() -> int:
+	return 0 if collapsed else maxi(0, logical_window_height() - SCENE_CHROME_HEIGHT)
 
 static func clamped_position(position: Vector2i, size: Vector2i, area: Rect2i) -> Vector2i:
 	var high := area.end - size
@@ -352,7 +391,7 @@ func set_position_clamped(position: Vector2i) -> void:
 func _layout_windows() -> void:
 	if not is_instance_valid(scene_window) or _work_area.size.x <= 0:
 		return
-	var size := scenery_size_for_area(_work_area, dpi_scale)
+	var size := scenery_size_for_area(_work_area, dpi_scale, display_mode, collapsed)
 	var height := size.y
 	if scene_window.size != size:
 		scene_window.size = size
@@ -367,7 +406,7 @@ func _layout_windows() -> void:
 func _align_toolbar() -> void:
 	if not is_instance_valid(toolbar_window) or not is_instance_valid(scene_window):
 		return
-	var size := Vector2i(scene_window.size.x, maxi(32, int(round(TOOLBAR_HEIGHT * dpi_scale))))
+	var size := toolbar_size_for_area(_work_area, dpi_scale)
 	var position := scene_window.position
 	if collapsed:
 		position.y = _work_area.end.y - size.y
@@ -380,7 +419,7 @@ func _align_toolbar() -> void:
 func export_settings() -> Dictionary:
 	var position := scene_window.position if is_instance_valid(scene_window) else Vector2i.ZERO
 	return {"topmost": topmost, "interactive": interactive, "collapsed": collapsed,
-		"power_saving": power_saving, "window_position": [position.x, position.y]}
+		"power_saving": power_saving, "display_mode": display_mode, "window_position": [position.x, position.y]}
 
 func diagnostics() -> Dictionary:
 	return {"native_ready": ready_for_desktop, "status_bits": int(native.call("native_status")) if native else 0,
@@ -390,6 +429,8 @@ func diagnostics() -> Dictionary:
 		"tray_available": tray_available, "hotkey_available": hotkey_available,
 		"user_hidden": user_hidden, "fullscreen_suppressed": fullscreen_suppressed,
 		"desktop_visible": is_desktop_visible(), "test_instance": test_instance,
+		"display_mode": display_mode, "logical_window_height": logical_window_height(),
+		"visible_scene_height": visible_scene_height(),
 		"clock_source": "QueryUnbiasedInterruptTime" if native else "unavailable"}
 
 func shutdown() -> void:

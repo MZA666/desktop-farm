@@ -2,16 +2,16 @@ config_version=5
 
 [application]
 config/name="桌面农场"
-config/version="0.8.0"
+config/version="0.8.1"
 config/icon="res://assets/app-icon.svg"
 run/main_scene="res://scenes/main.tscn"
 config/features=PackedStringArray("4.4", "GL Compatibility")
 
 [display]
 window/size/viewport_width=1920
-window/size/viewport_height=240
+window/size/viewport_height=420
 window/size/window_width_override=1280
-window/size/window_height_override=240
+window/size/window_height_override=420
 window/size/transparent=true
 window/size/borderless=true
 window/size/always_on_top=false

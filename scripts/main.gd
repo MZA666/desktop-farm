@@ -3,9 +3,10 @@ extends Node
 const MODEL = preload("res://scripts/game_state.gd")
 const CONFIG = preload("res://scripts/config_loader.gd")
 const STORE = preload("res://scripts/save_store.gd")
-const VIEW = preload("res://scripts/farm_view.gd")
+const VIEW = preload("res://scripts/illustrated_view.gd")
 const HOST = preload("res://scripts/desktop_host.gd")
 const ASSETS = preload("res://scripts/pixel_assets.gd")
+const POND = preload("res://scripts/pond_rules.gd")
 const SCENE_NAMES := {"farm": "农场", "ranch": "牧场", "pond": "鱼塘"}
 const INK := Color("#4f3828")
 const CREAM := Color("#f4e6c8")
@@ -24,6 +25,7 @@ var coin_label: Label
 var status_label: Label
 var mode_button: Button
 var collapse_button: Button
+var display_mode_button: Button
 var page_label: Label
 var theme: Theme
 var current_scene := "farm"
@@ -73,6 +75,7 @@ var _catalog_count_label: Label
 var _budget_footer: Label
 var _seed_status_label: Label
 var _sale_controls: Dictionary = {}
+var _pond_quote_controls: Dictionary = {}
 
 func _ready() -> void:
 	get_tree().auto_accept_quit = false
@@ -110,6 +113,7 @@ func _ready() -> void:
 	view.plots_selected.connect(_on_plots_selected)
 	view.locked_plot_clicked.connect(func(_id: String): _open_panel("build"))
 	view.fish_clicked.connect(_cast_net)
+	view.connect("animal_clicked", Callable(self, "_interact_animal"))
 	add_child(view)
 	_build_status()
 	_build_plant_controls()
@@ -128,7 +132,7 @@ func _ready() -> void:
 		if ClassDB.class_exists("DesktopNative") and host.native == null:
 			get_tree().quit(2)
 			return
-		get_window().size = Vector2i(1280, 240)
+		get_window().size = Vector2i(1280, HOST.display_height_for_mode(str(model.state.settings.get("display_mode", "expanded"))))
 		get_window().position = Vector2i(80, 600)
 		toolbar.size = Vector2i(1280, 32)
 		toolbar.position = get_window().position
@@ -141,7 +145,7 @@ func _ready() -> void:
 	if startup_blocked:
 		_open_panel("save_error")
 	elif not model.state.pending_fish.is_empty():
-		_open_panel("caught")
+		_settle_pending_fish()
 	if not smoke_path.is_empty():
 		_smoke_capture.call_deferred()
 	if not benchmark_options.is_empty():
@@ -251,15 +255,20 @@ func _build_toolbar() -> void:
 	_button(row, "种子商店", func(): _open_panel("crops")).name = "SeedShop"
 	_button(row, "种子库", func(): _open_panel("inventory")).name = "SeedInventory"
 	_button(row, "动物商店", func(): _open_panel("animals")).name = "AnimalShop"
+	_button(row, "鱼塘升级", func(): _open_panel("pond")).name = "PondManagement"
 	_button(row, "经营", func(): _open_panel("hub")).name = "Management"
 	coin_label = _label(row, "")
 	coin_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	coin_label.clip_text = true
 	coin_label.tooltip_text = "补种预算是金币保护额，持续预留；经营操作不得动用。"
-	_button(row, "‹", func(): view.page_previous(); _refresh_labels())
+	_button(row, "‹", func(): view.page_previous(); _refresh_labels()).name = "CameraPrevious"
 	page_label = _label(row, "1/1")
-	_button(row, "›", func(): view.page_next(); _refresh_labels())
+	_button(row, "›", func(): view.page_next(); _refresh_labels()).name = "CameraNext"
+	_button(row, "↑", func(): view.call("camera_up"); _refresh_labels()).name = "CameraUp"
+	_button(row, "↓", func(): view.call("camera_down"); _refresh_labels()).name = "CameraDown"
 	mode_button = _button(row, "可交互", _toggle_interaction)
+	display_mode_button = _button(row, "紧凑", _toggle_display_mode)
+	display_mode_button.name = "DisplayMode"
 	collapse_button = _button(row, "收起", _toggle_collapse)
 	_button(row, "退出", _quit_game)
 	toolbar.show()
@@ -375,19 +384,30 @@ func _sync_layout() -> void:
 	if not is_instance_valid(view): return
 	var scale := host.dpi_scale if is_instance_valid(host) and host.ready_for_desktop else 1.0
 	var logical_width := maxi(640, int(round(get_window().size.x / scale)))
-	get_window().content_scale_size = Vector2i(logical_width, 240)
+	var display_mode := str(model.state.settings.get("display_mode", "expanded"))
+	var logical_height := host.logical_window_height() if host.ready_for_desktop else (32 if bool(model.state.settings.collapsed) else HOST.display_height_for_mode(display_mode))
+	var scene_height := host.visible_scene_height() if host.ready_for_desktop else (0 if bool(model.state.settings.collapsed) else HOST.scene_height_for_mode(display_mode))
+	get_window().content_scale_size = Vector2i(logical_width, logical_height)
 	get_window().content_scale_mode = Window.CONTENT_SCALE_MODE_CANVAS_ITEMS
 	toolbar.content_scale_size = Vector2i(logical_width, 32)
 	toolbar.content_scale_mode = Window.CONTENT_SCALE_MODE_CANVAS_ITEMS
-	view.resize_view(Vector2(logical_width, 172))
+	view.resize_view(Vector2(logical_width, maxi(1, scene_height)))
+	get_node("StatusBackground").position.y = maxi(32, logical_height - 20)
+	status_label.position.y = maxi(32, logical_height - 20)
 	get_node("StatusBackground").size.x = logical_width
 	status_label.size.x = logical_width - 20
+	plant_controls.position.y = maxi(40, logical_height - 58)
 	# Keep every action reachable at narrow desktop widths without forcing a
 	# taller strip. The management hub also contains both shop entry points.
 	for button_name in ["SeedShop", "SeedInventory", "AnimalShop"]:
 		var shop_button := toolbar.find_child(button_name, true, false)
 		if shop_button != null: shop_button.visible = logical_width >= 1000
+	var pond_button := toolbar.find_child("PondManagement", true, false)
+	if pond_button != null: pond_button.visible = current_scene == "pond" and logical_width >= 1000
 	coin_label.visible = logical_width >= 850
+	page_label.visible = logical_width >= 850
+	mode_button.visible = logical_width >= 850
+	(toolbar.get_child(1) as HBoxContainer).add_theme_constant_override("separation", 6 if logical_width >= 850 else 2)
 	if is_instance_valid(catalog_grid): catalog_grid.columns = _catalog_columns()
 	_refresh_labels()
 
@@ -440,7 +460,14 @@ func _save_now() -> bool:
 	var result := saves.save(model.snapshot())
 	save_blocked = not result.ok
 	if not result.ok: _show_message("保存失败：" + str(result.message))
-	return bool(result.ok)
+	if not result.ok: return false
+	# Old saves may contain a captured fish. Persist the restored snapshot
+	# first, then commit settlement through the same rollback boundary.
+	return _settle_pending_fish()
+
+func _settle_pending_fish() -> bool:
+	if model.state.pending_fish.is_empty(): return true
+	return _act("resolve_pending_fish", {}, false)
 
 func _show_message(message: String) -> void:
 	toast = message
@@ -453,6 +480,7 @@ func _refresh_labels() -> void:
 	page_label.text = "%d/%d" % [view.page + 1, view.get_page_count()]
 	mode_button.text = "可交互" if model.state.settings.interactive else "观察中"
 	collapse_button.text = "展开" if model.state.settings.collapsed else "收起"
+	display_mode_button.text = "紧凑" if str(model.state.settings.get("display_mode", "expanded")) == "expanded" else "加高"
 	if toast_remaining > 0:
 		status_label.text = toast
 	else:
@@ -463,15 +491,19 @@ func _refresh_labels() -> void:
 func _set_scene(id: String) -> void:
 	current_scene = id
 	view.set_scene(id)
+	_sync_layout()
 	_refresh_plant_controls()
 	_refresh_labels()
-	if id == "pond" and not model.state.pending_fish.is_empty(): _open_panel("caught")
 
 func _toggle_interaction() -> void:
 	if _act("settings", {"values": {"interactive": not bool(model.state.settings.interactive)}}, false): _apply_settings()
 
 func _toggle_collapse() -> void:
 	if _act("settings", {"values": {"collapsed": not bool(model.state.settings.collapsed)}}, false): _apply_settings()
+
+func _toggle_display_mode() -> void:
+	var next := "compact" if str(model.state.settings.get("display_mode", "expanded")) == "expanded" else "expanded"
+	if _act("settings", {"values": {"display_mode": next}}, false): _apply_settings()
 
 func _apply_settings() -> void:
 	var settings: Dictionary = model.state.settings
@@ -482,11 +514,14 @@ func _apply_settings() -> void:
 	host.set_topmost(false)
 	popup.always_on_top = false
 	host.set_power_saving(bool(settings.power_saving))
+	host.set_display_mode(str(settings.get("display_mode", "expanded")))
 	host.set_collapsed(bool(settings.collapsed))
+	if not host.ready_for_desktop:
+		get_window().size.y = 32 if bool(settings.collapsed) else HOST.display_height_for_mode(str(settings.get("display_mode", "expanded")))
 	view.set_process(host.is_desktop_visible() and not bool(settings.collapsed))
 	if view.has_method("set_desktop_suspended"):
 		view.call("set_desktop_suspended", not host.is_desktop_visible() or bool(settings.collapsed))
-	_refresh_labels()
+	_sync_layout()
 
 func _on_tray_action(action: String) -> void:
 	match action:
@@ -498,14 +533,17 @@ func _on_tray_action(action: String) -> void:
 		"quit": _quit_game()
 
 func _cast_net(id: String) -> void:
-	if _act("cast_net", {"fish_id": id}, false) and not model.state.pending_fish.is_empty(): _open_panel("caught")
+	if _act("cast_net", {"fish_id": id}, false): view.call("show_net_feedback")
+
+func _interact_animal(id: String) -> void:
+	if _act("interact_animal", {"instance_id": id}, false): view.call("show_animal_feedback", id)
 
 func _open_panel(name: String) -> void:
 	panel_name = name
 	_render_panel()
 	var area := host.get_work_area() if is_instance_valid(host) and host.ready_for_desktop else Rect2i(Vector2i.ZERO, DisplayServer.screen_get_usable_rect().size)
 	popup.size = Vector2i(mini(760, maxi(540, area.size.x - 40)), mini(500, maxi(360, area.size.y - 100)))
-	popup.position = area.position + Vector2i((area.size.x - popup.size.x) / 2, maxi(20, area.size.y - 240 - popup.size.y - 16))
+	popup.position = area.position + Vector2i((area.size.x - popup.size.x) / 2, maxi(20, area.size.y - get_window().size.y - popup.size.y - 16))
 	if is_instance_valid(catalog_grid): catalog_grid.columns = _catalog_columns()
 	popup.show()
 	# This HWND must keep rendering when the scenery viewport is suspended.
@@ -531,6 +569,7 @@ func _render_panel() -> void:
 	_animal_quote_controls.clear()
 	_owned_animal_controls.clear()
 	_sale_controls.clear()
+	_pond_quote_controls.clear()
 	for child in popup_body.get_children():
 		popup_body.remove_child(child)
 		child.queue_free()
@@ -550,7 +589,7 @@ func _render_panel() -> void:
 		"catalog": _panel_catalog()
 		"catalog_detail": _panel_catalog_detail()
 		"settings": _panel_settings()
-		"caught": _panel_caught()
+		"pond": _panel_pond()
 		"save_error": _panel_save_error()
 	if panel_name != "save_error":
 		_budget_footer = _wrapped_label(popup_body, _budget_summary())
@@ -579,7 +618,7 @@ func _preview_command(action: String, payload: Dictionary = {}) -> Dictionary:
 	return result
 
 func _shop_state_revision() -> String:
-	return str(hash([model.balance(), model.protection(), model.state.animals, model.state.catalog, model.state.seeds, model.state.seed_reservations, model.state.default_seed_id, model.state.unlocked_crops, save_blocked]))
+	return str(hash([model.balance(), model.protection(), model.state.animals, model.state.pond, model.state.catalog, model.state.seeds, model.state.seed_reservations, model.state.default_seed_id, model.state.unlocked_crops, save_blocked]))
 
 func _budget_summary() -> String:
 	return "金币 %d  |  补种保护 %d  |  可投资 %d" % [model.balance(), model.protection(), model.investable()]
@@ -593,6 +632,8 @@ func _refresh_open_shop() -> void:
 	elif panel_name == "animals":
 		_refresh_animal_quotes()
 		_refresh_owned_animal_cards()
+	elif panel_name == "pond":
+		_refresh_pond_quotes()
 	elif panel_name == "catalog" and hash(model.state.catalog) != _catalog_revision:
 		_render_catalog_grid()
 		if is_instance_valid(_catalog_count_label): _catalog_count_label.text = "已发现 %d / %d" % [model.state.catalog.size(), config.items.size()]
@@ -606,7 +647,7 @@ func _panel_hub() -> void:
 	popup.title = "经营"
 	_title("桌面农场 · 经营手册")
 	_paragraph("安排作物、扩建牧场、招募农夫。生产在后台继续；需要专心工作时可隐藏整个农场。")
-	for entry in [{"id": "inventory", "text": "种子库 / 独立地块种植"}, {"id": "crops", "text": "种子商店 / 默认自动订购"}, {"id": "animals", "text": "动物商店 / 购买与出售"}, {"id": "build", "text": "建设扩展"}, {"id": "farmers", "text": "农夫管理"}, {"id": "catalog", "text": "收藏图鉴"}, {"id": "settings", "text": "设置 / 帮助"}]:
+	for entry in [{"id": "inventory", "text": "种子库 / 独立地块种植"}, {"id": "crops", "text": "种子商店 / 默认自动订购"}, {"id": "animals", "text": "动物商店 / 购买与出售"}, {"id": "pond", "text": "鱼塘升级 / 渔网与容量"}, {"id": "build", "text": "建设扩展"}, {"id": "farmers", "text": "农夫管理"}, {"id": "catalog", "text": "收藏图鉴"}, {"id": "settings", "text": "设置 / 帮助"}]:
 		var target := str(entry.id)
 		_button(popup_body, str(entry.text), func(): _open_panel(target))
 	_button(popup_body, "隐藏整个农场（后台继续生产）", func(): host.set_user_hidden(true))
@@ -1066,7 +1107,7 @@ func _panel_catalog_detail() -> void:
 	for crop in config.crops:
 		if str(crop.get("raw_product_id", "")) == catalog_selection: raw_crop = crop; break
 	if str(item.category) == "fish":
-		_wrapped_label(card, "登记方法：在鱼塘手动捕获后选择「登记图鉴」。选择出售只获得金币。", MUTED)
+		_wrapped_label(card, "登记方法：首次捕获自动消耗这条鱼登记图鉴；再次捕获同种鱼自动出售，已有图鉴不再变动。", MUTED)
 	elif not raw_crop.is_empty():
 		_wrapped_label(card, "登记方法：收获时登记这份原料，不单独出售。自动加工 %s 后登记成品，并按 %d 金币出售一次。" % [_duration(raw_crop.processing_seconds), int(raw_crop.sell_price)], MUTED)
 	else:
@@ -1077,6 +1118,17 @@ func _panel_catalog_detail() -> void:
 
 func _panel_settings() -> void:
 	popup.title = "设置 / 试玩说明"
+	_title("场景高度")
+	var display := OptionButton.new()
+	display.name = "SettingsDisplayMode"
+	display.add_item("展开 · 场景 352 像素")
+	display.add_item("紧凑 · 场景 172 像素")
+	display.select(0 if str(model.state.settings.get("display_mode", "expanded")) == "expanded" else 1)
+	popup_body.add_child(display)
+	display.item_selected.connect(func(index: int):
+		if _act("settings", {"values": {"display_mode": "expanded" if index == 0 else "compact"}}, false): _apply_settings()
+		else: display.select(0 if str(model.state.settings.get("display_mode", "expanded")) == "expanded" else 1))
+	_paragraph("默认展开。场景按原比例显示，‹ › 左右移动视野，↑ ↓ 浏览上下区域；紧凑模式保留同样清晰的作物与动物。", MUTED)
 	_title("农夫行走速度")
 	var speed_row := _row()
 	var speed := SpinBox.new()
@@ -1112,24 +1164,48 @@ func _panel_settings() -> void:
 			_act("settings", {"values": {"window_position": host.export_settings().window_position}}, false))
 	_button(row, "打开存档目录", func(): OS.shell_open(saves.path.get_base_dir()))
 	_paragraph("入门：种子商店购买入库，种子库选择品种后可框选地块安排种植；动物商店购买与出售动物；经营可扩建、管理农夫和查看图鉴。农夫自动播种、浇水和收获，鱼塘需手动捕鱼。窄屏可用 ‹ › 切换页面。")
-	_paragraph("时间：关机、退出和休眠均暂停，不计算离线收益；收起、切场景和锁屏仍继续生产。已捕到但未处理的鱼会保留到下次启动。")
+	_paragraph("时间：关机、退出和休眠均暂停，不计算离线收益；收起、切场景和锁屏仍继续生产。捕鱼首次自动登记图鉴，已登记的鱼自动出售；经营首页可以升级渔网和鱼塘容量。")
 	_paragraph("经济：补种预算持续预留，菜单显示可投资金币；购买不足时不会扣款。成熟作物和动物产物最多等待1份，不会腐烂。")
 	_paragraph("存档路径：" + saves.path)
-	_paragraph("版本 %s · Windows 11 本地试玩 · 原创占位像素素材。正式美术、发布签名和长期性能测试另行安排。" % ProjectSettings.get_setting("application/config/version"))
+	_paragraph("版本 %s · Windows 11 本地试玩 · 原创像素场景与角色。" % ProjectSettings.get_setting("application/config/version"))
 
-func _panel_caught() -> void:
-	popup.title = "捕获结果"
-	if model.state.pending_fish.is_empty():
-		_paragraph("当前没有待处理的鱼。")
-		return
-	var kind: Dictionary = model.fish_types[str(model.state.pending_fish.type_id)]
-	_title("捕获：%s" % kind.name)
-	_paragraph("选择出售获得 %d 金币，或消耗这条鱼登记图鉴。关闭面板可以稍后处理；再次捕鱼前需完成选择。" % int(kind.sell_price))
-	var row := _row()
-	_button(row, "出售 +%d" % int(kind.sell_price), func():
-		if _act("resolve_fish", {"choice": "sell"}, false): popup.hide(); panel_name = "")
-	_button(row, "登记图鉴", func():
-		if _act("resolve_fish", {"choice": "catalog"}, false): popup.hide(); panel_name = "")
+func _panel_pond() -> void:
+	popup.title = "鱼塘升级"
+	_title("渔网与鱼塘")
+	_paragraph("首次捕获自动登记图鉴并消耗鱼，已登记的鱼自动出售。点击或拖过鱼可下网，未命中也会进入冷却。")
+	for entry in [{"key": "net_level", "action": "upgrade_net", "label": "渔网", "name": "PondUpgradeNet"}, {"key": "capacity_level", "action": "upgrade_pond", "label": "鱼塘容量", "name": "PondUpgradeCapacity"}]:
+		var card := _card(popup_body, "fish", "silver_fish")
+		_wrapped_label(card, str(entry.label))
+		var detail := _wrapped_label(card, "")
+		var action := str(entry.action)
+		var button := _button(card, "", func():
+			if _act(action, {}, false):
+				_prepare_preview()
+				_refresh_pond_quotes()
+				if is_instance_valid(_budget_footer): _budget_footer.text = _budget_summary())
+		button.name = str(entry.name)
+		_pond_quote_controls[str(entry.key)] = {"action": action, "label": str(entry.label), "detail": detail, "button": button, "reason": _wrapped_label(card, "", ALERT)}
+	_refresh_pond_quotes()
+	_paragraph("每次升级独立支付下一等级费用，并持续保留补种预算。已开始的渔网冷却和新鱼生成计时不会重置。", MUTED)
+
+func _refresh_pond_quotes() -> void:
+	var upgrades: Dictionary = config.get("upgrades", {})
+	for key in _pond_quote_controls:
+		var controls: Dictionary = _pond_quote_controls[key]
+		var fallback: Array = POND.NET_LEVELS if key == "net_level" else POND.CAPACITY_LEVELS
+		var levels: Array = upgrades.get("net_levels" if key == "net_level" else "pond_capacity_levels", fallback)
+		var level := int(model.state.pond.get(key, 0))
+		var maximum := level >= levels.size() - 1
+		var quote := _preview_command(str(controls.action))
+		var cost := 0 if maximum else int(levels[level + 1].cost)
+		var detail := "等级 %d / %d · 下网冷却 %s" % [level, levels.size() - 1, _duration(POND.cooldown(model.state, config))] if key == "net_level" else "等级 %d / %d · 容纳 %d 条鱼（当前 %d 条）" % [level, levels.size() - 1, POND.capacity(model.state, config), model.state.fish.size()]
+		if not maximum:
+			detail += " → %s" % (_duration(float(levels[level + 1].cooldown)) if key == "net_level" else "%d 条" % int(levels[level + 1].capacity))
+		controls.detail.text = detail
+		controls.button.text = "已达最高等级" if maximum else "升级 %s · %d 金币" % [controls.label, cost]
+		controls.button.disabled = maximum or not quote.ok
+		controls.button.tooltip_text = "扣款后金币 %d，补种保护 %d；%s" % [quote.balance_after, quote.protection_after, quote.message]
+		controls.reason.text = "" if quote.ok else str(quote.message)
 
 func _panel_save_error() -> void:
 	popup.title = "存档读取失败 · 游戏暂停"
@@ -1235,11 +1311,13 @@ func _parse_benchmark_options() -> bool:
 	var arguments := OS.get_cmdline_user_args()
 	if not benchmark_fixture: return true
 	var duration_text := ""
-	var options := {"scene": "farm", "power": false, "collapsed": false, "output": ""}
+	var options := {"scene": "farm", "power": false, "collapsed": false, "compact": false, "record": false, "output": ""}
 	for argument in arguments:
 		if argument.begins_with("--benchmark-scene="): options.scene = argument.trim_prefix("--benchmark-scene=")
 		elif argument == "--benchmark-power": options.power = true
 		elif argument == "--benchmark-collapsed": options.collapsed = true
+		elif argument == "--benchmark-compact": options.compact = true
+		elif argument == "--benchmark-record": options.record = true
 		elif argument.begins_with("--benchmark-seconds="): duration_text = argument.trim_prefix("--benchmark-seconds=")
 		elif argument.begins_with("--benchmark-output="): options.output = argument.trim_prefix("--benchmark-output=")
 	if duration_text.is_empty(): return true
@@ -1250,7 +1328,7 @@ func _parse_benchmark_options() -> bool:
 	if not is_finite(options.seconds) or options.seconds < 1.0 or options.seconds > 3600.0:
 		printerr("Benchmark duration must be between 1 and 3600 seconds.")
 		return false
-	options.phase = "collapsed_30" if options.collapsed else str(options.scene) + ("_15" if options.power else "_30")
+	options.phase = "collapsed_30" if options.collapsed else str(options.scene) + ("_compact_30" if options.compact else ("_15" if options.power else "_30"))
 	benchmark_options = options
 	return true
 
@@ -1285,7 +1363,12 @@ func _run_benchmark() -> void:
 		get_tree().quit(4)
 		return
 	_set_scene(str(benchmark_options.scene))
-	model.command("settings", {"values": {"interactive": false, "power_saving": benchmark_options.power, "collapsed": benchmark_options.collapsed}})
+	if benchmark_options.record:
+		# A recording fixture starts with staggered valid meal timers so a real
+		# minute includes foraging and eating, without accelerating world time.
+		for index in range(model.state.animals.size()):
+			model.state.animals[index].food_remaining = 10.0 + index % 45
+	model.command("settings", {"values": {"interactive": false, "power_saving": benchmark_options.power, "collapsed": benchmark_options.collapsed, "display_mode": "compact" if benchmark_options.compact else "expanded"}})
 	_apply_settings()
 	await get_tree().create_timer(2.0).timeout
 	var visibility_start := _benchmark_visibility()
@@ -1304,6 +1387,9 @@ func _run_benchmark() -> void:
 	var draw_sums := [0.0, 0.0, 0.0, 0.0]
 	var process_peak := 0.0
 	var static_memory_peak := 0.0
+	var recorded_frames: Array = []
+	var record_due := 0.0
+	var recording_samples: Array = []
 	while float(Time.get_ticks_usec() - started) / 1000000.0 < float(benchmark_options.seconds):
 		await get_tree().process_frame
 		frame_count += 1
@@ -1315,6 +1401,13 @@ func _run_benchmark() -> void:
 		draw_sums[1] += get_window().get_render_info(Viewport.RENDER_INFO_TYPE_CANVAS, Viewport.RENDER_INFO_DRAW_CALLS_IN_FRAME)
 		draw_sums[2] += toolbar.get_render_info(Viewport.RENDER_INFO_TYPE_CANVAS, Viewport.RENDER_INFO_DRAW_CALLS_IN_FRAME)
 		draw_sums[3] += popup.get_render_info(Viewport.RENDER_INFO_TYPE_CANVAS, Viewport.RENDER_INFO_DRAW_CALLS_IN_FRAME)
+		var record_time := float(Time.get_ticks_usec() - started) / 1000000.0
+		if benchmark_options.record and record_time >= record_due:
+			await RenderingServer.frame_post_draw
+			var frame_image := get_window().get_texture().get_image()
+			recorded_frames.append(Marshalls.raw_to_base64(frame_image.save_jpg_to_buffer(0.88)))
+			recording_samples.append({"wall": record_time, "elapsed": model.state.elapsed, "animals": model.state.animals.duplicate(true)})
+			record_due = record_time + 1.0 / 6.0
 	var wall := float(Time.get_ticks_usec() - started) / 1000000.0
 	var logic_delta := float(model.state.elapsed) - logic_started
 	var saved := _save_now()
@@ -1323,7 +1416,7 @@ func _run_benchmark() -> void:
 		"benchmark_fixture": benchmark_fixture, "test_instance_namespace": "Local\\DesktopFarm.v07.test.%d" % OS.get_process_id() if host.test_instance else "",
 		"native_diagnostics": host.diagnostics(),
 		"phase": benchmark_options.phase, "scene": current_scene, "collapsed": benchmark_options.collapsed,
-		"power_saving": benchmark_options.power, "fps_cap": Engine.max_fps, "wall_seconds": wall,
+		"power_saving": benchmark_options.power, "display_mode": model.state.settings.display_mode, "fps_cap": Engine.max_fps, "wall_seconds": wall,
 		"logic_seconds": logic_delta, "logic_drift_seconds": logic_delta - wall,
 		"process_frames": frame_count, "process_fps": float(frame_count) / wall,
 		"max_process_frame_seconds": process_peak, "static_memory_peak_bytes": static_memory_peak,
@@ -1344,10 +1437,20 @@ func _run_benchmark() -> void:
 		"dpi_scale": host.dpi_scale, "window_pixels": [get_window().size.x, get_window().size.y],
 		"screen_pixels": [DisplayServer.screen_get_size().x, DisplayServer.screen_get_size().y]}
 	var written := _benchmark_write("benchmark-runtime.json", result)
+	if benchmark_options.record:
+		written = _benchmark_recording(recorded_frames, recording_samples, wall) and written
 	_benchmark_stage(false)
 	print("RELEASE_BENCHMARK_COMPLETE ", JSON.stringify(result))
 	host.shutdown()
 	get_tree().quit(0 if saved and written else 4)
+
+func _benchmark_recording(frames: Array, samples: Array, wall: float) -> bool:
+	if not _benchmark_write("motion-samples.json", {"seconds": wall, "samples": samples}): return false
+	var file := FileAccess.open(str(benchmark_options.output).path_join("ranch-motion-60s.html"), FileAccess.WRITE)
+	if file == null: return false
+	file.store_string("<!doctype html><meta charset='utf-8'><title>桌面农场0.8.1实际运行录像</title><style>body{background:#263c29;color:#f6ecd4;font:16px sans-serif;margin:20px}img{width:100%;image-rendering:pixelated}button{padding:8px 18px}input{width:75%}</style><h2>牧场实际运行录像 · " + str(snappedf(wall, 0.1)) + "秒</h2><p>来自正式EXE的真实渲染。下方进度可拖动，包含实际模型坐标记录；录制独立于性能测量。</p><img id='v'><p><button id='b'>暂停</button> <input id='s' type='range' min='0' max='" + str(frames.size() - 1) + "' value='0'> <span id='t'></span></p><script>const frames=" + JSON.stringify(frames) + ";const times=" + JSON.stringify(samples.map(func(sample): return sample.wall)) + ";let i=0,playing=true;const v=document.querySelector('#v'),s=document.querySelector('#s'),t=document.querySelector('#t');function show(){v.src='data:image/jpeg;base64,'+frames[i];s.value=i;t.textContent=times[i].toFixed(1)+'秒'}s.oninput=()=>{i=+s.value;show()};document.querySelector('#b').onclick=()=>{playing=!playing;b.textContent=playing?'暂停':'播放'};function next(){if(playing){i=(i+1)%frames.length;show()}let delay=i+1<times.length?(times[i+1]-times[i])*1000:170;setTimeout(next,Math.max(30,delay))}show();next()</script>")
+	file.close()
+	return true
 
 func _make_benchmark_fixture() -> void:
 	model.state.coins = 1000000
@@ -1363,10 +1466,10 @@ func _make_benchmark_fixture() -> void:
 		grass.clumps = 4
 	for id in model.shelter_types: model.state.shelters[id] = 3
 	model.state.animals = []
-	for kind in config.animals:
-		if int(kind.min_level) != 1: continue
-		for unused in range(12):
-			model._add_animal(str(kind.id))
+	for shelter_id in model.shelter_types:
+		var kinds: Array = config.animals.filter(func(kind): return str(kind.shelter_id) == str(shelter_id))
+		for index in range(12):
+			model._add_animal(str(kinds[index % kinds.size()].id))
 			var animal: Dictionary = model.state.animals[-1]
 			animal.adult = true
 			animal.adult_remaining = 0.0
@@ -1376,6 +1479,10 @@ func _make_benchmark_fixture() -> void:
 	model.state.paid_hires = 6
 	for id in SCENE_NAMES:
 		for unused in range(3): model._add_farmer(str(id))
+	model.state.pond = {"net_level": 3, "capacity_level": 3}
+	model.state.fish.clear()
+	for unused in range(36): model._spawn_fish()
+	model.state.settings.display_mode = "expanded"
 
 func _notification(what: int) -> void:
 	if what == NOTIFICATION_WM_CLOSE_REQUEST: _quit_game()
@@ -1411,14 +1518,46 @@ func _smoke_capture() -> void:
 	frame.blit_rect(toolbar_frame, Rect2i(Vector2i.ZERO, toolbar_frame.get_size()), Vector2i.ZERO)
 	frame.save_png(smoke_path)
 	print("UI_SMOKE_CAPTURE ", smoke_path)
+	if not _smoke_require(str(model.state.settings.display_mode) == "expanded" and view.view_height == host.visible_scene_height(), "UI_EXPANDED_HEIGHT_FAILED"): return
+	(toolbar.find_child("DisplayMode", true, false) as Button).pressed.emit()
+	for unused in range(3): await get_tree().process_frame
+	if not _smoke_require(str(model.state.settings.display_mode) == "compact" and view.view_height == host.visible_scene_height() and host.logical_window_height() <= 240, "UI_COMPACT_HEIGHT_FAILED"): return
+	await RenderingServer.frame_post_draw
+	_smoke_save_scene(smoke_path.get_basename() + "-compact.png")
+	(toolbar.find_child("DisplayMode", true, false) as Button).pressed.emit()
+	for unused in range(3): await get_tree().process_frame
+	print("UI_DISPLAY_MODES_OK")
 	for scene_id in ["ranch", "pond"]:
 		_set_scene(scene_id)
 		for unused in range(3): await get_tree().process_frame
 		await RenderingServer.frame_post_draw
-		get_viewport().get_texture().get_image().save_png(smoke_path.get_basename() + "-" + scene_id + ".png")
-	_cast_net(str(model.state.fish[0].id))
-	for name in ["hub", "crops", "inventory", "build", "animals", "farmers", "catalog", "settings", "caught"]:
-		var direct_buttons := {"hub": "Management", "crops": "SeedShop", "inventory": "SeedInventory", "animals": "AnimalShop"}
+		_smoke_save_scene(smoke_path.get_basename() + "-" + scene_id + ".png")
+	# Hit the live fish sprite through the renderer's real mouse route.
+	if not _smoke_require(not view._fish_hits.is_empty(), "UI_FISH_HIT_GEOMETRY_EMPTY"): return
+	var fish_hit: Dictionary = view._fish_hits[0]
+	var fish_count_before: int = model.state.fish.size()
+	_smoke_click((fish_hit.rect as Rect2).get_center())
+	if not _smoke_require(not popup.visible and panel_name.is_empty() and model.state.pending_fish.is_empty() and model.state.fish.size() == fish_count_before - 1, "UI_CATCH_AUTOMATIC_SETTLEMENT_FAILED"): return
+	print("UI_FISH_NO_POPUP_OK")
+	_set_scene("ranch")
+	for unused in range(3): await get_tree().process_frame
+	var animal_hits: Array = view.get("_animal_hits")
+	if not _smoke_require(not animal_hits.is_empty(), "UI_ANIMAL_HIT_GEOMETRY_EMPTY"): return
+	var animal_hit: Dictionary = animal_hits[-1]
+	_smoke_click((animal_hit.rect as Rect2).get_center())
+	var interacted: Dictionary = model._find(model.state.animals, str(animal_hit.id))
+	if not _smoke_require(float(interacted.get("feedback_remaining", 0)) > 0 and not popup.visible, "UI_ANIMAL_INTERACTION_FAILED"): return
+	for unused in range(3): await get_tree().process_frame
+	await RenderingServer.frame_post_draw
+	_smoke_save_scene(smoke_path.get_basename() + "-animal-interaction.png")
+	print("UI_ANIMAL_INTERACTION_OK")
+	_set_scene("pond")
+	# Exercise both first-level upgrades after the full-capacity capture.
+	model.state.fish = model.state.fish.slice(0, 12)
+	model.state.pond = {"net_level": 0, "capacity_level": 0}
+	view.set_model(model.state, true)
+	for name in ["hub", "crops", "inventory", "build", "animals", "farmers", "catalog", "settings", "pond"]:
+		var direct_buttons := {"hub": "Management", "crops": "SeedShop", "inventory": "SeedInventory", "animals": "AnimalShop", "pond": "PondManagement"}
 		if direct_buttons.has(name):
 			var entry_button := toolbar.find_child(str(direct_buttons[name]), true, false) as Button
 			entry_button.pressed.emit()
@@ -1438,6 +1577,12 @@ func _smoke_capture() -> void:
 			get_tree().quit(9)
 			return
 		popup.get_texture().get_image().save_png(smoke_path.get_basename() + "-menu-" + name + ".png")
+		if name == "pond":
+			var cash_before := model.balance()
+			(popup_body.find_child("PondUpgradeNet", true, false) as Button).pressed.emit()
+			(popup_body.find_child("PondUpgradeCapacity", true, false) as Button).pressed.emit()
+			if not _smoke_require(int(model.state.pond.net_level) == 1 and int(model.state.pond.capacity_level) == 1 and model.balance() == cash_before - 500, "UI_POND_UPGRADE_FAILED"): return
+			print("UI_POND_UPGRADES_OK")
 		if name in ["crops", "inventory", "animals", "catalog"]:
 			popup.size = Vector2i(540, 500)
 			if is_instance_valid(catalog_grid): catalog_grid.columns = _catalog_columns()
@@ -1469,13 +1614,7 @@ func _smoke_capture() -> void:
 	_choose_planting_seed("carrot")
 	for unused in range(3): await get_tree().process_frame
 	var hit: Dictionary = view._plot_hits[0]
-	var click := InputEventMouseButton.new()
-	click.button_index = MOUSE_BUTTON_LEFT
-	click.position = (hit.rect as Rect2).get_center() + view.position
-	click.pressed = true
-	view._input(click)
-	click.pressed = false
-	view._input(click)
+	_smoke_click((hit.rect as Rect2).get_center())
 	if selected_plot_ids != [str(hit.id)] or not plant_controls.visible or plant_selection_button.disabled:
 		push_error("UI_SEED_SELECTION_FAILED")
 		host.shutdown()
@@ -1483,7 +1622,7 @@ func _smoke_capture() -> void:
 		return
 	for unused in range(3): await get_tree().process_frame
 	await RenderingServer.frame_post_draw
-	get_viewport().get_texture().get_image().save_png(smoke_path.get_basename() + "-planting.png")
+	_smoke_save_scene(smoke_path.get_basename() + "-planting.png")
 	plant_selection_button.pressed.emit()
 	if not planting_seed_id.is_empty() or plant_controls.visible or str(model.state.plots[0].pending_crop_id) != "carrot":
 		push_error("UI_SEED_APPLY_FAILED")
@@ -1530,3 +1669,25 @@ func _smoke_capture() -> void:
 	_toggle_collapse()
 	host.shutdown()
 	get_tree().quit()
+
+func _smoke_click(local_position: Vector2) -> void:
+	var event := InputEventMouseButton.new()
+	event.button_index = MOUSE_BUTTON_LEFT
+	event.position = local_position + view.position
+	event.pressed = true
+	view._input(event)
+	event.pressed = false
+	view._input(event)
+
+func _smoke_save_scene(path: String) -> void:
+	var frame := get_viewport().get_texture().get_image()
+	var toolbar_frame := toolbar.get_texture().get_image()
+	frame.blit_rect(toolbar_frame, Rect2i(Vector2i.ZERO, toolbar_frame.get_size()), Vector2i.ZERO)
+	frame.save_png(path)
+
+func _smoke_require(value: bool, code: String) -> bool:
+	if value: return true
+	push_error(code)
+	host.shutdown()
+	get_tree().quit(15)
+	return false

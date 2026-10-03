@@ -31,15 +31,15 @@ func _run() -> void:
 		_finish()
 		return
 	var initial_model: FarmState = MODEL.new(values)
-	check(initial_model.restore(loaded.data).ok, "Migrated startup passes strict v2 validation")
-	check(loaded.data.version == 2 and not loaded.data.has("regions"), "Migration removes region state")
+	check(initial_model.restore(loaded.data).ok, "Migrated startup passes strict v3 validation")
+	check(loaded.data.version == 3 and not loaded.data.has("regions"), "Migration removes region state and initializes real world")
 	check(initial_model.balance() == 1000 and initial_model.protection() == 480, "Initial coins and seed protection preserved")
 	check(loaded.data.plots.filter(func(p): return p.open).size() == 24, "Original open count preserved")
 	check(FileAccess.get_sha256(initial_path + ".bak") == FileAccess.get_sha256(loaded.migration_backup), "Original v1 and versioned backup retain exact bytes")
 	var original_backup: String = loaded.migration_backup
 	var original_hash := FileAccess.get_sha256(original_backup)
 	var repeated: Dictionary = initial_store.load_save()
-	check(repeated.ok and not repeated.get("migrated", false), "Second startup does not migrate v2 again")
+	check(repeated.ok and not repeated.get("migrated", false), "Second startup does not migrate v3 again")
 	check(FileAccess.get_sha256(original_backup) == original_hash, "Repeated startup never overwrites the versioned backup")
 	initial_model.state.coins += 7
 	check(initial_store.save(initial_model.snapshot()).ok, "Ordinary save after migration succeeds")
@@ -56,7 +56,7 @@ func _run() -> void:
 	var resumed: FarmState = MODEL.new(values)
 	check(resumed.restore(active.data).ok, "Active migrated state is usable")
 	check(resumed.balance() == int(old.coins) and float(resumed.state.elapsed) == float(old.elapsed), "Migration preserves cash and effective clock")
-	check(JSON.stringify(resumed.state.rng) == JSON.stringify(old.rng), "Migration preserves all independent random streams")
+	check(resumed.state.rng.crop == old.rng.crop and resumed.state.rng.grass == old.rng.grass and resumed.state.rng.fish == old.rng.fish, "Migration preserves all independent production random streams")
 	check(JSON.stringify(resumed.state.catalog) == JSON.stringify(old.catalog), "Migration preserves catalog")
 	check(resumed.state.farmers[0].task == old.farmers[0].task, "Already paid seed task preserves source, crop and target")
 	check(float(resumed.state.farmers[0].remaining) == float(old.farmers[0].remaining), "Legacy task retains remaining work")
@@ -112,7 +112,78 @@ func _run() -> void:
 	check(not failed_migration.ok and failed_migration.get("migration_write_failed", false), "Valid main migration write failure blocks startup instead of rolling back to older backup")
 	check(FileAccess.get_sha256(failed_path) == before_failure, "Failed migrated write leaves original file intact")
 	check(FileAccess.get_sha256(failed_path + ".bak") == older_backup_hash, "Blocked migration leaves older backup intact")
+	_test_v2()
 	_finish()
+
+func _test_v2() -> void:
+	var model := MODEL.new(values)
+	model.tick(1)
+	var v2 := model.snapshot()
+	v2.version = 2
+	for key in ["pond", "ranch"]: v2.erase(key)
+	v2.rng.erase("animal")
+	v2.settings.erase("display_mode")
+	for grass in v2.grass:
+		for key in ["x", "y", "appearance"]: grass.erase(key)
+	for animal in v2.animals:
+		for key in ["shelter_id", "x", "y", "previous_x", "previous_y", "facing", "behavior", "path", "target", "decision_remaining", "food_decision_remaining", "meal", "eating_remaining", "held_by", "hold_remaining", "feedback_remaining", "last_reward_elapsed", "juvenile_bonus_used", "adult_bonus_used", "production_cycle"]: animal.erase(key)
+	v2.animals[0].food_remaining = 123.0
+	v2.animals[0].hungry = false
+	v2.animals[0].adult = true
+	v2.animals[0].adult_remaining = 0.0
+	v2.animals[0].ready = 1
+	v2.animals[0].product_remaining = 0.0
+	var layout = preload("res://scripts/world_layout.gd")
+	for farmer in v2.farmers:
+		for key in ["path", "facing", "task_elapsed", "track_remaining"]: farmer.erase(key)
+		var origin: Vector2 = layout.legacy_farmer_idle_position(str(farmer.scene), 0)
+		var destination := origin
+		if str(farmer.mode) == "working":
+			destination = layout.legacy_target_position(str(farmer.scene), str(farmer.task.target), v2)
+			farmer.phase = "walking"
+			origin = origin.lerp(destination, 0.5)
+			farmer.remaining = origin.distance_to(destination) / float(v2.settings.farmer_speed)
+		farmer.x = origin.x
+		farmer.y = origin.y
+		farmer.path_target_x = destination.x
+		farmer.path_target_y = destination.y
+	v2.pending_fish = v2.fish.pop_front()
+	v2.net_remaining = 7.5
+	v2.fish_remaining = 141.0
+	var path := directory.path_join("real-v2.json")
+	_write(path, v2)
+	var original_hash := FileAccess.get_sha256(path)
+	var store := STORE.new(path, values)
+	var loaded := store.load_save()
+	check(loaded.ok and loaded.get("migrated", false), "Strict real v2 state migrates to v3")
+	if not loaded.ok:
+		printerr(loaded.message)
+		return
+	check(loaded.data.version == 3 and loaded.data.pond.net_level == 0 and loaded.data.pond.capacity_level == 0, "New upgrade fields begin at zero without fish gifts")
+	check(loaded.data.animals[0].food_remaining == 123 and loaded.data.animals[0].ready == 1 and loaded.data.animals[0].product_remaining == 0, "Animal meal interval and pending product survive migration")
+	var same_seeds: bool = loaded.data.seeds.size() == v2.seeds.size()
+	for id in v2.seeds: same_seeds = same_seeds and int(loaded.data.seeds.get(id, -1)) == int(v2.seeds[id])
+	var paid: Dictionary = loaded.data.farmers[0].task
+	var previous: Dictionary = v2.farmers[0].task
+	check(same_seeds and int(loaded.data.coins) == int(v2.coins) and paid.action == previous.action and paid.target == previous.target and paid.crop_id == previous.crop_id and paid.seed_source == previous.seed_source, "Walking prepaid task keeps inventory, cash, target and seed source")
+	check(not loaded.data.farmers[0].path.is_empty() and loaded.data.farmers[0].phase == "walking", "Old route is rebuilt in the new world instead of instantly completing")
+	check(loaded.data.pending_fish == v2.pending_fish and loaded.data.net_remaining == 7.5 and loaded.data.fish_remaining == 141 and loaded.data.catalog == v2.catalog, "Migration retains legacy pending fish without side-effect settlement")
+	check(FileAccess.get_sha256(loaded.migration_backup) == original_hash and str(loaded.migration_backup).contains("version-v2-"), "Immutable v2 backup contains exact pre-upgrade bytes")
+	var copy := MODEL.new(values)
+	check(copy.restore(loaded.data).ok and copy.state.pending_fish == v2.pending_fish and copy.balance() == int(v2.coins), "Restore does not secretly settle a pending fish")
+	var before := copy.snapshot()
+	check(copy.command("resolve_pending_fish").ok and copy.state.pending_fish.is_empty(), "Controller can explicitly settle the preserved legacy fish")
+	check(copy.restore(before).ok and copy.state.pending_fish == v2.pending_fish, "Failed-save rollback restores the legacy fish, catalog and money")
+	copy.command("resolve_pending_fish")
+	check(store.save(copy.snapshot()).ok and store.load_save().data.pending_fish.is_empty(), "Successful compatibility settlement is durable")
+	check(not copy.command("resolve_pending_fish").ok and FileAccess.get_sha256(loaded.migration_backup) == original_hash, "Legacy fish never pays twice and ordinary saves preserve version backup")
+	for field in ["y", "seed", "timer"]:
+		var invalid := v2.duplicate(true)
+		match field:
+			"y": invalid.farmers[0].y = 300.0
+			"seed": invalid.seeds.parsnip = 0.5
+			"timer": invalid.animals[0].food_remaining = -1
+		check(not MODEL.new(values).migrate_v2(invalid).ok, "Strict v2 migration rejects corrupt legacy " + field)
 
 func _write(path: String, data: Dictionary) -> void:
 	var file := FileAccess.open(path, FileAccess.WRITE)

@@ -53,7 +53,7 @@ func load_save() -> Dictionary:
 	var raw := _read(path)
 	# An unknown future schema is not a corrupt current save. Do not replace it
 	# with an older backup merely because this executable cannot understand it.
-	if raw.ok and int(raw.data.get("version", -1)) not in [1, FarmState.SAVE_VERSION]:
+	if raw.ok and int(raw.data.get("version", -1)) not in [1, 2, FarmState.SAVE_VERSION]:
 		return _failure("不支持的存档版本：%s，请使用对应版本打开" % raw.data.version)
 	var result := _prepare_load(raw, path, false)
 	if result.ok:
@@ -99,21 +99,21 @@ func _prepare_load(result: Dictionary, source: String, from_backup: bool) -> Dic
 			var checked := checker._validate(result.data)
 			if not checked.ok: return checked
 		return result
-	if version != 1 or config.is_empty():
+	if version not in [1, 2] or config.is_empty():
 		return {"ok": false, "message": "不支持的存档版本：%s" % version}
 	var model := FarmState.new(config)
-	var migration: Dictionary = model.migrate_v1(result.data)
+	var migration: Dictionary = model.migrate_v1(result.data) if version == 1 else model.migrate_v2(result.data)
 	if not migration.ok:
 		return migration
 	var checked := model.restore(migration.data)
 	if not checked.ok:
 		return checked
-	# Preserve the exact legacy file before writing v2. Every migration backup
+	# Preserve the exact legacy file before writing v3. Every migration backup
 	# has a unique name; no subsequent save or recovery can overwrite it.
 	var stamp := str(int(Time.get_unix_time_from_system())) + "-" + str(Time.get_ticks_usec())
-	var legacy_backup := path + ".version-v1-" + stamp + ".json"
+	var legacy_backup := path + ".version-v%d-" % version + stamp + ".json"
 	while FileAccess.file_exists(legacy_backup):
-		legacy_backup = path + ".version-v1-" + stamp + "-" + str(randi()) + ".json"
+		legacy_backup = path + ".version-v%d-" % version + stamp + "-" + str(randi()) + ".json"
 	var copied := DirAccess.copy_absolute(source, legacy_backup)
 	if copied != OK:
 		return _migration_failure("无法保留旧版存档备份：" + error_string(copied))

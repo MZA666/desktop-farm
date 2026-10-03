@@ -57,10 +57,10 @@ func plot0(game: FarmState) -> Dictionary:
 	return game.state.plots[0]
 
 func until(game: FarmState, predicate: Callable, limit := 300) -> void:
-	var elapsed := 0
+	var elapsed := 0.0
 	while not predicate.call() and elapsed < limit:
-		game.tick(1)
-		elapsed += 1
+		game.tick(0.2)
+		elapsed += 0.2
 	check(bool(predicate.call()), "Real travel/action reaches requested boundary within %ds" % limit)
 
 func _test_initial_and_cycles() -> void:
@@ -211,7 +211,13 @@ func _test_ranch() -> void:
 	game.tick(30)
 	check(chick.adult_remaining == 900 and chick.hungry, "Hungry juvenile progress freezes")
 	game.state.trough_hay = 1
-	game.tick(1)
+	var trough: Vector2 = preload("res://scripts/world_layout.gd").target_position("ranch", "trough", game.state)
+	chick.x = trough.x
+	chick.y = trough.y
+	chick.path = []
+	chick.decision_remaining = 0.0
+	game._meal(chick)
+	game.tick(3)
 	check(chick.adult_remaining == 899 and game.state.trough_hay == 0, "A full meal resumes remaining juvenile progress")
 	for grass in game.state.grass:
 		if grass.open and not grass.mother:
@@ -337,16 +343,21 @@ func _test_fish_and_rng() -> void:
 	check(game.balance() == before_cash and game.state.fish.size() == 12, "Unattended pond earns zero, stays at capacity")
 	check(game.state.fish_remaining == 180, "Full pond freezes spawn remainder")
 	var fish_id := str(game.state.fish[0].id)
+	var caught_type := str(game.state.fish[0].type_id)
 	check(game.command("cast_net", {"fish_id": fish_id}).ok, "Manual cast catches at most one fish")
-	check(game.state.fish.size() == 11 and not game.state.pending_fish.is_empty(), "Caught fish held pending separately")
-	check(not game.command("cast_net", {"fish_id": game.state.fish[0].id}).ok, "Pending fish blocks new casts")
+	check(game.state.fish.size() == 11 and game.state.pending_fish.is_empty(), "Caught fish settles atomically without a pending dialog")
+	check(not game.command("cast_net", {"fish_id": game.state.fish[0].id}).ok, "Cooldown blocks repeated casts")
 	var restored := fresh()
-	check(restored.restore(game.snapshot()).ok and restored.state.pending_fish.id == fish_id, "Pending fish preserved through save/reload")
-	var price := int(game.fish_types[str(game.state.pending_fish.type_id)].sell_price)
-	check(restored.command("resolve_fish", {"choice": "sell"}).ok and restored.balance() == before_cash + price, "Pending fish sale pays actual price")
-	check(not restored.command("resolve_fish", {"choice": "sell"}).ok, "Pending fish cannot sell twice")
-	game.command("resolve_fish", {"choice": "catalog"})
-	check(game.balance() == before_cash and game.state.catalog.size() == 1, "Catalog choice consumes fish without money")
+	check(restored.restore(game.snapshot()).ok and restored.state.catalog.size() == 1 and restored.state.pending_fish.is_empty(), "Automatic first discovery persists through reload")
+	var price := int(game.fish_types[caught_type].sell_price)
+	var catalog_before := JSON.stringify(restored.state.catalog)
+	var legacy := {"id": restored._uid("fish"), "type_id": caught_type, "x": 0.5, "y": 0.5}
+	restored.state.pending_fish = legacy
+	var rollback := restored.snapshot()
+	check(restored.command("resolve_pending_fish").ok and restored.balance() == before_cash + price and JSON.stringify(restored.state.catalog) == catalog_before, "Known legacy fish sells once without changing discovery metadata")
+	check(not restored.command("resolve_pending_fish").ok, "Pending fish cannot settle twice")
+	check(restored.restore(rollback).ok and restored.balance() == before_cash and restored.state.pending_fish.id == legacy.id, "Save failure rollback preserves pending fish without implicit re-settlement")
+	check(game.balance() == before_cash and game.state.catalog.size() == 1, "First discovery consumes fish without money")
 	game.tick(20)
 	check(game.command("cast_net", {}).ok and game.state.net_remaining == 20, "Miss also consumes cooldown")
 	game.tick(159)
@@ -356,11 +367,25 @@ func _test_fish_and_rng() -> void:
 	game.tick(1)
 	copy.tick(1)
 	check(game.state.fish.size() == 12 and JSON.stringify(game.snapshot()) == JSON.stringify(copy.snapshot()), "Natural fish spawn deterministic after reload")
+	var upgrades := fresh()
+	upgrades.state.coins = upgrades.protection() + 199
+	var unchanged := JSON.stringify(upgrades.snapshot())
+	check(not upgrades.command("upgrade_net").ok and JSON.stringify(upgrades.snapshot()) == unchanged, "Pond spending cannot consume live seed budget")
+	upgrades.state.coins = 10000
+	upgrades.state.net_remaining = 17.0
+	upgrades.state.fish_remaining = 77.0
+	for unused in range(3):
+		check(upgrades.command("upgrade_net").ok and upgrades.command("upgrade_pond").ok, "Every incremental pond upgrade is available")
+	check(upgrades.balance() == 5900 and upgrades.net_cooldown() == 5 and upgrades.pond_capacity() == 36, "Net and capacity upgrades cost exactly 4100 and reach 5 seconds/36")
+	check(upgrades.state.net_remaining == 17 and upgrades.state.fish_remaining == 77 and upgrades.state.fish.size() == 12, "Upgrades neither reset timers nor grant fish")
+	check(fresh().restore(upgrades.snapshot()).ok, "Current old cooldown remains valid after a faster net upgrade")
+	upgrades.tick(77)
+	check(upgrades.state.fish.size() == 13, "Capacity upgrade resumes normal spawning without faster reproduction")
 
 func _test_persistence() -> void:
 	var game := fresh()
 	game.tick(2)
-	var path := "user://test-simulation-save.json"
+	var path := ProjectSettings.globalize_path("res://.review/test-simulation-save-" + str(Time.get_ticks_usec()) + ".json")
 	var store := Persistence.new(path)
 	check(store.save(game.snapshot()).ok, "First atomic file save")
 	game.command("sell_animal", {"instance_id": game.state.animals[0].id})
@@ -427,7 +452,9 @@ func _test_full_scale() -> void:
 		for unused in range(3):
 			game._add_farmer(scene)
 	game.state.paid_hires = 6
-	check(game.state.plots.size() == 96 and game.state.grass.size() == 96 and game.state.animals.size() == 84 and game.state.farmers.size() == 9 and game.state.fish.size() == 12, "Full-scale fixture matches all documented caps")
+	game.state.pond.capacity_level = 3
+	while game.state.fish.size() < 36: game._spawn_fish()
+	check(game.state.plots.size() == 96 and game.state.grass.size() == 96 and game.state.animals.size() == 84 and game.state.farmers.size() == 9 and game.state.fish.size() == 36, "Full-scale fixture matches v3 96/96/84/9/36 caps")
 	var total_started := Time.get_ticks_usec()
 	game.tick(900)
 	var midpoint := game.snapshot()
@@ -446,7 +473,7 @@ func _test_full_scale() -> void:
 	check(game.state.warehouse_hay <= 256 and game.state.trough_hay <= 256 and game.state.warehouse_hay >= 0 and game.state.trough_hay >= 0, "Full-scale both hay capacities and nonnegative stock respected")
 	for scene in ["farm", "ranch", "pond"]:
 		check(game._occupancy(scene) <= 3 and game._home_count(scene) == 3, "Full-scale worker capacity respected in %s" % scene)
-	check(game.state.fish.size() == 12 and game.state.fish_remaining == 180, "Full-scale unattended pond preserves capacity and spawn remainder")
+	check(game.state.fish.size() == 36 and game.state.fish_remaining == 180, "Full-scale unattended pond preserves upgraded capacity and spawn remainder")
 	var obtained := 0
 	for item in game.state.catalog.values():
 		obtained += int(item.count)
@@ -457,5 +484,5 @@ func _test_full_scale() -> void:
 		"hungry_animals": game.state.animals.filter(func(a): return a.hungry).size(),
 		"ready_animals": game.state.animals.filter(func(a): return int(a.ready) == 1).size(),
 		"occupancy": {"farm": game._occupancy("farm"), "ranch": game._occupancy("ranch"), "pond": game._occupancy("pond")},
-		"random_state": game.state.rng.duplicate(true), "restore_identical": true,
+		"random_state": game.state.rng.duplicate(true), "restore_identical": true, "fish_count": game.state.fish.size(), "fish_capacity": game.pond_capacity(),
 		"900_seconds_resumed_wall_ms": resumed_ms, "1800_plus_900_replay_wall_ms": total_ms}

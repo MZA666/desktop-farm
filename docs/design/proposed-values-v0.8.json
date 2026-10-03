@@ -2,6 +2,7 @@
   "status": "development_proposal_not_runtime_config",
   "version": "0.8",
   "date": "2026-10-01",
+  "fish_settlement_revision_date": "2026-10-03",
   "source_baseline": "v0.7.0",
   "pending_decisions": [],
   "seed_auto_order": {
@@ -36,6 +37,14 @@
   "fish": {
     "spawn_seconds": 180,
     "catch_count_per_cast": 1,
+    "catch_settlement": {
+      "status": "user_confirmed_not_implemented",
+      "unregistered_product": "consume_and_register_without_sale",
+      "registered_product": "sell_without_repeat_registration",
+      "confirmation_popup": false,
+      "feedback": "non_modal_status_message",
+      "legacy_pending_fish": "explicit_atomic_settlement_preserving_existing_timers"
+    },
     "net_levels": [
       {
         "level": 0,

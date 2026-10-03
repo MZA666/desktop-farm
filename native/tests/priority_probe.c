@@ -115,11 +115,22 @@ int wmain(int argc, wchar_t **argv) {
         for (int i = 0; i < game_count; i++) SetWindowPos(games[i], HWND_TOP, 0, 0, 0, 0,
             SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
     }
+    /* Expose the controlled application's click point. SW_SHOWNA may place
+     * a new background process behind an unrelated foreground app. This
+     * changes visibility only; activation still must come from real input. */
+    SetWindowPos(target, HWND_TOP, 0, 0, 0, 0,
+        SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_SHOWWINDOW);
     POINT cursor; GetCursorPos(&cursor); RECT target_rect; GetWindowRect(target, &target_rect);
-    pump(100); ok &= click_at(target_rect.left + 30, target_rect.top + 30); pump(200);
+    pump(100); int injected = click_at(target_rect.left + 30, target_rect.top + 30); ok &= injected; pump(200);
     int focused = GetForegroundWindow() == target && state->clicks > 0;
+    POINT actual_cursor = {0}; GetCursorPos(&actual_cursor);
+    DWORD hit_pid = 0, foreground_pid = 0, target_pid = 0;
+    GetWindowThreadProcessId(WindowFromPoint(actual_cursor), &hit_pid);
+    GetWindowThreadProcessId(GetForegroundWindow(), &foreground_pid);
+    GetWindowThreadProcessId(target, &target_pid);
+    int initial_above[3] = {0}, final_above[3] = {0};
     ok &= focused;
-    for (int i = 0; i < game_count; i++) ok &= is_above(target, games[i]);
+    for (int i = 0; i < game_count; i++) { initial_above[i] = is_above(target, games[i]); ok &= initial_above[i]; }
     if (!external) {
         for (int cycle = 0; cycle < 3; cycle++) {
             ok &= apply(games[0], cycle % 2) && normal(games[1]);
@@ -133,12 +144,19 @@ int wmain(int argc, wchar_t **argv) {
     int foreground_retained = GetForegroundWindow() == target;
     ok &= foreground_retained;
     for (int i = 0; i < game_count; i++) {
-        ok &= is_above(target, games[i]);
+        final_above[i] = is_above(target, games[i]); ok &= final_above[i];
         ok &= !(GetWindowLongPtrW(games[i], GWL_EXSTYLE) & WS_EX_TOPMOST);
     }
     printf("PRIORITY_%s windows=%d real_click=%d foreground_retained=%d\n", ok ? "PASS" : "FAIL",
         game_count, focused, foreground_retained);
     if (external) {
+        wchar_t diagnostic_path[1024];
+        swprintf(diagnostic_path, 1024, L"%ls.diagnostics", argv[2]);
+        FILE *diagnostic = _wfopen(diagnostic_path, L"w");
+        if (diagnostic) {
+            fprintf(diagnostic, "input_injected=%d target_clicks=%ld focused=%d retained=%d initial_above=%d,%d,%d final_above=%d,%d,%d cursor=%ld,%ld target=%ld,%ld,%ld,%ld hit_pid=%lu foreground_pid=%lu target_pid=%lu\n", injected, state->clicks, focused, foreground_retained, initial_above[0], initial_above[1], initial_above[2], final_above[0], final_above[1], final_above[2], actual_cursor.x, actual_cursor.y, target_rect.left, target_rect.top, target_rect.right, target_rect.bottom, hit_pid, foreground_pid, target_pid);
+            fclose(diagnostic);
+        }
         FILE *report = _wfopen(argv[2], L"w");
         if (!report) ok = 0;
         else { fprintf(report, "%d", ok); fclose(report); }

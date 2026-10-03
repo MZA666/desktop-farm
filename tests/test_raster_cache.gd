@@ -1,7 +1,7 @@
 extends SceneTree
 
 const MODEL = preload("res://scripts/game_state.gd")
-const VIEW = preload("res://scripts/farm_view.gd")
+const VIEW = preload("res://scripts/illustrated_view.gd")
 var failures: Array[String] = []
 var assertions := 0
 
@@ -116,6 +116,8 @@ func _run() -> void:
 	await _settle()
 	check(not view._animal_draws.is_empty() and _cache_image(view).get_size() == Vector2i(640, 172), "Ranch cache rebuild retains animal placements")
 	view.set_scene("pond")
+	root.size = Vector2i(1536, 352)
+	view.resize_view(Vector2(1536, 352))
 	await _settle()
 	check(view._fish_hits.size() == 12 and view._pond_bounds.has_point((view._fish_hits[0].rect as Rect2).get_center()), "Animated fish preserve live input bounds above the cached pond")
 	var before_cosmetic := JSON.stringify(model.snapshot())

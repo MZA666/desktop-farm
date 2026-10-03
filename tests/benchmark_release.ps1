@@ -2,8 +2,8 @@
     [string]$EnginePath = '',
     [string]$OutputDirectory = '',
     [ValidateRange(10, 3600)][int]$Seconds = 24,
-    [ValidateSet('farm_30', 'ranch_30', 'pond_30', 'farm_15', 'collapsed_30')]
-    [string[]]$Phases = @('farm_30', 'ranch_30', 'pond_30', 'farm_15', 'collapsed_30'),
+    [ValidateSet('farm_30', 'ranch_30', 'pond_30', 'farm_15', 'farm_compact_30', 'collapsed_30')]
+    [string[]]$Phases = @('farm_30', 'ranch_30', 'pond_30', 'farm_15', 'farm_compact_30', 'collapsed_30'),
     [string]$ExpectedVersion = '',
     [switch]$AllowParallelFixture,
     [switch]$PlanOnly
@@ -33,6 +33,7 @@ $modes = @(
     @{ Id = 'ranch_30'; Scene = 'ranch'; Power = $false; Collapsed = $false },
     @{ Id = 'pond_30'; Scene = 'pond'; Power = $false; Collapsed = $false },
     @{ Id = 'farm_15'; Scene = 'farm'; Power = $true; Collapsed = $false },
+    @{ Id = 'farm_compact_30'; Scene = 'farm'; Power = $false; Collapsed = $false; Compact = $true },
     @{ Id = 'collapsed_30'; Scene = 'farm'; Power = $false; Collapsed = $true }
 ) | Where-Object { $_.Id -in $Phases }
 if ($modes.Count -eq 0) { throw 'At least one measurement phase is required.' }
@@ -113,6 +114,7 @@ foreach ($mode in $modes) {
         ('--benchmark-scene=' + $mode.Scene), ('--benchmark-seconds=' + $Seconds), ('--benchmark-output=' + $modeDirectory))
     if ($mode.Power) { $arguments += '--benchmark-power' }
     if ($mode.Collapsed) { $arguments += '--benchmark-collapsed' }
+    if ($mode.Compact) { $arguments += '--benchmark-compact' }
     # Windows Start-Process joins ArgumentList. Quote each argument so paths
     # containing spaces stay one command-line argument.
     $argumentLine = ($arguments | ForEach-Object { '"' + $_.Replace('"', '\"') + '"' }) -join ' '
@@ -195,7 +197,8 @@ foreach ($mode in $modes) {
         if ($runtime.phase -ne $mode.Id -or $runtime.scene -ne $mode.Scene -or [bool]$runtime.power_saving -ne $mode.Power -or [bool]$runtime.collapsed -ne $mode.Collapsed -or $runtime.fps_cap -ne $(if ($mode.Power) { 15 } else { 30 })) { throw 'Runtime mode does not match the requested sample.' }
         if ([bool]$runtime.visibility_start.scene_hwnd_visible -eq $mode.Collapsed -or [bool]$runtime.visibility_end.scene_hwnd_visible -eq $mode.Collapsed -or -not [bool]$runtime.visibility_start.toolbar_hwnd_visible -or -not [bool]$runtime.visibility_end.toolbar_hwnd_visible) { throw 'Runtime HWND visibility does not match the requested sample.' }
         if ($runtime.save_path -ne 'user://test-data/benchmark-save.json' -or -not [bool]$runtime.save_ok) { throw 'Benchmark save was not isolated and successful.' }
-        if ($runtime.population.plots -ne 96 -or $runtime.population.grass -ne 96 -or $runtime.population.animals -ne 84 -or $runtime.population.farmers -ne 9 -or $runtime.population.fish -ne 12) { throw 'Benchmark population is incomplete.' }
+        if ($runtime.population.plots -ne 96 -or $runtime.population.grass -ne 96 -or $runtime.population.animals -ne 84 -or $runtime.population.farmers -ne 9 -or $runtime.population.fish -ne 36) { throw 'Benchmark population is incomplete.' }
+        if ($runtime.display_mode -ne $(if ($mode.Compact) { 'compact' } else { 'expanded' })) { throw 'Runtime height mode is incorrect.' }
         $steadySamples = @($samples | Where-Object Measuring)
         $wallSeconds = ($steadySamples | Measure-Object IntervalSeconds -Sum).Sum
         $cpuSeconds = ($steadySamples | Measure-Object CpuSeconds -Sum).Sum

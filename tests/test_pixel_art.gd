@@ -90,10 +90,10 @@ func _run() -> void:
 	check(view._farmer_position(track).is_equal_approx(Vector2(56, 136)), "A one-second 32px model step takes a full second to render at the configured walking speed")
 	view.resize_view(Vector2(640, 172))
 	view._update_camera()
-	check(view.get_page_count() == 2 and view.camera_offset == 0, "Continuous 1152px farmland paginates from viewport capacity")
+	check(view.get_page_count() == 3 and view.camera_offset == 0, "Continuous1536px farmland paginates from viewport capacity")
 	view.page_next()
 	view._update_camera()
-	check(view.camera_offset == 560 and track.target == Vector2(72, 136), "Paging changes camera only and keeps the farmer's world coordinate")
+	check(view.camera_offset == 592 and track.target == Vector2(72, 136), "Paging changes camera only and keeps the farmer's world coordinate")
 	view.set_desktop_suspended(true)
 	fixture.elapsed = 20.0
 	fixture.farmers[0].x = 100.0

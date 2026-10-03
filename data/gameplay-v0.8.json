@@ -1,5 +1,5 @@
 {
-  "version": "0.8-stage-A",
+  "version": "0.8.1",
   "parameters": {
     "max_crop_plots": 96,
     "farmer_speed": 32,
@@ -8,6 +8,18 @@
     "farmer_speed_step": 4
   },
   "upgrades": {
+    "net_levels": [
+      { "cooldown": 20, "cost": 0 },
+      { "cooldown": 15, "cost": 200 },
+      { "cooldown": 10, "cost": 400 },
+      { "cooldown": 5, "cost": 800 }
+    ],
+    "pond_capacity_levels": [
+      { "capacity": 12, "cost": 0 },
+      { "capacity": 18, "cost": 300 },
+      { "capacity": 24, "cost": 600 },
+      { "capacity": 36, "cost": 1800 }
+    ],
     "individual_plot_costs": [
       350,
       397,

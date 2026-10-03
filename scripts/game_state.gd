@@ -5,9 +5,11 @@ extends RefCounted
 ## All seconds measure active process time. tick() is the only clock entry point.
 signal changed
 
-const SAVE_VERSION := 2
+const SAVE_VERSION := 3
 const SEED_PLAN = preload("res://scripts/seed_planner.gd")
 const WORLD = preload("res://scripts/world_layout.gd")
+const RANCH = preload("res://scripts/ranch_life.gd")
+const POND = preload("res://scripts/pond_rules.gd")
 const SCENES := ["farm", "ranch", "pond"]
 var config: Dictionary = {}
 var state: Dictionary = {}
@@ -64,8 +66,9 @@ func new_game() -> void:
 		"shelters": initial.get("barn_levels", {"chicken_coop": 1}).duplicate(true),
 		"animals": [], "farmers": [], "fish": [], "pending_fish": {},
 		"fish_remaining": float(_p("fish_spawn_seconds", 180)), "net_remaining": 0.0,
-		"catalog": {}, "rng": {"grass": 1567331, "fish": 3917737, "crop": 998231},
-		"settings": {"topmost": false, "interactive": true, "power_saving": false, "collapsed": false, "farmer_speed": 32.0},
+		"catalog": {}, "rng": {"grass": 1567331, "fish": 3917737, "crop": 998231, "animal": 712367},
+		"pond": {"net_level": 0, "capacity_level": 0}, "ranch": {"global_reward_elapsed": -2.0},
+		"settings": {"topmost": false, "interactive": true, "power_saving": false, "collapsed": false, "farmer_speed": 32.0, "display_mode": "expanded"},
 	}
 	_tick_fraction = 0.0
 	for id in crops:
@@ -84,6 +87,7 @@ func new_game() -> void:
 	for id in shelter_types:
 		if not state.shelters.has(id):
 			state.shelters[id] = 0
+	RANCH.initialize_grass(state)
 	for entry in initial.get("animals", [{"id": "chicken", "count": 4}]):
 		for unused in range(int(entry.get("count", 1))):
 			_add_animal(str(entry.id))
@@ -147,6 +151,15 @@ func get_grass() -> Array:
 func get_catalog() -> Dictionary:
 	return state.catalog
 
+func net_cooldown() -> float:
+	return POND.cooldown(state, config)
+
+func pond_capacity() -> int:
+	return POND.capacity(state, config)
+
+func motion_alpha() -> float:
+	return clampf(_tick_fraction / 0.2, 0.0, 1.0)
+
 func storage_capacity() -> int:
 	var levels: Array = config.get("upgrades", {}).get("hay_storage", [{"capacity": 24}, {"capacity": 64}, {"capacity": 128}, {"capacity": 256}])
 	return int(levels[int(state.storage_level)].capacity)
@@ -168,6 +181,10 @@ func restore(data: Dictionary) -> Dictionary:
 		var migrated := migrate_v1(data)
 		if not migrated.ok: return migrated
 		data = migrated.data
+	elif _integer(data.get("version")) and int(data.version) == 2:
+		var migrated := migrate_v2(data)
+		if not migrated.ok: return migrated
+		data = migrated.data
 	var checked := _validate(data)
 	if not checked.ok:
 		return checked
@@ -187,8 +204,8 @@ func restore(data: Dictionary) -> Dictionary:
 	changed.emit()
 	return _result(true, "存档已恢复")
 
-func _validate(data: Dictionary) -> Dictionary:
-	if not _integer(data.get("version")) or int(data.version) != SAVE_VERSION:
+func _validate_v2(data: Dictionary, modern := false) -> Dictionary:
+	if not _integer(data.get("version")) or int(data.version) != 2:
 		return _result(false, "不支持的存档版本")
 	if data.has("regions") or not data.get("seed_reservations") is Array:
 		return _result(false, "存档种植结构无效")
@@ -213,7 +230,7 @@ func _validate(data: Dictionary) -> Dictionary:
 			return _result(false, "地块种植计划无效")
 		legacy.plots[i].region = i / 16
 		legacy.plots[i].index = i % 16
-	var common := _validate_v1(legacy)
+	var common := _validate_v1(legacy, pond_capacity_from(data) if modern else 12)
 	if not common.ok: return common
 	var claim_keys := {}
 	for claim in data.seed_reservations:
@@ -228,10 +245,42 @@ func _validate(data: Dictionary) -> Dictionary:
 	for farmer in data.farmers:
 		for key in ["x", "y", "path_target_x", "path_target_y"]:
 			if not _number(farmer.get(key)): return _result(false, "农夫坐标无效")
-		if not WORLD.is_position_valid(str(farmer.scene), Vector2(float(farmer.x), float(farmer.y))) or not WORLD.is_position_valid(str(farmer.scene), Vector2(float(farmer.path_target_x), float(farmer.path_target_y))): return _result(false, "农夫超出世界边界")
+		var position := Vector2(float(farmer.x), float(farmer.y))
+		var target := Vector2(float(farmer.path_target_x), float(farmer.path_target_y))
+		if modern:
+			if not WORLD.is_position_valid(str(farmer.scene), position) or not WORLD.is_position_valid(str(farmer.scene), target): return _result(false, "农夫超出世界边界")
+		elif not _legacy_position_valid(str(farmer.scene), position) or not _legacy_position_valid(str(farmer.scene), target): return _result(false, "旧农夫超出世界边界")
 		if not ["idle", "walking", "acting"].has(str(farmer.get("phase", ""))) or (str(farmer.mode) == "working" and str(farmer.phase) == "idle") or (str(farmer.mode) != "working" and str(farmer.phase) != "idle"):
 			return _result(false, "农夫任务阶段无效")
-		if str(farmer.phase) == "acting" and Vector2(float(farmer.x), float(farmer.y)).distance_to(Vector2(float(farmer.path_target_x), float(farmer.path_target_y))) > 0.001: return _result(false, "动作阶段尚未到达")
+		if str(farmer.phase) == "acting" and position.distance_to(target) > 0.001: return _result(false, "动作阶段尚未到达")
+	return _result(true, "有效")
+
+func pond_capacity_from(data: Dictionary) -> int:
+	return POND.capacity(data, config)
+
+func _legacy_position_valid(scene: String, position: Vector2) -> bool:
+	return position.is_finite() and position.x >= 0 and position.y >= 0 and position.y < 172 and position.x < (1920.0 if scene == "ranch" else 1152.0)
+
+func _validate(data: Dictionary) -> Dictionary:
+	if not _integer(data.get("version")) or int(data.version) != SAVE_VERSION: return _result(false, "不支持的存档版本")
+	if not data.get("pond") is Dictionary: return _result(false, "鱼塘升级字段缺失")
+	for key in ["net_level", "capacity_level"]:
+		if not _integer(data.pond.get(key)) or int(data.pond[key]) < 0 or int(data.pond[key]) > 3: return _result(false, "鱼塘升级等级无效")
+	if not data.get("settings") is Dictionary or not ["expanded", "compact"].has(str(data.settings.get("display_mode", ""))): return _result(false, "显示模式无效")
+	var legacy := data.duplicate(true)
+	legacy.version = 2
+	var common := _validate_v2(legacy, true)
+	if not common.ok: return common
+	var ranch_error := RANCH.validate(data, animal_types)
+	if not ranch_error.is_empty(): return _result(false, ranch_error)
+	for farmer in data.farmers:
+		if not farmer.get("path") is Array or not _number(farmer.get("task_elapsed")) or float(farmer.task_elapsed) < 0 or not _number(farmer.get("track_remaining")) or float(farmer.track_remaining) < 0: return _result(false, "农夫路径进度无效")
+		if not ["up", "down", "left", "right"].has(str(farmer.get("facing", ""))): return _result(false, "农夫朝向无效")
+		var origin := Vector2(float(farmer.x), float(farmer.y))
+		for waypoint in farmer.path:
+			if not waypoint is Dictionary or not _number(waypoint.get("x")) or not _number(waypoint.get("y")) or not WORLD.is_walkable(str(farmer.scene), Vector2(float(waypoint.x), float(waypoint.y))) or not WORLD.segment_walkable(str(farmer.scene), origin, Vector2(float(waypoint.x), float(waypoint.y))): return _result(false, "农夫路径穿墙或越界")
+			origin = Vector2(float(waypoint.x), float(waypoint.y))
+		if str(farmer.phase) == "acting" and not farmer.path.is_empty(): return _result(false, "到达作业阶段仍有路径")
 	return _result(true, "有效")
 
 func _number(value: Variant) -> bool:
@@ -254,7 +303,7 @@ func migrate_v1(data: Dictionary) -> Dictionary:
 	var checked := _validate_v1(data)
 	if not checked.ok: return checked
 	var migrated := data.duplicate(true)
-	migrated.version = SAVE_VERSION
+	migrated.version = 2
 	migrated.default_seed_id = "parsnip"
 	migrated.previous_default_seed_id = ""
 	migrated.seed_reservations = []
@@ -281,11 +330,51 @@ func migrate_v1(data: Dictionary) -> Dictionary:
 		farmer.path_target_x = pos.x
 		farmer.path_target_y = pos.y
 	_fill_seed_reservations(migrated)
+	var valid := _validate_v2(migrated, true)
+	if not valid.ok: return valid
+	return migrate_v2(migrated, true)
+
+func migrate_v2(data: Dictionary, from_v1 := false) -> Dictionary:
+	var checked := _validate_v2(data, from_v1)
+	if not checked.ok: return checked
+	var migrated := data.duplicate(true)
+	migrated.version = SAVE_VERSION
+	migrated.pond = {"net_level": 0, "capacity_level": 0}
+	migrated.ranch = {"global_reward_elapsed": -2.0}
+	migrated.rng.animal = 712367
+	migrated.settings.display_mode = "expanded"
+	RANCH.initialize_grass(migrated)
+	for animal in migrated.animals: RANCH.initialize_animal(migrated, animal, animal_types)
+	for farmer in migrated.farmers:
+		var scene := str(farmer.scene)
+		var old_position := Vector2(float(farmer.x), float(farmer.y))
+		var position: Vector2 = WORLD.farmer_idle_position(scene, int(str(farmer.id).get_slice("_", 1)) % 3)
+		if str(farmer.mode) == "working":
+			var destination: Vector2 = WORLD.target_position(scene, str(farmer.task.target), migrated)
+			if str(farmer.phase) == "acting": position = destination
+			else:
+				# Scale the legacy world point once; subsequent camera changes never
+				# remap it. Preserve paid task resources and rebuild only the route.
+				position = WORLD.clamp_to_walkable(scene, Vector2(old_position.x / (1920.0 if scene == "ranch" else 1152.0) * WORLD.world_size(scene).x, old_position.y / 172.0 * WORLD.world_size(scene).y))
+			farmer.path_target_x = destination.x
+			farmer.path_target_y = destination.y
+			farmer.path = [] if str(farmer.phase) == "acting" else RANCH.pack_path(WORLD.find_path(scene, position, destination))
+			if str(farmer.phase) == "walking": farmer.remaining = RANCH.path_length(position, farmer.path) / float(migrated.settings.farmer_speed)
+		else:
+			farmer.path_target_x = position.x
+			farmer.path_target_y = position.y
+			farmer.path = []
+		farmer.x = position.x
+		farmer.y = position.y
+		farmer.task_elapsed = 0.0
+		farmer.track_remaining = 0.0
+		farmer.facing = "down"
+		if str(farmer.task.get("action", "")) == "cut_grass": farmer.task.grass_amount = 3
 	var valid := _validate(migrated)
 	if not valid.ok: return valid
-	return {"ok": true, "data": migrated, "message": "v1存档已转换为独立地块"}
+	return {"ok": true, "data": migrated, "message": "旧档已迁移为真实牧场世界"}
 
-func _validate_v1(data: Dictionary) -> Dictionary:
+func _validate_v1(data: Dictionary, fish_capacity := 12) -> Dictionary:
 	if not _finite_tree(data): return _result(false, "旧存档包含非有限数值")
 	if not _integer(data.get("version")) or int(data.version) != 1:
 		return _result(false, "不支持的旧存档版本")
@@ -319,7 +408,7 @@ func _validate_v1(data: Dictionary) -> Dictionary:
 	var capacity := int(storage_levels[int(data.storage_level)].capacity)
 	if int(data.warehouse_hay) > capacity or int(data.trough_hay) > capacity:
 		return _result(false, "存档干草超出容量")
-	if data.regions.size() != 6 or data.plots.size() != 96 or data.grass.size() != 96 or data.fish.size() > 12 or data.farmers.size() > 9:
+	if data.regions.size() != 6 or data.plots.size() != 96 or data.grass.size() != 96 or data.fish.size() > fish_capacity or data.farmers.size() > 9:
 		return _result(false, "存档对象数量无效")
 	var ids := {}
 	var highest_generated_id := 0
@@ -444,6 +533,13 @@ func _check_investment() -> Dictionary:
 	return _result(true, "操作完成")
 
 func _execute_command(action: String, payload: Dictionary) -> Dictionary:
+	if action in ["cast_net", "resolve_pending_fish", "upgrade_net", "upgrade_pond"]:
+		return POND.command(state, config, action, payload, protection())
+	if action == "resolve_fish": return POND.command(state, config, "resolve_pending_fish", {}, protection())
+	if action == "interact_animal":
+		var animal := _find(state.animals, str(payload.get("instance_id", payload.get("animal_id", ""))))
+		if animal.is_empty(): return _result(false, "动物不存在")
+		return RANCH.interact(state, animal, animal_types)
 	match action:
 		"water":
 			var plot := _find(state.plots, str(payload.get("plot_id", "")))
@@ -567,6 +663,7 @@ func _execute_command(action: String, payload: Dictionary) -> Dictionary:
 			if animal.is_empty():
 				return _result(false, "动物已不存在")
 			_cancel_target("collect_product", instance_id)
+			RANCH.release_meal(animal)
 			if int(animal.ready) > 0:
 				_collect_animal(animal)
 			var refund := floori(float(animal_types[str(animal.type_id)].price) * float(_p("animal_refund_ratio", 0.5)))
@@ -601,32 +698,6 @@ func _execute_command(action: String, payload: Dictionary) -> Dictionary:
 			farmer.path_target_x = position.x
 			farmer.path_target_y = position.y
 			return _result(true, "免费转岗完成")
-		"cast_net":
-			if not state.pending_fish.is_empty():
-				return _result(false, "请先处理刚捕到的鱼")
-			if float(state.net_remaining) > 0:
-				return _result(false, "渔网还需冷却 %d 秒" % ceili(float(state.net_remaining)))
-			state.net_remaining = float(_p("net_cooldown_seconds", 20))
-			var fish := _find(state.fish, str(payload.get("fish_id", "")))
-			if fish.is_empty():
-				return _result(true, "未命中，渔网进入冷却")
-			state.pending_fish = fish.duplicate(true)
-			state.fish.erase(fish)
-			return _result(true, "捕获成功，请选择出售或登记图鉴")
-		"resolve_fish":
-			if state.pending_fish.is_empty():
-				return _result(false, "没有待处理的鱼")
-			var choice := str(payload.get("choice", ""))
-			if not ["sell", "catalog"].has(choice):
-				return _result(false, "请选择出售或登记")
-			var fish: Dictionary = state.pending_fish
-			var kind: Dictionary = fish_types[str(fish.type_id)]
-			if choice == "sell":
-				state.coins = balance() + int(kind.sell_price)
-			else:
-				_register_product(str(kind.get("product_id", kind.id)), str(kind.name), "fish", int(kind.sell_price))
-			state.pending_fish = {}
-			return _result(true, "鱼已出售" if choice == "sell" else "已登记图鉴")
 		"settings":
 			var raw_values: Variant = payload.get("values", {})
 			if not raw_values is Dictionary: return _result(false, "设置格式无效")
@@ -634,11 +705,12 @@ func _execute_command(action: String, payload: Dictionary) -> Dictionary:
 			for key in ["topmost", "interactive", "power_saving", "collapsed"]:
 				if values.has(key) and not values[key] is bool: return _result(false, "设置开关格式无效")
 			if values.has("farmer_speed") and (not _number(values.farmer_speed) or float(values.farmer_speed) < 16 or float(values.farmer_speed) > 48): return _result(false, "农夫速度范围为16至48")
+			if values.has("display_mode") and not ["expanded", "compact"].has(str(values.display_mode)): return _result(false, "显示模式无效")
 			if values.has("window_position"):
 				var position: Variant = values.window_position
 				if not position is Array or position.size() != 2 or not (position[0] is int or position[0] is float) or not (position[1] is int or position[1] is float) or not is_finite(float(position[0])) or not is_finite(float(position[1])):
 					return _result(false, "窗口位置无效")
-			for key in ["topmost", "interactive", "power_saving", "collapsed", "window_x", "window_y", "window_position", "monitor", "farmer_speed"]:
+			for key in ["topmost", "interactive", "power_saving", "collapsed", "window_x", "window_y", "window_position", "monitor", "farmer_speed", "display_mode"]:
 				if values.has(key):
 					state.settings[key] = values[key]
 			return _result(true, "设置已更新")
@@ -689,12 +761,13 @@ func _add_animal(id: String) -> void:
 	state.animals.append({"id": _uid("animal"), "type_id": id, "adult": false,
 		"adult_remaining": float(kind.adult_seconds), "product_remaining": float(kind.produce_seconds),
 		"food_remaining": 0.0, "hungry": true, "ready": 0, "queued_at": float(state.elapsed)})
+	RANCH.initialize_animal(state, state.animals[-1], animal_types)
 
 func _add_farmer(scene: String) -> void:
 	var pos: Vector2 = WORLD.farmer_idle_position(scene, _home_count(scene))
 	state.farmers.append({"id": _uid("farmer"), "home": scene, "scene": scene,
 		"energy": 100.0, "mode": "idle", "remaining": 0.0, "destination": "", "task": {},
-		"x": pos.x, "y": pos.y, "path_target_x": pos.x, "path_target_y": pos.y, "phase": "idle"})
+		"x": pos.x, "y": pos.y, "path_target_x": pos.x, "path_target_y": pos.y, "phase": "idle", "path": [], "task_elapsed": 0.0, "track_remaining": 0.0, "facing": "down"})
 
 func _animals_in_shelter(id: String) -> int:
 	var count := 0
@@ -719,40 +792,42 @@ func _occupancy(scene: String, excluding: String = "") -> int:
 	return count
 
 func tick(delta: float) -> void:
-	if delta <= 0 or state.is_empty():
+	if not is_finite(delta) or delta <= 0 or state.is_empty():
 		return
 	_tick_fraction += delta
-	var steps := floori(_tick_fraction)
-	_tick_fraction -= float(steps)
+	var steps := floori((_tick_fraction + 0.00000001) / 0.2)
+	_tick_fraction = maxf(0, _tick_fraction - float(steps) * 0.2)
 	for unused in range(steps):
-		_step(1.0)
+		_step(0.2)
+	state.tick_fraction = _tick_fraction
 	if steps > 0:
 		changed.emit()
 
 func _step(dt: float) -> void:
-	state.elapsed = float(state.elapsed) + dt
+	state.elapsed = snappedf(float(state.elapsed) + dt, 0.000001)
 	for plot in state.plots:
 		if not plot.open:
 			continue
 		if str(plot.status) == "growing":
-			plot.remaining = maxf(0, float(plot.remaining) - dt)
+			plot.remaining = snappedf(maxf(0, float(plot.remaining) - dt), 0.000001)
 			if float(plot.remaining) == 0:
 				plot.status = "ready"
 				plot.queued_at = float(state.elapsed)
 		elif str(plot.status) == "processing":
-			plot.remaining = maxf(0, float(plot.remaining) - dt)
+			plot.remaining = snappedf(maxf(0, float(plot.remaining) - dt), 0.000001)
 			if float(plot.remaining) == 0:
 				_sell_plot_product(plot)
 				_finish_crop_cycle(plot)
-	state.grass_remaining = float(state.grass_remaining) - dt
+	state.grass_remaining = snappedf(float(state.grass_remaining) - dt, 0.000001)
 	while float(state.grass_remaining) <= 0:
 		_grow_grass()
 		state.grass_remaining = float(state.grass_remaining) + float(_p("grass_growth_seconds", 180))
 	for animal in state.animals:
 		_advance_animal(animal, dt)
-	state.net_remaining = maxf(0, float(state.net_remaining) - dt)
-	if state.fish.size() < int(_p("fish_capacity", 12)):
-		state.fish_remaining = float(state.fish_remaining) - dt
+	RANCH.step(state, animal_types, dt, float(_p("meal_seconds", 300)))
+	state.net_remaining = snappedf(maxf(0, float(state.net_remaining) - dt), 0.000001)
+	if state.fish.size() < pond_capacity():
+		state.fish_remaining = snappedf(float(state.fish_remaining) - dt, 0.000001)
 		if float(state.fish_remaining) <= 0:
 			_spawn_fish()
 			state.fish_remaining = float(_p("fish_spawn_seconds", 180))
@@ -790,12 +865,7 @@ func _grow_grass() -> void:
 		if grown < 4:
 			state.grass[index].clumps = mini(4, grown + _random_int("grass", 0, 2))
 		else:
-			var column := index % 24
-			var neighbors: Array = [index - 24, index + 24]
-			if column > 0:
-				neighbors.append(index - 1)
-			if column < 23:
-				neighbors.append(index + 1)
+			var neighbors: Array = WORLD.grass_neighbors(index)
 			for ni in neighbors:
 				if int(ni) < 0 or int(ni) >= before.size():
 					continue
@@ -806,49 +876,25 @@ func _grow_grass() -> void:
 		state.grass[int(index)].clumps = mini(4, int(additions[index]))
 
 func _meal(animal: Dictionary) -> bool:
-	var needs := int(animal_types[str(animal.type_id)].food_grass)
-	var available := 0
-	for grass in state.grass:
-		if grass.open and not grass.mother:
-			available += maxi(0, int(grass.clumps) - 1)
-	if available >= needs:
-		for grass in state.grass:
-			if not grass.open or grass.mother:
-				continue
-			var take := mini(needs, maxi(0, int(grass.clumps) - 1))
-			grass.clumps = int(grass.clumps) - take
-			needs -= take
-			if needs == 0:
-				break
-	elif int(state.trough_hay) > 0:
-		state.trough_hay = int(state.trough_hay) - 1
-	else:
-		animal.hungry = true
-		return false
-	animal.food_remaining = float(_p("meal_seconds", 300))
-	animal.hungry = false
-	return true
+	return RANCH.reserve_meal(state, animal, animal_types)
 
 func _advance_animal(animal: Dictionary, dt: float) -> void:
-	if float(animal.food_remaining) <= 0:
-		_meal(animal)
 	var effective := minf(dt, float(animal.food_remaining))
 	var progress := effective
 	if not animal.adult:
 		var used := minf(progress, float(animal.adult_remaining))
-		animal.adult_remaining = maxf(0, float(animal.adult_remaining) - used)
+		animal.adult_remaining = snappedf(maxf(0, float(animal.adult_remaining) - used), 0.000001)
 		progress -= used
 		if float(animal.adult_remaining) == 0:
 			animal.adult = true
 			animal.product_remaining = float(animal_types[str(animal.type_id)].produce_seconds)
 	if animal.adult and int(animal.ready) == 0:
-		animal.product_remaining = maxf(0, float(animal.product_remaining) - progress)
+		animal.product_remaining = snappedf(maxf(0, float(animal.product_remaining) - progress), 0.000001)
 		if float(animal.product_remaining) == 0:
 			animal.ready = 1
 			animal.queued_at = float(state.elapsed)
-	animal.food_remaining = maxf(0, float(animal.food_remaining) - dt)
-	if float(animal.food_remaining) <= 0:
-		_meal(animal)
+	animal.food_remaining = snappedf(maxf(0, float(animal.food_remaining) - dt), 0.000001)
+	animal.hungry = float(animal.food_remaining) <= 0
 
 func _spawn_fish() -> void:
 	var total := 0.0
@@ -930,6 +976,10 @@ func _collect_animal(animal: Dictionary) -> void:
 	_register_product(str(kind.product_id), str(product.get("name", kind.get("product_name", kind.name))), str(kind.id), int(kind.sell_price))
 	animal.ready = 0
 	animal.product_remaining = float(kind.produce_seconds)
+	animal.adult_bonus_used = 0.0
+	animal.production_cycle = int(animal.production_cycle) + 1
+	animal.held_by = ""
+	animal.hold_remaining = 0.0
 
 func _has_task(action: String, target: String) -> bool:
 	for farmer in state.get("farmers", []):
@@ -969,6 +1019,7 @@ func _tasks(scene: String) -> Array:
 			if not action.is_empty() and not _has_task(action, str(plot.id)):
 				tasks.append({"action": action, "target": str(plot.id), "priority": priority, "queued_at": float(plot.queued_at)})
 	elif scene == "ranch":
+		var grass_ledger := RANCH.grass_ledger(state)
 		var low: bool = int(state.trough_hay) < state.animals.size() * 2
 		var room := storage_capacity() - int(state.trough_hay) - _reserved_amount("add_hay")
 		if int(state.warehouse_hay) > 0 and room > 0 and not _has_task("add_hay", "trough"):
@@ -979,7 +1030,7 @@ func _tasks(scene: String) -> Array:
 		for grass in state.grass:
 			if not grass.open or grass.mother:
 				continue
-			if int(grass.clumps) == 4 and int(state.warehouse_hay) + _reserved_amount("cut_grass") < storage_capacity() and not _has_task("cut_grass", str(grass.id)):
+			if int(grass.clumps) == 4 and int(grass.clumps) - 1 - int(grass_ledger.get(str(grass.id), 0)) >= 3 and int(state.warehouse_hay) + _reserved_amount("cut_grass") < storage_capacity() and not _has_task("cut_grass", str(grass.id)):
 				tasks.append({"action": "cut_grass", "target": str(grass.id), "priority": 1, "queued_at": 0.0})
 			elif int(grass.clumps) == 0 and int(state.grass_seeds) > 0 and not _has_task("sow_grass", str(grass.id)):
 				tasks.append({"action": "sow_grass", "target": str(grass.id), "priority": 3, "queued_at": 0.0})
@@ -1014,11 +1065,9 @@ func _dispatch(farmer: Dictionary) -> void:
 			farmer.task = task
 			farmer.mode = "working"
 			var destination: Vector2 = WORLD.target_position(str(farmer.scene), str(task.target), state)
-			farmer.path_target_x = destination.x
-			farmer.path_target_y = destination.y
-			var distance := Vector2(float(farmer.x), float(farmer.y)).distance_to(destination)
-			farmer.phase = "walking" if distance > 0.001 else "acting"
-			farmer.remaining = distance / float(state.settings.farmer_speed) if distance > 0.001 else float(_p("action_seconds", 2))
+			farmer.task_elapsed = 0.0
+			farmer.track_remaining = 0.0
+			if not _set_farmer_path(farmer, destination): _cancel_task(farmer)
 		return
 	if str(farmer.scene) == str(farmer.home) and float(farmer.energy) >= 100:
 		for scene in SCENES:
@@ -1064,6 +1113,10 @@ func _reserve_task(task: Dictionary) -> bool:
 		if int(state.grass_seeds) <= 0:
 			return false
 		state.grass_seeds = int(state.grass_seeds) - 1
+	elif action == "cut_grass":
+		var grass := _find(state.grass, str(task.target))
+		if grass.is_empty() or RANCH.grass_available(state, grass) < 3: return false
+		task.grass_amount = 3
 	return true
 
 func _task_valid(task: Dictionary) -> bool:
@@ -1083,29 +1136,62 @@ func _task_valid(task: Dictionary) -> bool:
 			var grass := _find(state.grass, target)
 			if grass.is_empty() or not grass.open or grass.mother:
 				return false
-			return (int(grass.clumps) == 4 and int(state.warehouse_hay) < storage_capacity()) if action == "cut_grass" else int(grass.clumps) == 0
+			return (int(grass.clumps) == 4 and RANCH.grass_available(state, grass, "", task) >= 3 and int(state.warehouse_hay) < storage_capacity()) if action == "cut_grass" else int(grass.clumps) == 0
 		"collect_product":
 			var animal := _find(state.animals, target)
 			return not animal.is_empty() and int(animal.ready) == 1
 	return false
 
+func _set_farmer_path(farmer: Dictionary, destination: Vector2) -> bool:
+	var position := Vector2(float(farmer.x), float(farmer.y))
+	var route: Array = WORLD.find_path(str(farmer.scene), position, destination)
+	if route.is_empty() and position.distance_to(destination) > 0.001: return false
+	farmer.path_target_x = destination.x
+	farmer.path_target_y = destination.y
+	farmer.path = RANCH.pack_path(route)
+	farmer.phase = "walking" if not route.is_empty() else "acting"
+	farmer.remaining = RANCH.path_length(position, farmer.path) / float(state.settings.farmer_speed) if not route.is_empty() else float(_p("action_seconds", 2))
+	return true
+
 func _advance_farmer(farmer: Dictionary, dt: float) -> void:
 	match str(farmer.mode):
 		"working":
 			if not _task_valid(farmer.task): _cancel_task(farmer); return
+			farmer.task_elapsed = float(farmer.task_elapsed) + dt
+			if str(farmer.task.action) == "collect_product" and float(farmer.task_elapsed) > 120.0:
+				_cancel_task(farmer)
+				return
+			if str(farmer.task.action) == "collect_product" and str(farmer.phase) == "walking":
+				farmer.track_remaining = maxf(0, float(farmer.track_remaining) - dt)
+				if float(farmer.track_remaining) <= 0:
+					var animal := _find(state.animals, str(farmer.task.target))
+					if not _set_farmer_path(farmer, Vector2(float(animal.x), float(animal.y))): _cancel_task(farmer); return
+					farmer.track_remaining = 1.0
 			var available := dt
 			if str(farmer.phase) == "walking":
 				var position := Vector2(float(farmer.x), float(farmer.y))
-				var destination := Vector2(float(farmer.path_target_x), float(farmer.path_target_y))
 				var speed := float(state.settings.farmer_speed)
-				var distance := position.distance_to(destination)
-				var travel := minf(available, distance / speed)
-				position = position.move_toward(destination, speed * travel)
+				var distance := 0.0
+				while not farmer.path.is_empty() and available > 0.000001:
+					var destination := RANCH.point(farmer.path[0])
+					distance = position.distance_to(destination)
+					var travel := minf(available, distance / speed)
+					var difference := destination - position
+					if absf(difference.x) > absf(difference.y): farmer.facing = "right" if difference.x >= 0 else "left"
+					elif difference.length_squared() > 0.001: farmer.facing = "down" if difference.y >= 0 else "up"
+					position = position.move_toward(destination, speed * travel)
+					available -= travel
+					if distance <= travel * speed + 0.000001: farmer.path.pop_front()
+					else: break
 				farmer.x = position.x
 				farmer.y = position.y
-				available -= travel
-				farmer.remaining = position.distance_to(destination) / speed
-				if float(farmer.remaining) > 0.000001: return
+				farmer.remaining = RANCH.path_length(position, farmer.path) / speed
+				if not farmer.path.is_empty(): return
+				if str(farmer.task.action) == "collect_product":
+					var animal := _find(state.animals, str(farmer.task.target))
+					if position.distance_to(RANCH.point(animal)) > 0.01:
+						if not _set_farmer_path(farmer, RANCH.point(animal)): _cancel_task(farmer)
+						return
 				farmer.phase = "acting"
 				farmer.remaining = float(_p("action_seconds", 2))
 			farmer.remaining = maxf(0, float(farmer.remaining) - available)
@@ -1116,6 +1202,8 @@ func _advance_farmer(farmer: Dictionary, dt: float) -> void:
 				farmer.mode = "idle"
 				farmer.phase = "idle"
 				farmer.remaining = 0.0
+				farmer.path = []
+				farmer.task_elapsed = 0.0
 		"outbound", "returning":
 			farmer.remaining = maxf(0, float(farmer.remaining) - dt)
 			if float(farmer.remaining) == 0:
@@ -1128,6 +1216,8 @@ func _advance_farmer(farmer: Dictionary, dt: float) -> void:
 				farmer.y = position.y
 				farmer.path_target_x = position.x
 				farmer.path_target_y = position.y
+				farmer.path = []
+				farmer.task_elapsed = 0.0
 		"resting", "idle":
 			farmer.energy = minf(100, float(farmer.energy) + float(_p("rest_energy_per_second", 2)) * dt)
 			if str(farmer.mode) == "resting" and float(farmer.energy) >= 100:
@@ -1174,6 +1264,11 @@ func _commit_task(task: Dictionary) -> void:
 
 func _cancel_task(farmer: Dictionary) -> void:
 	var task: Dictionary = farmer.task
+	if str(task.get("action", "")) == "collect_product":
+		var animal := _find(state.animals, str(task.get("target", "")))
+		if not animal.is_empty():
+			animal.held_by = ""
+			animal.hold_remaining = 0.0
 	match str(task.get("action", "")):
 		"sow":
 			var id := str(task.get("crop_id", ""))
@@ -1191,6 +1286,9 @@ func _cancel_task(farmer: Dictionary) -> void:
 	farmer.phase = "idle"
 	farmer.path_target_x = float(farmer.x)
 	farmer.path_target_y = float(farmer.y)
+	farmer.path = []
+	farmer.task_elapsed = 0.0
+	farmer.track_remaining = 0.0
 	_fill_seed_reservations(state)
 
 func _cancel_target(action: String, target: String) -> void:

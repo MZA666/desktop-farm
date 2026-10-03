@@ -18,17 +18,20 @@ if ($PackageOnly) {
     }
     Write-Output 'Packaging existing game files; source changes are not compiled in PackageOnly mode.'
 } else {
-    & $toolchain.godot_exe --headless --path $projectRoot --script 'res://scripts/bake_pixel_assets.gd'
+    & $toolchain.godot_exe --headless --path $projectRoot --log-file (Join-Path $projectRoot '.review\build-icons.log') --script 'res://scripts/bake_pixel_assets.gd'
     if ($LASTEXITCODE -ne 0) { throw 'Pixel atlas baking failed.' }
-    & $toolchain.godot_exe --headless --path $projectRoot --editor --import
+    & $toolchain.godot_exe --headless --path $projectRoot --log-file (Join-Path $projectRoot '.review\build-scenes.log') --script 'res://scripts/bake_scene_assets.gd'
+    if ($LASTEXITCODE -ne 0) { throw 'Illustrated scene atlas baking failed.' }
+    & $toolchain.godot_exe --headless --path $projectRoot --log-file (Join-Path $projectRoot '.review\build-import.log') --editor --import
     if ($LASTEXITCODE -ne 0) { throw 'Project import failed.' }
-    & $toolchain.godot_exe --headless --path $projectRoot --export-release 'Windows Desktop' (Join-Path $destination 'DesktopFarm.exe')
+    & $toolchain.godot_exe --headless --path $projectRoot --log-file (Join-Path $projectRoot '.review\build-export.log') --export-release 'Windows Desktop' (Join-Path $destination 'DesktopFarm.exe')
     if ($LASTEXITCODE -ne 0) { throw 'Windows export failed.' }
 }
 Copy-Item -LiteralPath (Join-Path $projectRoot 'docs\play-guide.txt') -Destination (Join-Path $destination '试玩说明.txt') -Force
 Copy-Item -LiteralPath (Join-Path $projectRoot 'licenses') -Destination $destination -Recurse -Force
 Copy-Item -LiteralPath (Join-Path $projectRoot 'docs') -Destination $destination -Recurse -Force
 Copy-Item -LiteralPath (Join-Path $projectRoot 'assets\pixel\generation-prompts.md') -Destination (Join-Path $destination 'docs\art-generation-prompts-v0.7.md') -Force
+Copy-Item -LiteralPath (Join-Path $projectRoot 'assets\pixel\v0.8.1\generation-prompts.md') -Destination (Join-Path $destination 'docs\art-generation-prompts-v0.8.1.md') -Force
 Get-ChildItem -LiteralPath $destination -File -Recurse | Where-Object { $_.Name -ne 'manifest.json' } | ForEach-Object { [PSCustomObject]@{ path = $_.FullName.Substring($destination.Length + 1); bytes = $_.Length; sha256 = (Get-FileHash -LiteralPath $_.FullName -Algorithm SHA256).Hash } } | ConvertTo-Json | Set-Content -LiteralPath (Join-Path $destination 'manifest.json') -Encoding utf8
 $archive = Join-Path $projectRoot ("dist\DesktopFarm-v" + $appVersion + '-win64.zip')
 Compress-Archive -LiteralPath $destination -DestinationPath $archive -Force

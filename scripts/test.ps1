@@ -1,5 +1,5 @@
 param(
-    [ValidateSet('All', 'Simulation', 'StageA', 'SaveMigration', 'Native', 'Controller', 'PixelArt')][string]$Suite = 'All',
+    [ValidateSet('All', 'Simulation', 'StageA', 'SaveMigration', 'Native', 'Controller', 'PixelArt', 'PondRules', 'RanchLife', 'WorldLayout', 'DisplayModes', 'SceneAssets')][string]$Suite = 'All',
     [string]$PythonPath = '',
     [switch]$SkipConfig,
     [switch]$SkipImport
@@ -43,7 +43,7 @@ if (-not $SkipConfig) {
 }
 
 if (-not $SkipImport) {
-    & $toolchain.godot_exe --headless --path $projectRoot --editor --import
+    & $toolchain.godot_exe --headless --path $projectRoot --log-file (Join-Path $projectRoot '.review\test-import.log') --editor --import
     if ($LASTEXITCODE -ne 0) { throw 'Godot import failed.' }
 }
 $checks = @(
@@ -52,11 +52,16 @@ $checks = @(
     @{ Name = 'SaveMigration'; Script = 'res://tests/test_save_migration.gd'; Fixture = $false },
     @{ Name = 'Native'; Script = 'res://native/tests/test_native.gd'; Fixture = $true },
     @{ Name = 'Controller'; Script = 'res://tests/test_controller.gd'; Fixture = $true },
-    @{ Name = 'PixelArt'; Script = 'res://tests/test_pixel_art.gd'; Fixture = $false }
+    @{ Name = 'PixelArt'; Script = 'res://tests/test_pixel_art.gd'; Fixture = $false },
+    @{ Name = 'PondRules'; Script = 'res://tests/test_pond_rules.gd'; Fixture = $false },
+    @{ Name = 'RanchLife'; Script = 'res://tests/test_ranch_life.gd'; Fixture = $false },
+    @{ Name = 'WorldLayout'; Script = 'res://tests/test_world_layout_v3.gd'; Fixture = $false },
+    @{ Name = 'DisplayModes'; Script = 'res://native/tests/test_display_modes.gd'; Fixture = $false },
+    @{ Name = 'SceneAssets'; Script = 'res://tests/test_scene_assets.gd'; Fixture = $false }
 )
 foreach ($check in $checks) {
     if ($Suite -ne 'All' -and $Suite -ne $check.Name) { continue }
-    $arguments = @('--headless', '--path', $projectRoot, '--script', $check.Script)
+    $arguments = @('--headless', '--path', $projectRoot, '--log-file', (Join-Path $projectRoot ('.review\test-' + $check.Name + '.log')), '--script', $check.Script)
     if ($check.Fixture) { $arguments += @('--', '--benchmark-fixture') }
     # All scripts use test paths. Native/controller checks use isolated
     # fixtures before loading; the formal desktop-farm-save.json is never used.
