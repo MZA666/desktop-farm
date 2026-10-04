@@ -330,14 +330,16 @@ func _test_pond_modes_and_interaction(controller, blocker_path: String, valid_pa
 	controller._sync_layout()
 	var toolbar_row: HBoxContainer = controller.toolbar_row
 	check(toolbar_row.get_combined_minimum_size().x <= 628, "Toolbar still fits the 640 logical pixel desktop width")
-	check(controller.toolbar.find_child("CameraUp", true, false).visible and controller.toolbar.find_child("CameraNext", true, false).visible and controller.display_mode_button.visible and controller.collapse_button.visible, "Narrow toolbar keeps both-axis camera, display mode and collapse controls reachable")
+	check(controller.toolbar.find_child("CameraUp", true, false).visible and controller.toolbar.find_child("CameraCenter", true, false).visible and controller.toolbar.find_child("CameraNext", true, false).visible and controller.display_mode_button.visible and controller.collapse_button.visible, "Narrow toolbar keeps both-axis camera, centering, display mode and collapse controls reachable")
 	controller.scene_window.size = prior_window_size
 	controller._sync_layout()
 	var original_camera: float = float(controller.view.get("camera_y"))
 	controller.toolbar.find_child("CameraDown", true, false).pressed.emit()
 	check(float(controller.view.get("camera_y")) > original_camera, "Real down camera button moves the vertical view")
 	controller.toolbar.find_child("CameraUp", true, false).pressed.emit()
-	check(float(controller.view.get("camera_y")) < 160, "Real up camera button returns the vertical view")
+	check(is_equal_approx(float(controller.view.get("camera_y")), original_camera), "Up button reverses one fine down step")
+	controller.toolbar.find_child("CameraCenter", true, false).pressed.emit()
+	check(is_equal_approx(float(controller.view.get("camera_y")),80), "Center toolbar button shows the actual middle in expanded mode")
 	controller._close_panel()
 	check(controller.model.restore(baseline).ok, "Controller fixture restores after isolated pond tests")
 	controller._apply_settings()

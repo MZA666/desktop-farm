@@ -41,7 +41,7 @@ func growing() -> FarmState:
 
 func _test_budget_and_library() -> void:
 	var game := fresh()
-	check(game.state.version == 4 and game.state.layout_version == 4 and not game.state.has("regions"), "V4 retains independent plots and saves its layout version")
+	check(game.state.version == Model.SAVE_VERSION and game.state.layout_version == Model.LAYOUT_VERSION and not game.state.has("regions"), "Current schema retains independent plots and saves its layout version")
 	check(game.state.plots.size() == 96 and game.state.plots[23].open and not game.state.plots[24].open, "Initial first 24 of 96 plots open")
 	for i in range(96):
 		check(int(game.state.plots[i].index) == i and str(game.state.plots[i].id) == "plot_%d_%d" % [i / 16, i % 16], "Stable legacy ID and global index %d" % i)
@@ -110,7 +110,10 @@ func _test_claims_and_rollback() -> void:
 
 func _test_world_and_travel() -> void:
 	check(World.legacy_plot_position(0) == Vector2(64, 20) and World.legacy_plot_position(23) == Vector2(288, 84) and World.legacy_plot_position(95) == Vector2(1056, 84), "Legacy coordinate mapping remains available for strict migration")
-	check(World.plot_position(0) == Vector2(448, 144) and World.plot_position(23) == Vector2(798, 182) and World.plot_position(95) == Vector2(1198, 334), "V4 keeps all 96 stable plots inside the annotated compact field")
+	check(World.V4.plot_position(0) == Vector2(448, 144) and World.V4.plot_position(23) == Vector2(798, 182) and World.V4.plot_position(95) == Vector2(1198, 334), "Frozen v4 retains its exact plot coordinates for migration")
+	var all_inside := true
+	for index in range(96): all_inside = all_inside and World.soil_contains_rect(World.plot_rect(index))
+	check(all_inside, "The current farm fits all 96 stable plot IDs in its annotated soil")
 	var game := fresh()
 	game.state.farmers = game.state.farmers.filter(func(f): return f.home == "farm")
 	game.tick(1)

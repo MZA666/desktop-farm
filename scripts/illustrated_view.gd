@@ -7,8 +7,12 @@ signal animal_clicked(instance_id: String)
 signal shelter_clicked(shelter_id: String)
 const SCENE_ART = preload("res://scripts/scene_assets.gd")
 const POND_RULES = preload("res://scripts/pond_rules.gd")
-var camera_y := 64.0
-var _scene_camera := {"farm": 64.0, "ranch": 0.0, "pond": 72.0}
+const CAMERA_BUTTON_STEP := 32.0
+const CAMERA_WHEEL_STEP := 16.0
+var camera_y := 170.0
+# Remember the world point being viewed, so changing the strip height does
+# not change the chosen subject. All three scenes initially face mid-height.
+var _scene_camera := {"farm": 256.0, "ranch": 256.0, "pond": 256.0}
 var _animal_hits: Array = []
 var _animal_tracks: Dictionary = {}
 var _feedback: Dictionary = {}
@@ -25,6 +29,11 @@ var _shelter_hits: Array = []
 var _shelter_hover := ""
 var _shelter_counts: Dictionary = {}
 var _product_draws: Array = []
+var _crop_hits: Array = []
+var _crop_hit_key := 0
+# One bit per original atlas pixel, at most 64 crops x four stages (~192KiB).
+# Images are read once to build these masks and are never retained by the view.
+var _crop_masks: Dictionary = {}
 const SHELTER_PORTRAITS := ["chicken", "duck", "rabbit", "cow", "goat", "sheep", "pig"]
 # Measured on the baked painting: barn art is not equally spaced like the
 # simulation exits. Labels belong to gables, not to animal world coordinates.
@@ -45,25 +54,29 @@ func set_model(values: Dictionary, force := false) -> void:
 		entry.total = int(entry.total) + 1
 		entry.kinds[str(animal.type_id)] = int(entry.kinds.get(str(animal.type_id), 0)) + 1
 	super.set_model(values, force)
-	var visual_key := hash([values.get("grass", []), values.get("shelters", {}), values.get("pond", {}), values.get("trough_hay", 0), values.get("warehouse_hay", 0)])
+	var visual_key := hash([values.get("grass", []), values.get("shelters", {}), values.get("pond", {}), values.get("storage_level", 0), values.get("trough_hay", 0), values.get("warehouse_hay", 0)])
 	if scene_name != "farm" and visual_key != _ranch_visual_key:
 		_ranch_visual_key = visual_key
 		_invalidate_scene()
 
 func set_scene(value: String) -> void:
-	_scene_camera[scene_name] = camera_y
 	super.set_scene(value)
-	camera_y = float(_scene_camera.get(scene_name, 0.0))
+	camera_y = float(_scene_camera.get(scene_name, WORLD.world_size(scene_name).y * 0.5)) - view_height * 0.5
 	_animal_hits.clear()
 	_animal_hover = ""
 	_shelter_hover = ""
 	_fish_tracks.clear()
+	_crop_hits.clear()
 	_update_camera()
 	_invalidate_scene()
 
 func resize_view(size: Vector2) -> void:
+	# Retain the desired center even if a taller viewport cannot center there.
+	# Returning to compact mode can then recover the previously chosen edge.
+	var center_y := float(_scene_camera.get(scene_name, camera_y + view_height * 0.5))
 	view_width = maxf(240.0, size.x)
 	view_height = maxf(32.0, size.y)
+	camera_y = center_y - view_height * 0.5
 	_update_camera()
 	_invalidate_scene()
 
@@ -89,17 +102,26 @@ func _camera_span() -> float:
 	return view_width if view_width >= WORLD.world_size(scene_name).x else maxf(192.0, view_width - 48.0)
 
 func camera_up() -> void:
-	camera_y -= maxf(56, view_height * 0.55)
-	_update_camera()
-	_invalidate_scene()
+	camera_scroll(-CAMERA_BUTTON_STEP)
 
 func camera_down() -> void:
-	camera_y += maxf(56, view_height * 0.55)
+	camera_scroll(CAMERA_BUTTON_STEP)
+
+func camera_scroll(pixels: float) -> void:
+	camera_y += pixels
 	_update_camera()
+	_scene_camera[scene_name] = camera_y + view_height * 0.5
+	_invalidate_scene()
+
+func camera_center() -> void:
+	camera_y = (WORLD.world_size(scene_name).y - view_height) * 0.5
+	_update_camera()
+	_scene_camera[scene_name] = camera_y + view_height * 0.5
 	_invalidate_scene()
 
 func focus_world(position_value: Vector2) -> void:
 	page = clampi(floori(position_value.x / _camera_span()), 0, get_page_count() - 1)
+	_scene_camera[scene_name] = position_value.y
 	camera_y = position_value.y - view_height * 0.5
 	_update_camera()
 	_invalidate_scene()
@@ -118,6 +140,7 @@ func _process(delta: float) -> void:
 	_shelter_hover = ""
 	if interactive and scene_name == "ranch":
 		var mouse := get_local_mouse_position()
+		if _hay_hud_rect().has_point(mouse): return
 		for hit in _shelter_hits:
 			if (hit.rect as Rect2).has_point(mouse): _shelter_hover = str(hit.id); break
 		for index in range(_animal_hits.size() - 1, -1, -1):
@@ -136,6 +159,7 @@ func _input(event: InputEvent) -> void:
 		var movement := mouse - _pan_mouse
 		camera_y = _pan_origin.y - movement.y
 		_update_camera()
+		_scene_camera[scene_name] = camera_y + view_height * 0.5
 		_invalidate_scene()
 		get_viewport().set_input_as_handled()
 		return
@@ -154,11 +178,15 @@ func _input(event: InputEvent) -> void:
 				if event.shift_pressed:
 					if event.button_index == MOUSE_BUTTON_WHEEL_UP: page_previous()
 					else: page_next()
-				elif event.button_index == MOUSE_BUTTON_WHEEL_UP: camera_up()
-				else: camera_down()
+				else:
+					var direction := -1.0 if event.button_index == MOUSE_BUTTON_WHEEL_UP else 1.0
+					camera_scroll(direction * CAMERA_WHEEL_STEP * maxf(0.0, event.factor))
 				get_viewport().set_input_as_handled()
 				return
 			if scene_name == "ranch" and event.button_index == MOUSE_BUTTON_LEFT:
+				if _hay_hud_rect().has_point(mouse):
+					get_viewport().set_input_as_handled()
+					return
 				for hit in _shelter_hits:
 					if (hit.rect as Rect2).has_point(mouse):
 						shelter_clicked.emit(str(hit.id))
@@ -245,7 +273,7 @@ func _illustrated_soil() -> void:
 		_canvas().draw_rect(bounds.grow(-1), Color(0.20, 0.09, 0.025, 0.32 if wet else 0.14))
 		# Small connected ridges let planted land remain part of natural soil.
 		for row in range(3):
-			var yy := bounds.position.y + 8 + row * 10
+			var yy := bounds.position.y + floorf(bounds.size.y * float(row + 1) / 4.0)
 			_canvas().draw_line(Vector2(bounds.position.x + 4, yy), Vector2(bounds.end.x - 4, yy), Color(0.30, 0.15, 0.07, 0.38), 1)
 
 func _illustrated_grass() -> void:
@@ -263,7 +291,37 @@ func _illustrated_grass() -> void:
 	var hay: Texture2D = ART.icon("item", "hay")
 	if hay != null: _canvas().draw_texture_rect(hay, Rect2(origin + Vector2(24, 76), Vector2(48, 48)), false)
 	_box(Rect2(origin + Vector2(22, 128), Vector2(100, 24)), Color("#705036"))
-	_box(Rect2(origin + Vector2(26, 131), Vector2(92, 13)), Color("#e6c166") if int(model_state.get("trough_hay", 0)) > 0 else Color("#3e3027"))
+	_box(Rect2(origin + Vector2(26, 131), Vector2(92, 13)), Color("#3e3027"))
+	var stock := hay_summary()
+	_box(Rect2(origin + Vector2(26, 131), Vector2(floorf(92.0 * stock.trough / maxf(1, stock.capacity)), 13)), Color("#e6c166"))
+
+func hay_summary() -> Dictionary:
+	var levels: Array = (config.get("upgrades", {}) as Dictionary).get("hay_storage", [])
+	var level := clampi(int(model_state.get("storage_level", 0)), 0, maxi(0, levels.size() - 1))
+	var capacity := int(levels[level].capacity) if not levels.is_empty() else 24
+	return {"warehouse": int(model_state.get("warehouse_hay", 0)), "trough": int(model_state.get("trough_hay", 0)), "capacity": capacity}
+
+func _hay_hud_rect() -> Rect2:
+	return Rect2(10, maxf(8, view_height - 58), 284, 50)
+
+func _draw_hay_hud() -> void:
+	# Screen-fixed: stock stays readable on every ranch page and camera height.
+	var bounds := _hay_hud_rect()
+	var stock := hay_summary()
+	_box(bounds, Color("#60412a"))
+	_box(bounds.grow(-2), Color("#ffebbc"))
+	var hay: Texture2D = ART.icon("item", "hay")
+	for row in range(2):
+		var amount := int(stock.warehouse) if row == 0 else int(stock.trough)
+		var origin := bounds.position + Vector2(8, 4 + row * 23)
+		if hay != null: _canvas().draw_texture_rect(hay, Rect2(origin, Vector2(20, 20)), false)
+		_label("%s %d / %d" % ["草仓" if row == 0 else "食槽", amount, int(stock.capacity)], origin + Vector2(26, 15), INK, 13, 146)
+		_box(Rect2(origin + Vector2(166, 6), Vector2(98, 9)), Color("#c4af85"))
+		_box(Rect2(origin + Vector2(167, 7), Vector2(floorf(96.0 * clampf(float(amount) / maxf(1, stock.capacity), 0, 1)), 7)), Color("#b88e3f"))
+	if interactive and bounds.has_point(get_local_mouse_position()):
+		var tip := Rect2(bounds.position - Vector2(0, 25), Vector2(284, 23))
+		_box(tip, CREAM)
+		_label("农夫把草仓干草搬入食槽，供动物食用", tip.position + Vector2(6, 16), INK, 12, 272)
 
 func _sample_animals(values: Dictionary) -> void:
 	var present := {}
@@ -289,6 +347,7 @@ func _draw_animated() -> void:
 	_shelter_hits.clear()
 	_product_draws.clear()
 	_animal_draws.clear()
+	_crop_hits.clear()
 	if not _scene_cache_ready: return
 	_draw_target = _animation_layer
 	var actors: Array = []
@@ -326,6 +385,13 @@ func _draw_animated() -> void:
 			"animal": _illustrated_animal(foot, actor.data)
 			"product": _illustrated_product(foot, actor.data)
 			"farmer": _illustrated_farmer(foot, actor.data, actor.get("track", {}), actor.foot)
+	if scene_name == "farm":
+		var hit_key := hash([page, view_width, view_height, camera_y, _crop_hits])
+		if hit_key != _crop_hit_key:
+			_crop_hit_key = hit_key
+			# Re-evaluate a stationary pointer after a camera move or a changed
+			# crop silhouette; otherwise the tooltip keeps the previous plot.
+			_last_mouse = Vector2(INF, INF)
 	var foreground: Texture2D = SCENE_ART.foreground(scene_name)
 	if foreground != null: _canvas().draw_texture_rect(foreground, Rect2(_to_screen(Vector2.ZERO), WORLD.world_size(scene_name)), false)
 	if scene_name == "farm": _draw_farm_overlay()
@@ -333,6 +399,7 @@ func _draw_animated() -> void:
 		_draw_shelter_signs()
 		if not _shelter_hover.is_empty(): _shelter_tooltip()
 		else: _animal_tooltip()
+		_draw_hay_hud()
 	elif scene_name == "pond": _pond_hint()
 	_draw_target = null
 
@@ -350,13 +417,45 @@ func _illustrated_crop(foot: Vector2, plot: Dictionary) -> void:
 		var product_id := str(plot.product.get("id", id))
 		if ART.CROP_IDS.has(product_id): id = product_id
 	var texture: Texture2D = SCENE_ART.crop(id, stage)
-	if texture != null: _canvas().draw_texture_rect(texture, Rect2(foot - Vector2(32, 94), Vector2(64, 96)), false)
+	if texture != null:
+		var rect := Rect2(foot - Vector2(26, 76), Vector2(52, 78))
+		_canvas().draw_texture_rect(texture, rect, false)
+		var mask := _crop_mask(id, stage, texture)
+		if mask != null:
+			_crop_hits.append({"id": str(plot.id), "index": int(plot.index), "rect": rect, "mask": mask})
 	if status == "unwatered": _draw_drop(foot + Vector2(18, -12), Color("#acddea"))
 	elif status == "ready": _star(foot + Vector2(22, -34), GOLD)
 	elif status == "processing":
 		var remaining := clampf(1.0 - float(plot.remaining) / 180.0, 0, 1)
 		_box(Rect2(foot + Vector2(-18, -1), Vector2(36, 3)), Color("#654526"))
 		_box(Rect2(foot + Vector2(-18, -1), Vector2(36 * remaining, 3)), GOLD)
+
+func _crop_mask(id: String, stage: int, texture: Texture2D) -> BitMap:
+	var key := "%s/%d" % [id, stage]
+	if _crop_masks.has(key): return _crop_masks[key] as BitMap
+	var pixels := texture.get_image()
+	if pixels == null or pixels.is_empty(): return null
+	var mask := BitMap.new()
+	mask.create_from_image_alpha(pixels, 0.1)
+	_crop_masks[key] = mask
+	return mask
+
+func _plot_at(point: Vector2) -> Dictionary:
+	if scene_name != "farm": return super._plot_at(point)
+	if not _scene_cache_ready or not Rect2(Vector2.ZERO, Vector2(view_width, view_height)).has_point(point): return {}
+	# The records follow the actual crop draw order, so the last opaque pixel
+	# wins. A transparent border reveals the crop/soil behind it. Box selection
+	# still uses the original ground rectangles in _finish_farm_gesture.
+	for offset in range(_crop_hits.size() - 1, -1, -1):
+		var hit: Dictionary = _crop_hits[offset]
+		var rect: Rect2 = hit.rect
+		if not rect.has_point(point): continue
+		var mask: BitMap = hit.mask
+		var pixel := Vector2i(((point - rect.position) / rect.size * Vector2(mask.get_size())).floor())
+		if not mask.get_bitv(pixel): continue
+		var soil: Rect2 = WORLD.plot_rect(int(hit.index))
+		return {"id": str(hit.id), "index": int(hit.index), "open": true, "rect": Rect2(_to_screen(soil.position), soil.size)}
+	return super._plot_at(point)
 
 func _illustrated_animal(foot: Vector2, animal: Dictionary) -> void:
 	var id := str(animal.type_id)

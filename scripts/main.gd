@@ -293,8 +293,15 @@ func _build_toolbar() -> void:
 	_button(row, "‹", func(): view.page_previous(); _refresh_labels()).name = "CameraPrevious"
 	page_label = _label(row, "1/1")
 	_button(row, "›", func(): view.page_next(); _refresh_labels()).name = "CameraNext"
-	_button(row, "↑", func(): view.call("camera_up"); _refresh_labels()).name = "CameraUp"
-	_button(row, "↓", func(): view.call("camera_down"); _refresh_labels()).name = "CameraDown"
+	var up := _button(row, "↑", func(): view.call("camera_up"); _refresh_labels())
+	up.name = "CameraUp"
+	up.tooltip_text = "向上移动一小步（32像素）"
+	var center := _button(row, "居中", func(): view.call("camera_center"); _refresh_labels())
+	center.name = "CameraCenter"
+	center.tooltip_text = "恢复当前场景的中间视野"
+	var down := _button(row, "↓", func(): view.call("camera_down"); _refresh_labels())
+	down.name = "CameraDown"
+	down.tooltip_text = "向下移动一小步（32像素）"
 	mode_button = _button(row, "可交互", _toggle_interaction)
 	display_mode_button = _button(row, "紧凑", _toggle_display_mode)
 	display_mode_button.name = "DisplayMode"
@@ -1672,7 +1679,9 @@ func _smoke_capture() -> void:
 	_choose_planting_seed("carrot")
 	for unused in range(3): await get_tree().process_frame
 	var hit: Dictionary = view._plot_hits[0]
-	_smoke_click((hit.rect as Rect2).get_center())
+	var planting_point := _smoke_plot_point(hit)
+	if not _smoke_require(planting_point.is_finite(), "UI_NO_VISIBLE_PLANTING_POINT"): return
+	_smoke_click(planting_point)
 	if selected_plot_ids != [str(hit.id)] or not plant_controls.visible or plant_selection_button.disabled:
 		push_error("UI_SEED_SELECTION_FAILED")
 		host.shutdown()
@@ -1727,6 +1736,17 @@ func _smoke_capture() -> void:
 	_toggle_collapse()
 	host.shutdown()
 	get_tree().quit()
+
+func _smoke_plot_point(hit: Dictionary) -> Vector2:
+	# Tall plants may visibly cover the neighboring soil. Exercise a real
+	# clickable pixel belonging to this plot rather than bypassing hit tests.
+	var bounds := (hit.rect as Rect2).intersection(Rect2(0,0,view.view_width,view.view_height))
+	for y in range(floori(bounds.end.y) - 1, ceili(bounds.position.y) - 1, -1):
+		for x in range(ceili(bounds.position.x), floori(bounds.end.x)):
+			var point := Vector2(x + 0.5, y + 0.5)
+			var actual: Dictionary = view._plot_at(point)
+			if str(actual.get("id", "")) == str(hit.id): return point
+	return Vector2(INF,INF)
 
 func _smoke_click(local_position: Vector2) -> void:
 	var event := InputEventMouseButton.new()

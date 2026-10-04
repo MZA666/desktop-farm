@@ -7,9 +7,12 @@ param(
 )
 $ErrorActionPreference = 'Stop'
 $projectRoot = Split-Path -Parent $PSScriptRoot
-if (-not $Executable) { $Executable = Join-Path $projectRoot 'dist\DesktopFarm-v0.8.2\DesktopFarm.exe' }
-if (-not $OutputPath) { $OutputPath = Join-Path $projectRoot 'docs\evidence\performance-v0.8.2.json' }
-if (-not $RunDirectory) { $RunDirectory = Join-Path $projectRoot ('.review\performance-v0.8.2-' + (Get-Date -Format 'yyyyMMdd-HHmmss-fff') + '-' + [Guid]::NewGuid().ToString('N').Substring(0, 8)) }
+$versionLine = Select-String -LiteralPath (Join-Path $projectRoot 'project.godot') -Pattern '^config/version="([^"]+)"$'
+if (-not $versionLine) { throw 'Project version is missing.' }
+$appVersion = $versionLine.Matches[0].Groups[1].Value
+if (-not $Executable) { $Executable = Join-Path $projectRoot ('dist\DesktopFarm-v' + $appVersion + '\DesktopFarm.exe') }
+if (-not $OutputPath) { $OutputPath = Join-Path $projectRoot ('docs\evidence\performance-v' + $appVersion + '.json') }
+if (-not $RunDirectory) { $RunDirectory = Join-Path $projectRoot ('.review\performance-v' + $appVersion + '-' + (Get-Date -Format 'yyyyMMdd-HHmmss-fff') + '-' + [Guid]::NewGuid().ToString('N').Substring(0, 8)) }
 $executablePath = [IO.Path]::GetFullPath($Executable)
 $evidencePath = [IO.Path]::GetFullPath($OutputPath)
 $runPath = [IO.Path]::GetFullPath($RunDirectory)
@@ -18,7 +21,7 @@ $workspacePrefix = [IO.Path]::GetFullPath($projectRoot).TrimEnd('\', '/') + [IO.
 foreach ($outputLocation in @($evidencePath, $runPath)) {
     if (-not $outputLocation.StartsWith($workspacePrefix, [StringComparison]::OrdinalIgnoreCase)) { throw 'Evidence and run directories must stay inside this workspace; player locations are not permitted.' }
 }
-$expectedVersion = '0.8.2'
+$expectedVersion = $appVersion
 $modes = @(
     @{ Id = 'farm30'; Phase = 'farm_30'; Scene = 'farm'; Power = $false; Compact = $false; Collapsed = $false },
     @{ Id = 'ranch30'; Phase = 'ranch_30'; Scene = 'ranch'; Power = $false; Compact = $false; Collapsed = $false },

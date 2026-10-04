@@ -5,9 +5,12 @@ extends RefCounted
 ## All seconds measure active process time. tick() is the only clock entry point.
 signal changed
 
-const SAVE_VERSION := 4
+const SAVE_VERSION := 5
+const LAYOUT_VERSION := 5
 const SEED_PLAN = preload("res://scripts/seed_planner.gd")
 const WORLD = preload("res://scripts/world_layout.gd")
+const WORLD_V3 = preload("res://scripts/world_layout_v3.gd")
+const WORLD_V4 = preload("res://scripts/world_layout_v4.gd")
 const RANCH = preload("res://scripts/ranch_life.gd")
 const POND = preload("res://scripts/pond_rules.gd")
 const PRODUCTS = preload("res://scripts/ground_products.gd")
@@ -56,7 +59,7 @@ func new_game() -> void:
 	var initial: Dictionary = config.get("initial", {})
 	var default_crop := str(initial.get("crop_id", "parsnip"))
 	state = {
-		"version": SAVE_VERSION, "layout_version": 4, "config_version": str(config.get("version", "0.5")),
+		"version": SAVE_VERSION, "layout_version": LAYOUT_VERSION, "config_version": str(config.get("version", "0.5")),
 		"coins": int(initial.get("coins", 1000)), "elapsed": 0.0, "next_id": 1,
 		"tick_fraction": 0.0, "paid_hires": 0, "transaction_id": 0,
 		"plots": [], "seeds": initial.get("seeds", {"parsnip": 24}).duplicate(true),
@@ -193,6 +196,10 @@ func restore(data: Dictionary) -> Dictionary:
 		var migrated := migrate_v3(data)
 		if not migrated.ok: return migrated
 		data = migrated.data
+	elif _integer(data.get("version")) and int(data.version) == 4:
+		var migrated := migrate_v4(data)
+		if not migrated.ok: return migrated
+		data = migrated.data
 	data = data.duplicate(true)
 	PRODUCTS.reconcile(data)
 	var saved_farmers: Array = data.farmers if data.get("farmers") is Array else []
@@ -265,7 +272,7 @@ func _validate_v2(data: Dictionary, modern := false) -> Dictionary:
 		var position := Vector2(float(farmer.x), float(farmer.y))
 		var target := Vector2(float(farmer.path_target_x), float(farmer.path_target_y))
 		if modern:
-			if not WORLD.is_position_valid(str(farmer.scene), position) or not WORLD.is_position_valid(str(farmer.scene), target): return _result(false, "农夫超出世界边界")
+			if not WORLD_V3.is_position_valid(str(farmer.scene), position) or not WORLD_V3.is_position_valid(str(farmer.scene), target): return _result(false, "农夫超出世界边界")
 		elif not _legacy_position_valid(str(farmer.scene), position) or not _legacy_position_valid(str(farmer.scene), target): return _result(false, "旧农夫超出世界边界")
 		if not ["idle", "walking", "acting"].has(str(farmer.get("phase", ""))) or (str(farmer.mode) == "working" and str(farmer.phase) == "idle") or (str(farmer.mode) != "working" and str(farmer.phase) != "idle"):
 			return _result(false, "农夫任务阶段无效")
@@ -295,18 +302,24 @@ func _validate_v3(data: Dictionary) -> Dictionary:
 		if not ["up", "down", "left", "right"].has(str(farmer.get("facing", ""))): return _result(false, "农夫朝向无效")
 		var origin := Vector2(float(farmer.x), float(farmer.y))
 		for waypoint in farmer.path:
-			if not waypoint is Dictionary or not _number(waypoint.get("x")) or not _number(waypoint.get("y")) or not WORLD.V3.is_walkable(str(farmer.scene), Vector2(float(waypoint.x), float(waypoint.y))) or not WORLD.V3.segment_walkable(str(farmer.scene), origin, Vector2(float(waypoint.x), float(waypoint.y))): return _result(false, "农夫路径穿墙或越界")
+			if not waypoint is Dictionary or not _number(waypoint.get("x")) or not _number(waypoint.get("y")) or not WORLD_V3.is_walkable(str(farmer.scene), Vector2(float(waypoint.x), float(waypoint.y))) or not WORLD_V3.segment_walkable(str(farmer.scene), origin, Vector2(float(waypoint.x), float(waypoint.y))): return _result(false, "农夫路径穿墙或越界")
 			origin = Vector2(float(waypoint.x), float(waypoint.y))
 		if str(farmer.phase) == "acting" and not farmer.path.is_empty(): return _result(false, "到达作业阶段仍有路径")
 	return _result(true, "有效")
 
 func _validate(data: Dictionary) -> Dictionary:
-	if not _integer(data.get("version")) or int(data.version) != SAVE_VERSION or not _integer(data.get("layout_version")) or int(data.layout_version) != 4: return _result(false, "不支持的存档或布局版本")
+	return _validate_world_state(data, SAVE_VERSION, LAYOUT_VERSION, WORLD)
+
+func _validate_v4(data: Dictionary) -> Dictionary:
+	return _validate_world_state(data, 4, 4, WORLD_V4)
+
+func _validate_world_state(data: Dictionary, save_version: int, layout_version: int, geometry: Script) -> Dictionary:
+	if not _integer(data.get("version")) or int(data.version) != save_version or not _integer(data.get("layout_version")) or int(data.layout_version) != layout_version: return _result(false, "不支持的存档或布局版本")
 	if not data.get("farmers") is Array: return _result(false, "农夫列表类型无效")
 	for farmer in data.farmers:
 		if not farmer is Dictionary: return _result(false, "农夫对象类型无效")
-	# Common economy validation is layout independent. Validate active routes
-	# against the current geometry separately rather than against frozen v3.
+	# Economy validation is layout independent. Each save generation checks
+	# active routes against its own frozen geometry before any rerouting.
 	var legacy := data.duplicate(true)
 	legacy.version = 3
 	for farmer in legacy.get("farmers", []): farmer.path = []
@@ -322,15 +335,22 @@ func _validate(data: Dictionary) -> Dictionary:
 	for farmer in data.farmers:
 		if not farmer.get("path") is Array: return _result(false, "农夫路径缺失")
 		var origin := Vector2(float(farmer.x), float(farmer.y))
-		if not WORLD.is_walkable(str(farmer.scene), origin): return _result(false, "农夫当前位置不可通行")
+		if not geometry.is_walkable(str(farmer.scene), origin): return _result(false, "农夫当前位置不可通行")
+		var destination := Vector2(float(farmer.path_target_x), float(farmer.path_target_y))
+		if not geometry.is_walkable(str(farmer.scene), destination): return _result(false, "农夫路径目的地不可通行")
 		for waypoint in farmer.path:
-			if not waypoint is Dictionary or not _number(waypoint.get("x")) or not _number(waypoint.get("y")) or not WORLD.is_walkable(str(farmer.scene), RANCH.point(waypoint)) or not WORLD.segment_walkable(str(farmer.scene), origin, RANCH.point(waypoint)): return _result(false, "农夫路径穿墙或越界")
+			if not waypoint is Dictionary or not _number(waypoint.get("x")) or not _number(waypoint.get("y")) or not geometry.is_walkable(str(farmer.scene), RANCH.point(waypoint)) or not geometry.segment_walkable(str(farmer.scene), origin, RANCH.point(waypoint)): return _result(false, "农夫路径穿墙或越界")
 			origin = RANCH.point(waypoint)
 		if str(farmer.phase) == "acting" and not farmer.path.is_empty(): return _result(false, "作业时路径未完成")
+		if str(farmer.phase) == "walking" and origin.distance_to(destination) > 0.01: return _result(false, "农夫路径未到达任务目的地")
+		if str(farmer.mode) == "working" and str(farmer.scene) == "farm":
+			if not ["sow", "water", "harvest"].has(str(farmer.task.get("action", ""))) or _find(data.plots, str(farmer.task.get("target", ""))).is_empty(): return _result(false, "农田任务绑定无效")
+			var plot_target: Vector2 = geometry.target_position("farm", str(farmer.task.target), data)
+			if destination.distance_to(plot_target) > 0.01: return _result(false, "农田任务路径未绑定对应地块")
 		if str(farmer.mode) == "working" and str(farmer.task.get("action", "")) == "collect_product" and PRODUCTS.task_valid(data, farmer.task):
-			var destination: Vector2 = PRODUCTS.point(PRODUCTS.find(data, str(farmer.task.target)))
+			var pile_destination: Vector2 = PRODUCTS.point(PRODUCTS.find(data, str(farmer.task.target)))
 			if str(farmer.scene) != "ranch" or str(farmer.task.get("claim_farmer_id", "")) != str(farmer.id): return _result(false, "产物领取农夫或场景无效")
-			if Vector2(float(farmer.path_target_x), float(farmer.path_target_y)).distance_to(destination) > 0.01 or origin.distance_to(destination) > 0.01: return _result(false, "产物领取路径未到固定物品堆")
+			if Vector2(float(farmer.path_target_x), float(farmer.path_target_y)).distance_to(pile_destination) > 0.01 or origin.distance_to(pile_destination) > 0.01: return _result(false, "产物领取路径未到固定物品堆")
 	return _result(true, "有效")
 
 func _number(value: Variant) -> bool:
@@ -369,11 +389,11 @@ func migrate_v1(data: Dictionary) -> Dictionary:
 	var slots := {"farm": 0, "ranch": 0, "pond": 0}
 	for farmer in migrated.farmers:
 		var scene := str(farmer.scene)
-		var pos: Vector2 = WORLD.farmer_idle_position(scene, int(slots[scene]))
+		var pos: Vector2 = WORLD_V3.farmer_idle_position(scene, int(slots[scene]))
 		slots[scene] = int(slots[scene]) + 1
 		farmer.phase = "idle"
 		if str(farmer.mode) == "working":
-			pos = WORLD.V3.target_position(scene, str(farmer.task.get("target", "")), migrated)
+			pos = WORLD_V3.target_position(scene, str(farmer.task.get("target", "")), migrated)
 			farmer.phase = "acting"
 		farmer.x = pos.x
 		farmer.y = pos.y
@@ -398,17 +418,17 @@ func migrate_v2(data: Dictionary, from_v1 := false) -> Dictionary:
 	for farmer in migrated.farmers:
 		var scene := str(farmer.scene)
 		var old_position := Vector2(float(farmer.x), float(farmer.y))
-		var position: Vector2 = WORLD.farmer_idle_position(scene, int(str(farmer.id).get_slice("_", 1)) % 3)
+		var position: Vector2 = WORLD_V3.farmer_idle_position(scene, int(str(farmer.id).get_slice("_", 1)) % 3)
 		if str(farmer.mode) == "working":
-			var destination: Vector2 = WORLD.V3.target_position(scene, str(farmer.task.target), migrated)
+			var destination: Vector2 = WORLD_V3.target_position(scene, str(farmer.task.target), migrated)
 			if str(farmer.phase) == "acting": position = destination
 			else:
 				# Scale the legacy world point once; subsequent camera changes never
 				# remap it. Preserve paid task resources and rebuild only the route.
-				position = WORLD.clamp_to_walkable(scene, Vector2(old_position.x / (1920.0 if scene == "ranch" else 1152.0) * WORLD.world_size(scene).x, old_position.y / 172.0 * WORLD.world_size(scene).y))
+				position = WORLD_V3.clamp_to_walkable(scene, Vector2(old_position.x / (1920.0 if scene == "ranch" else 1152.0) * WORLD_V3.world_size(scene).x, old_position.y / 172.0 * WORLD_V3.world_size(scene).y))
 			farmer.path_target_x = destination.x
 			farmer.path_target_y = destination.y
-			farmer.path = [] if str(farmer.phase) == "acting" else RANCH.pack_path(WORLD.V3.find_path(scene, position, destination))
+			farmer.path = [] if str(farmer.phase) == "acting" else RANCH.pack_path(WORLD_V3.find_path(scene, position, destination))
 			if str(farmer.phase) == "walking": farmer.remaining = RANCH.path_length(position, farmer.path) / float(migrated.settings.farmer_speed)
 		else:
 			farmer.path_target_x = position.x
@@ -428,7 +448,7 @@ func migrate_v3(data: Dictionary) -> Dictionary:
 	var checked := _validate_v3(data)
 	if not checked.ok: return checked
 	var migrated := data.duplicate(true)
-	migrated.version = SAVE_VERSION
+	migrated.version = 4
 	migrated.layout_version = 4
 	migrated.ground_products = []
 	var old_drops := {}
@@ -443,10 +463,10 @@ func migrate_v3(data: Dictionary) -> Dictionary:
 			old_drops[str(animal.id)] = str(pile.id)
 	for fish in migrated.fish:
 		if not _number(fish.get("x")) or not _number(fish.get("y")) or float(fish.x) < 0 or float(fish.x) > 1 or float(fish.y) < 0 or float(fish.y) > 1: return _result(false, "旧鱼坐标无效")
-		var old_water: Rect2 = WORLD.v3_water_bounds()
+		var old_water: Rect2 = WORLD_V3.water_bounds()
 		var old_point := old_water.position + Vector2(float(fish.x), float(fish.y)) * old_water.size
-		var position: Vector2 = WORLD.project_fish_position(old_point)
-		if not WORLD.fish_position_safe(position): return _result(false, "旧鱼无法迁入安全水面")
+		var position: Vector2 = WORLD_V4.project_fish_position(old_point)
+		if not WORLD_V4.fish_position_safe(position): return _result(false, "旧鱼无法迁入安全水面")
 		fish.x = position.x
 		fish.y = position.y
 		FISH_MOTION.initialize(fish)
@@ -465,37 +485,72 @@ func migrate_v3(data: Dictionary) -> Dictionary:
 					break
 			if not PRODUCTS.reserve(migrated, task, str(farmer.id)): _release_migrated_collection(farmer); continue
 		if str(farmer.mode) != "working":
-			if not WORLD.is_walkable(scene, RANCH.point(farmer)):
-				var idle: Vector2 = WORLD.clamp_to_walkable(scene, RANCH.point(farmer))
+			if not WORLD_V4.is_walkable(scene, RANCH.point(farmer)):
+				var idle: Vector2 = WORLD_V4.clamp_to_walkable(scene, RANCH.point(farmer))
 				farmer.x = idle.x; farmer.y = idle.y
 				farmer.path_target_x = idle.x; farmer.path_target_y = idle.y
 			continue
-		var destination: Vector2 = PRODUCTS.point(PRODUCTS.find(migrated, str(task.target))) if collecting else WORLD.target_position(scene, str(task.target), migrated)
-		var position: Vector2 = WORLD.clamp_to_walkable(scene, RANCH.point(farmer))
+		var destination: Vector2 = PRODUCTS.point(PRODUCTS.find(migrated, str(task.target))) if collecting else WORLD_V4.target_position(scene, str(task.target), migrated)
+		var position: Vector2 = WORLD_V4.clamp_to_walkable(scene, RANCH.point(farmer))
 		if str(farmer.phase) == "acting": position = destination
 		# Existing ranch tasks and food claims retain their routes and timers.
 		# Farm tasks and converted pickup routes are rebuilt for their fixed target.
-		var rebuild := scene == "farm" or collecting or not _route_safe(scene, position, farmer.path)
+		var rebuild := scene == "farm" or collecting or not _route_safe(scene, position, farmer.path, WORLD_V4)
 		if rebuild:
 			farmer.x = position.x; farmer.y = position.y
 			farmer.path_target_x = destination.x; farmer.path_target_y = destination.y
-			farmer.path = [] if str(farmer.phase) == "acting" else RANCH.pack_path(WORLD.find_path(scene, position, destination))
+			farmer.path = [] if str(farmer.phase) == "acting" else RANCH.pack_path(WORLD_V4.find_path(scene, position, destination))
 			if str(farmer.phase) == "walking":
 				if farmer.path.is_empty() and position.distance_to(destination) > 0.01: return _result(false, "旧农夫任务无法重新寻路")
 				farmer.remaining = RANCH.path_length(position, farmer.path) / float(migrated.settings.farmer_speed)
 		farmer.track_remaining = 0.0
+	var valid := _validate_v4(migrated)
+	if not valid.ok: return valid
+	return migrate_v4(migrated)
+
+func migrate_v4(data: Dictionary) -> Dictionary:
+	# Reject invalid old routes before replacing their geometry. Rerouting must
+	# never turn a corrupt v4 file into an apparently valid current save.
+	var checked := _validate_v4(data)
+	if not checked.ok: return checked
+	var migrated := data.duplicate(true)
+	migrated.version = SAVE_VERSION
+	migrated.layout_version = LAYOUT_VERSION
+	for farmer in migrated.farmers:
+		if str(farmer.scene) != "farm": continue
+		var position: Vector2 = RANCH.point(farmer)
+		if str(farmer.mode) != "working":
+			if not WORLD.is_walkable("farm", position):
+				position = WORLD.clamp_to_walkable("farm", position)
+				farmer.x = position.x; farmer.y = position.y
+				farmer.path_target_x = position.x; farmer.path_target_y = position.y
+			continue
+		var destination: Vector2 = WORLD.target_position("farm", str(farmer.task.target), migrated)
+		if not WORLD.is_walkable("farm", destination): return _result(false, "新农田任务目的地不可通行，原档未改变")
+		# Acting is already-paid work: only move its foot anchor, retaining its
+		# remaining work, elapsed time, stamina and reserved seed exactly.
+		if str(farmer.phase) == "acting":
+			position = destination
+			farmer.path = []
+		else:
+			position = WORLD.clamp_to_walkable("farm", position)
+			farmer.path = RANCH.pack_path(WORLD.find_path("farm", position, destination))
+			if farmer.path.is_empty() and position.distance_to(destination) > 0.01: return _result(false, "旧农田任务无法迁入新布局，原档未改变")
+			farmer.remaining = RANCH.path_length(position, farmer.path) / float(migrated.settings.farmer_speed)
+		farmer.x = position.x; farmer.y = position.y
+		farmer.path_target_x = destination.x; farmer.path_target_y = destination.y
 	var valid := _validate(migrated)
 	if not valid.ok: return valid
-	return {"ok": true, "data": migrated, "message": "存档已迁移为固定产物与安全布局"}
+	return {"ok": true, "data": migrated, "message": "存档已迁入新农田布局，原有经营与领取进度已保留"}
 
 func _release_migrated_collection(farmer: Dictionary) -> void:
 	farmer.task = {}; farmer.mode = "idle"; farmer.phase = "idle"; farmer.remaining = 0.0
 	farmer.path = []; farmer.task_elapsed = 0.0; farmer.track_remaining = 0.0
 	farmer.path_target_x = farmer.get("x", 0.0); farmer.path_target_y = farmer.get("y", 0.0)
 
-func _route_safe(scene: String, origin: Vector2, path: Array) -> bool:
+func _route_safe(scene: String, origin: Vector2, path: Array, geometry: Script = WORLD) -> bool:
 	for waypoint in path:
-		if not WORLD.segment_walkable(scene, origin, RANCH.point(waypoint)): return false
+		if not geometry.segment_walkable(scene, origin, RANCH.point(waypoint)): return false
 		origin = RANCH.point(waypoint)
 	return true
 

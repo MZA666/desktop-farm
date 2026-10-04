@@ -3,6 +3,10 @@ extends SceneTree
 const MODEL = preload("res://scripts/game_state.gd")
 const STORE = preload("res://scripts/save_store.gd")
 const CONFIG = preload("res://scripts/config_loader.gd")
+const WORLD = preload("res://scripts/world_layout.gd")
+const V4 = preload("res://scripts/world_layout_v4.gd")
+const RANCH = preload("res://scripts/ranch_life.gd")
+const PRODUCTS = preload("res://scripts/ground_products.gd")
 var failures: Array[String] = []
 var assertions := 0
 var directory := ""
@@ -31,15 +35,15 @@ func _run() -> void:
 		_finish()
 		return
 	var initial_model: FarmState = MODEL.new(values)
-	check(initial_model.restore(loaded.data).ok, "Migrated startup passes strict v3 validation")
-	check(loaded.data.version == 4 and loaded.data.layout_version == 4 and not loaded.data.has("regions"), "Migration removes region state and initializes current world")
+	check(initial_model.restore(loaded.data).ok, "Migrated startup passes strict current validation")
+	check(loaded.data.version == MODEL.SAVE_VERSION and loaded.data.layout_version == MODEL.LAYOUT_VERSION and not loaded.data.has("regions"), "Migration removes region state and initializes current world")
 	check(initial_model.balance() == 1000 and initial_model.protection() == 480, "Initial coins and seed protection preserved")
 	check(loaded.data.plots.filter(func(p): return p.open).size() == 24, "Original open count preserved")
 	check(FileAccess.get_sha256(initial_path + ".bak") == FileAccess.get_sha256(loaded.migration_backup), "Original v1 and versioned backup retain exact bytes")
 	var original_backup: String = loaded.migration_backup
 	var original_hash := FileAccess.get_sha256(original_backup)
 	var repeated: Dictionary = initial_store.load_save()
-	check(repeated.ok and not repeated.get("migrated", false), "Second startup does not migrate v3 again")
+	check(repeated.ok and not repeated.get("migrated", false), "Second startup does not migrate the current save again")
 	check(FileAccess.get_sha256(original_backup) == original_hash, "Repeated startup never overwrites the versioned backup")
 	initial_model.state.coins += 7
 	check(initial_store.save(initial_model.snapshot()).ok, "Ordinary save after migration succeeds")
@@ -113,6 +117,7 @@ func _run() -> void:
 	check(FileAccess.get_sha256(failed_path) == before_failure, "Failed migrated write leaves original file intact")
 	check(FileAccess.get_sha256(failed_path + ".bak") == older_backup_hash, "Blocked migration leaves older backup intact")
 	_test_v2()
+	_test_v4()
 	_finish()
 
 func _test_v2() -> void:
@@ -163,7 +168,7 @@ func _test_v2() -> void:
 	if not loaded.ok:
 		printerr(loaded.message)
 		return
-	check(loaded.data.version == 4 and loaded.data.pond.net_level == 0 and loaded.data.pond.capacity_level == 0, "New upgrade fields begin at zero without fish gifts")
+	check(loaded.data.version == MODEL.SAVE_VERSION and loaded.data.pond.net_level == 0 and loaded.data.pond.capacity_level == 0, "New upgrade fields begin at zero without fish gifts")
 	check(loaded.data.animals[0].food_remaining == 123 and loaded.data.animals[0].ready == 0 and loaded.data.animals[0].product_remaining == 300 and loaded.data.ground_products[0].quantity == 1, "Animal meal interval is preserved while old ready product drops and starts next cycle")
 	var same_seeds: bool = loaded.data.seeds.size() == v2.seeds.size()
 	for id in v2.seeds: same_seeds = same_seeds and int(loaded.data.seeds.get(id, -1)) == int(v2.seeds[id])
@@ -188,6 +193,137 @@ func _test_v2() -> void:
 			"seed": invalid.seeds.parsnip = 0.5
 			"timer": invalid.animals[0].food_remaining = -1
 		check(not MODEL.new(values).migrate_v2(invalid).ok, "Strict v2 migration rejects corrupt legacy " + field)
+
+func _v4_fixture() -> Dictionary:
+	var game := MODEL.new(values)
+	game.state.farmers = []
+	game.state.elapsed = 50.0
+	game.state.coins = 4321
+	game._tick_fraction = 0.13
+	game.state.settings.window_position = [80, 120]
+	game.state.plots[5].pending_crop_id = "cauliflower"
+	game.state.seeds.cauliflower = 2
+	game.state.seed_reservations = [{"plot_id": "plot_0_5", "crop_id": "cauliflower", "quantity": 1, "purpose": "pending_next"}]
+	game._add_farmer("farm")
+	game._add_farmer("farm")
+	var walking: Dictionary = game.state.farmers[0]
+	var sow := {"action": "sow", "target": "plot_0_0"}
+	check(game._reserve_task(sow), "v4 fixture prepays its physical sow seed once")
+	walking.task = sow; walking.mode = "working"; walking.phase = "walking"
+	var origin: Vector2 = V4.farmer_idle_position("farm", 0)
+	var target: Vector2 = V4.target_position("farm", str(sow.target), game.state)
+	walking.x = origin.x; walking.y = origin.y
+	walking.path_target_x = target.x; walking.path_target_y = target.y
+	walking.path = RANCH.pack_path(V4.find_path("farm", origin, target))
+	walking.remaining = RANCH.path_length(origin, walking.path) / 32.0
+	walking.task_elapsed = 17.3; walking.energy = 88.0
+	var acting: Dictionary = game.state.farmers[1]
+	game.state.plots[1].status = "unwatered"
+	game.state.plots[1].remaining = float(game.crops.parsnip.first_seconds)
+	game.state.plots[1].product = game._product_for_crop(game.crops.parsnip)
+	acting.task = {"action": "water", "target": "plot_0_1"}
+	acting.mode = "working"; acting.phase = "acting"; acting.remaining = 0.6
+	target = V4.target_position("farm", str(acting.task.target), game.state)
+	acting.x = target.x; acting.y = target.y
+	acting.path_target_x = target.x; acting.path_target_y = target.y
+	acting.path = []; acting.task_elapsed = 9.4; acting.energy = 91.0
+	var animal: Dictionary = game.state.animals[0]
+	animal.adult = true; animal.adult_remaining = 0.0; animal.food_remaining = 123.5
+	animal.product_remaining = 0.0
+	var pile: Dictionary = PRODUCTS.complete_cycle(game.state, animal, game.animal_types[str(animal.type_id)], values.products)
+	animal.product_remaining = 0.0
+	PRODUCTS.complete_cycle(game.state, animal, game.animal_types[str(animal.type_id)], values.products)
+	game._add_farmer("ranch")
+	var collector: Dictionary = game.state.farmers[2]
+	var pickup := {"action": "collect_product", "target": str(pile.id)}
+	check(PRODUCTS.reserve(game.state, pickup, str(collector.id)), "v4 fixture owns exactly one ground unit")
+	collector.task = pickup; collector.mode = "working"; collector.phase = "acting"
+	collector.remaining = 0.8; collector.task_elapsed = 127.3
+	collector.x = pile.x; collector.y = pile.y
+	collector.path_target_x = pile.x; collector.path_target_y = pile.y
+	collector.path = []
+	game._add_farmer("pond")
+	game.state.net_remaining = 6.75; game.state.fish_remaining = 117.25
+	var result := game.snapshot()
+	result.version = 4; result.layout_version = 4
+	return result
+
+func _test_v4() -> void:
+	var old := _v4_fixture()
+	var original := JSON.stringify(old, "", true, true)
+	var checker := MODEL.new(values)
+	check(checker._validate_v4(old).ok, "Frozen v4 strictly validates the original active fixture")
+	var result := checker.migrate_v4(old)
+	check(result.ok, "Strict v4 farm routes migrate to the current layout: " + str(result.message))
+	if not result.ok: return
+	var current: Dictionary = result.data
+	check(current.version == MODEL.SAVE_VERSION and current.layout_version == MODEL.LAYOUT_VERSION, "Only version markers advance to SAVE5/Layout5")
+	check(JSON.stringify(old, "", true, true) == original, "In-memory v4 migration does not mutate its source")
+	for key in ["coins", "elapsed", "tick_fraction", "next_id", "transaction_id", "paid_hires", "seeds", "seed_reservations", "default_seed_id", "previous_default_seed_id", "unlocked_crops", "catalog", "rng", "settings", "pond", "ranch", "shelters", "storage_level", "warehouse_hay", "trough_hay", "grass_seeds", "grass_remaining", "fish_remaining", "net_remaining", "pending_fish", "animals", "grass", "fish", "ground_products"]:
+		check(current[key] == old[key], "v4 migration preserves existing resource/production state: " + key)
+	for index in range(96):
+		check(current.plots[index] == old.plots[index], "v4 stable ID, crop state, timers and pending plans remain exact at index %d" % index)
+	checker.state = old.duplicate(true)
+	var old_budget := checker.protection()
+	check(checker.restore(current).ok and checker.protection() == old_budget, "Seed protection budget is identical before and after farm migration")
+	var walking: Dictionary = current.farmers[0]
+	var old_walking: Dictionary = old.farmers[0]
+	var destination: Vector2 = WORLD.target_position("farm", str(walking.task.target), current)
+	check(RANCH.point(walking) == RANCH.point(old_walking) and walking.task == old_walking.task and walking.phase == "walking", "Walking farmer retains its still-walkable old foot position and prepaid task")
+	check(Vector2(walking.path_target_x, walking.path_target_y) == destination and RANCH.point(walking.path[-1]) == destination, "Walking path reaches the new stable plot-ID target")
+	check(is_equal_approx(float(walking.remaining), RANCH.path_length(RANCH.point(walking), walking.path) / float(current.settings.farmer_speed)), "Walking remaining seconds reflect the new safe route length")
+	check(walking.task_elapsed == old_walking.task_elapsed and walking.energy == old_walking.energy, "Rerouting retains elapsed work and stamina without another seed reservation")
+	var acting: Dictionary = current.farmers[1]
+	destination = WORLD.target_position("farm", str(acting.task.target), current)
+	check(RANCH.point(acting) == destination and acting.path.is_empty() and acting.phase == "acting", "An acting farm worker anchors to its relocated plot")
+	check(acting.remaining == old.farmers[1].remaining and acting.task_elapsed == old.farmers[1].task_elapsed and acting.task == old.farmers[1].task and acting.energy == old.farmers[1].energy, "Acting retains the exact remaining 0.6 seconds, task resources and stamina")
+	for index in [2, 3]:
+		check(current.farmers[index] == old.farmers[index], "Ranch pickup and pond farmer retain all position/task/remaining fields: %d" % index)
+	var replay := MODEL.new(values)
+	check(replay.restore(current).ok, "Migrated v4 current snapshot restores")
+	checker.tick(0.6); replay.tick(0.6)
+	check(JSON.stringify(checker.snapshot(), "", true, true) == JSON.stringify(replay.snapshot(), "", true, true), "Migrated action and fish motion replay exactly after reload")
+	# The saved tick fraction contributes 0.13 seconds; 0.6 input performs
+	# three model steps, completing water but not the 0.8-second pickup.
+	check(checker.state.plots[1].status == "growing" and checker.state.ground_products[0].quantity == 2, "Water completes its residual work without instantly settling the separate ranch claim")
+	var coins_before := checker.balance()
+	checker.tick(0.2)
+	check(checker.state.ground_products[0].quantity == 1 and checker.balance() == coins_before + int(old.ground_products[0].batches[0].sell_price), "Existing ranch claim completes once at its retained 0.8 seconds")
+	var path := directory.path_join("real-v4.json")
+	_write(path, old)
+	var source_hash := FileAccess.get_sha256(path)
+	var store := STORE.new(path, values)
+	var loaded := store.load_save()
+	check(loaded.ok and loaded.get("migrated", false), "Store atomically upgrades a real v4 file")
+	if not loaded.ok: return
+	var migration_backup: String = loaded.migration_backup
+	check(str(migration_backup).contains("version-v4-") and FileAccess.get_sha256(migration_backup) == source_hash and FileAccess.get_sha256(path + ".bak") == source_hash, "v4 immutable migration backup and initial normal backup contain the exact original bytes")
+	check(store.load_save().ok and not store.load_save().get("migrated", false), "Repeated v5 startup performs no second v4 migration")
+	check(store.save(loaded.data).ok and FileAccess.get_sha256(migration_backup) == source_hash, "Later saves cannot overwrite the original v4 versioned backup")
+	for field in ["segment", "endpoint", "plot_binding", "layout", "remaining"]:
+		var invalid := old.duplicate(true)
+		match field:
+			"segment": invalid.farmers[0].path.push_front({"x": 160.0, "y": 40.0})
+			"endpoint": invalid.farmers[0].path.pop_back()
+			"plot_binding": invalid.farmers[0].path_target_x += 50
+			"layout": invalid.layout_version = 5
+			"remaining": invalid.farmers[1].remaining = -0.1
+		check(not MODEL.new(values).migrate_v4(invalid).ok, "Strict old v4 validation rejects corruption before rerouting: " + field)
+	var failed_path := directory.path_join("blocked-v4.json")
+	_write(failed_path, old)
+	var failed_hash := FileAccess.get_sha256(failed_path)
+	DirAccess.make_dir_recursive_absolute(failed_path + ".tmp")
+	var blocked := STORE.new(failed_path, values).load_save()
+	check(not blocked.ok and blocked.get("migration_write_failed", false) and FileAccess.get_sha256(failed_path) == failed_hash, "Blocked v4 atomic replace preserves original main bytes")
+	DirAccess.remove_absolute(failed_path + ".tmp")
+	check(STORE.new(failed_path, values).load_save().ok, "A blocked v4 migration safely retries after its write failure clears")
+	var future := current.duplicate(true)
+	future.version = MODEL.SAVE_VERSION + 1
+	var future_path := directory.path_join("future-after-v5.json")
+	_write(future_path, future); _write(future_path + ".bak", old)
+	var future_hash := FileAccess.get_sha256(future_path)
+	var future_store := STORE.new(future_path, values)
+	check(not future_store.load_save().ok and not future_store.save(current).ok and FileAccess.get_sha256(future_path) == future_hash, "Future version is never overwritten or replaced by a migrated v4 backup")
 
 func _write(path: String, data: Dictionary) -> void:
 	var file := FileAccess.open(path, FileAccess.WRITE)

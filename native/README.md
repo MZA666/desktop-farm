@@ -9,6 +9,17 @@ Build from the project directory (the bridge also links the system `shell32` and
 ./native/build_tests.ps1
 ```
 
+The camera regression probe uses an isolated actual main scene and real mouse
+clicks/wheel, guarded by expected HWND and fixture process ID:
+
+```powershell
+& ./.tools/godot-4.7.2-stable/Godot_v4.7.2-stable_win64_console.exe --path . --log-file .review/camera-input.log --script res://native/tests/test_camera_input.gd -- --benchmark-fixture
+```
+
+It covers 32px arrows, 16px wheel steps, centering, height/scene memory including
+clamped extremes, 640px toolbar reach, and no transparent gaps at world edges.
+An unlocked desktop is required; it never injects input into a player's game.
+
 `DesktopHost.start(scene_window, toolbar_window, settings)` converts the scenery's Godot window ID to a native HWND and attaches `DesktopNative`. The scenery receives `WS_EX_LAYERED`, `WS_EX_NOACTIVATE`, and `WS_EX_TOOLWINDOW`; observation mode adds `WS_EX_TRANSPARENT`, and interaction removes it. The Godot root window is the clickable toolbar and receives `WS_EX_APPWINDOW`; scenery and management panels are owned tool windows without their own taskbar/Alt+Tab entry. `WM_MOUSEACTIVATE` on the toolbar returns `MA_ACTIVATE`, so a real first click activates it and reaches Godot. The bridge uses `SetWindowSubclass` rather than replacing the Godot window procedure, and scenery routing does not rely on Godot's mouse passthrough flag.
 
 `get_work_area()` returns the current monitor's `rcWork` as a `Rect2i`, excluding the taskbar. `get_dpi_scale()` returns `GetDpiForWindow(hwnd) / 96`. Layout uses physical window coordinates and informs the UI when the work area or scale changes. `try_single_instance()` retains a per-session named mutex until `release()` or process exit.

@@ -1,6 +1,6 @@
 extends SceneTree
 
-const WORLD = preload("res://scripts/world_layout.gd")
+const WORLD = preload("res://scripts/world_layout_v4.gd")
 const MOTION = preload("res://scripts/fish_motion.gd")
 var failures: Array[String] = []
 var assertions := 0

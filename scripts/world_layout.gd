@@ -3,20 +3,24 @@ extends RefCounted
 
 ## Stable simulation coordinates measured at actor feet. Camera, display
 ## mode and DPI never change these coordinates or the model's persisted IDs.
-const LAYOUT_VERSION := 4
+const LAYOUT_VERSION := 5
 const V3 = preload("res://scripts/world_layout_v3.gd")
+const V4 = preload("res://scripts/world_layout_v4.gd")
 const WATER = preload("res://scripts/water_region.gd")
 const WORLD_HEIGHT := 512.0
 const FARM_WIDTH := 1536.0
 const RANCH_WIDTH := 1920.0
 const POND_WIDTH := 1536.0
 const PLOT_COUNT := 96
-const PLOT_COLUMNS := 16
+const PLOT_COLUMNS := 18 # Widest visual row; IDs retain their legacy naming.
 const PLOT_ROWS := 6
-const PLOT_SIZE := 48.0 # Legacy scalar compatibility; use PLOT_RECT_SIZE.
-const PLOT_RECT_SIZE := Vector2(48, 36)
-const PLOT_STRIDE := Vector2(50, 38)
-const PLOT_ORIGIN := Vector2(448, 144)
+const PLOT_SIZE := 54.0 # Legacy scalar compatibility; use PLOT_RECT_SIZE.
+const PLOT_RECT_SIZE := Vector2(54, 40)
+const PLOT_STRIDE := Vector2(56, 42)
+const PLOT_ROW_COUNTS := [15, 16, 18, 18, 16, 13]
+const PLOT_ROW_ORIGINS := [Vector2(448,140), Vector2(430,182), Vector2(380,224),
+	Vector2(354,266), Vector2(394,308), Vector2(460,350)]
+const PLOT_ORIGIN := Vector2(448, 140)
 const SOIL_MARGIN := 2.0
 ## Manually marked in the original 1536x512 farm plate, independently of slots.
 const SOIL_BACKGROUND_SHA256 := "9983249ac55df7956fd875aeed08d2ab31bd81734b8562e301dd170f1db53fe8"
@@ -51,10 +55,24 @@ static func is_position_valid(scene: String, position: Vector2) -> bool:
 	var size := world_size(scene)
 	return size.x > 0.0 and position.is_finite() and position.x >= 0.0 and position.y >= 0.0 and position.x < size.x and position.y < size.y
 
-## Row-major index; the 96 legacy plot_*_* IDs remain unchanged in the model.
+## Row-major visual slots follow the soil contour. global_index and the 96
+## legacy plot_*_* IDs remain unchanged; their names are not visual row/column.
+static func plot_row(index: int) -> int:
+	var remaining := clampi(index, 0, PLOT_COUNT - 1)
+	for row in range(PLOT_ROWS):
+		if remaining < PLOT_ROW_COUNTS[row]: return row
+		remaining -= PLOT_ROW_COUNTS[row]
+	return PLOT_ROWS - 1
+
+static func plot_column(index: int) -> int:
+	var remaining := clampi(index, 0, PLOT_COUNT - 1)
+	for count in PLOT_ROW_COUNTS:
+		if remaining < count: return remaining
+		remaining -= count
+	return PLOT_ROW_COUNTS[-1] - 1
+
 static func plot_position(index: int) -> Vector2:
-	var safe := clampi(index, 0, PLOT_COUNT - 1)
-	return PLOT_ORIGIN + Vector2((safe % PLOT_COLUMNS) * PLOT_STRIDE.x, (safe / PLOT_COLUMNS) * PLOT_STRIDE.y)
+	return PLOT_ROW_ORIGINS[plot_row(index)] + Vector2(plot_column(index) * PLOT_STRIDE.x, 0)
 
 static func plot_bounds(index: int) -> Rect2:
 	return plot_rect(index)
@@ -72,7 +90,10 @@ static func plot_crop_anchor(index: int) -> Vector2:
 	return plot_position(index) + Vector2(PLOT_RECT_SIZE.x * 0.5, PLOT_RECT_SIZE.y - 4)
 
 static func field_bounds() -> Rect2:
-	return Rect2(PLOT_ORIGIN, Vector2((PLOT_COLUMNS - 1) * PLOT_STRIDE.x, (PLOT_ROWS - 1) * PLOT_STRIDE.y) + PLOT_RECT_SIZE)
+	var bounds := Rect2(PLOT_ROW_ORIGINS[0], Vector2((PLOT_ROW_COUNTS[0] - 1) * PLOT_STRIDE.x, 0) + PLOT_RECT_SIZE)
+	for row in range(1, PLOT_ROWS):
+		bounds = bounds.merge(Rect2(PLOT_ROW_ORIGINS[row], Vector2((PLOT_ROW_COUNTS[row] - 1) * PLOT_STRIDE.x, 0) + PLOT_RECT_SIZE))
+	return bounds
 
 static func soil_contains_rect(rect: Rect2, margin := SOIL_MARGIN) -> bool:
 	var expanded := rect.grow(margin)

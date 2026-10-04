@@ -192,7 +192,7 @@ func _test_v3_migration() -> void:
 	check(result.ok, "Ready v3 animal and active collection migrate safely: " + str(result.message))
 	if not result.ok: return
 	var migrated: Dictionary = result.data
-	check(migrated.version == 4 and migrated.layout_version == 4 and migrated.ground_products.size() == 1 and migrated.ground_products[0].quantity == 1, "One v3 ready unit becomes exactly one independent drop")
+	check(migrated.version == MODEL.SAVE_VERSION and migrated.layout_version == MODEL.LAYOUT_VERSION and migrated.ground_products.size() == 1 and migrated.ground_products[0].quantity == 1, "One v3 ready unit becomes exactly one independent drop across the complete upgrade chain")
 	check(migrated.ground_products[0].queued_at == 731 and migrated.animals[0].production_cycle == 6 and migrated.animals[0].product_remaining == 300 and migrated.animals[0].adult_bonus_used == 0, "Migration retains queue age and starts the next full cycle")
 	check(migrated.animals[0].last_reward_elapsed == 800 and migrated.animals[0].held_by.is_empty(), "Migration clears collection freeze while preserving interaction cooldown")
 	check(migrated.farmers[0].remaining == 1.4 and migrated.farmers[0].task_elapsed == 121.3 and migrated.farmers[0].task.target == migrated.ground_products[0].id and migrated.ground_products[0].claims.size() == 1, "Acting task retains action time and its older elapsed progress without a chasing timeout")
@@ -224,7 +224,7 @@ func _test_validation_and_save() -> void:
 			"price": bad.ground_products[0].batches[0].sell_price = -1
 			"cycle": bad.animals[0].last_drop_cycle = 99
 			"batch": bad.ground_products[0].batches[0].source_type = "unknown"
-			"future": bad.version = 5
+			"future": bad.version = MODEL.SAVE_VERSION + 1
 			"farmers": bad.farmers = 7
 			"farmer_object": bad.farmers = [7]
 			"products": bad.ground_products = 7
@@ -245,7 +245,7 @@ func _test_validation_and_save() -> void:
 	var hash := FileAccess.get_sha256(path)
 	var bad := game.snapshot(); bad.ground_products[0].quantity += 1
 	check(not store.save(bad).ok and FileAccess.get_sha256(path) == hash, "Invalid conservation is rejected before the current file changes")
-	var future := game.snapshot(); future.version = 5
+	var future := game.snapshot(); future.version = MODEL.SAVE_VERSION + 1
 	_write(path, future); _write(path + ".bak", game.snapshot())
 	var future_hash := FileAccess.get_sha256(path)
 	check(not store.load_save().ok and FileAccess.get_sha256(path) == future_hash, "Future schema is refused without falling back to an older backup")

@@ -271,13 +271,16 @@ func _process(delta: float) -> void:
 		var previous_hover := _hover
 		_hover = ""
 		if interactive:
-			for hit in _plot_hits:
-				if hit.rect.has_point(mouse):
-					_hover = str(hit.id)
+			_hover = str(_plot_at(mouse).get("id", ""))
 		if _hover != previous_hover:
 			if scene_name == "farm": _redraw_animation()
 			else: _invalidate_scene()
 	_redraw_animation()
+
+func _plot_at(point: Vector2) -> Dictionary:
+	for hit in _plot_hits:
+		if (hit.rect as Rect2).has_point(point): return hit
+	return {}
 
 func _input(event: InputEvent) -> void:
 	if not interactive or not is_visible_in_tree():
@@ -321,9 +324,7 @@ func _input(event: InputEvent) -> void:
 		_farm_drag_start = mouse
 		_farm_drag_end = mouse
 		_farm_shift = event.shift_pressed
-		_farm_press_hit = {}
-		for hit in _plot_hits:
-			if hit.rect.has_point(mouse): _farm_press_hit = hit; break
+		_farm_press_hit = _plot_at(mouse)
 		get_viewport().set_input_as_handled()
 	elif scene_name == "pond" and _water_input_contains(mouse):
 		_net_dragging = true

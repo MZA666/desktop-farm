@@ -25,7 +25,7 @@ func _run() -> void:
 		quit(2)
 		return
 	Engine.max_fps = 30
-	DirAccess.make_dir_recursive_absolute("res://docs/screenshots/v0.8.2")
+	DirAccess.make_dir_recursive_absolute("res://docs/screenshots/v0.8.3")
 	root.size = Vector2i(1536, 352)
 	root.position = Vector2i(0, 40)
 	var model = MODEL.new(CONFIG.load_values())
@@ -44,15 +44,16 @@ func _run() -> void:
 	check(view._plot_hits.size() == 96, "Expanded farm camera shows all96 independent soil hits")
 	var farm_image := root.get_texture().get_image()
 	check(farm_image.get_size() == Vector2i(1536, 352), "Farm raster uses expanded viewport at actual entity scale")
-	farm_image.save_png("res://docs/screenshots/v0.8.2/farm-1536.png")
+	farm_image.save_png("res://docs/screenshots/v0.8.3/farm-1536.png")
 	for soil_hit in view._plot_hits:
 		var actual := Rect2(view._to_world(soil_hit.rect.position),soil_hit.rect.size)
 		check(actual == WORLD.plot_rect(int(soil_hit.index)), "Rendered slot uses authoritative soil rectangle %s" % soil_hit.id)
 		check(WORLD.soil_contains_rect(actual), "Rendered slot stays on actual painted soil %s" % soil_hit.id)
+	await _test_crop_pixel_hits(view,model)
 	root.size = Vector2i(2560,352)
 	view.resize_view(Vector2(2560,352))
 	await settle()
-	root.get_texture().get_image().save_png("res://docs/screenshots/v0.8.2/farm-2560.png")
+	root.get_texture().get_image().save_png("res://docs/screenshots/v0.8.3/farm-2560.png")
 	var snapshot := JSON.stringify(model.snapshot())
 	view.camera_down()
 	view.page_next()
@@ -66,6 +67,7 @@ func _run() -> void:
 	root.size = Vector2i(1920, 352)
 	view.set_scene("ranch")
 	view.set_model(model.state, true)
+	view.camera_scroll(-1000)
 	await settle()
 	check(not view._animal_hits.is_empty(), "Real animal bodies create live interaction geometry")
 	var signals: Array[String] = []
@@ -98,7 +100,7 @@ func _run() -> void:
 	for candidate in view._animal_hits:
 		if str(candidate.id) == str(model.state.animals[0].id): same_animal = candidate; break
 	check(not same_animal.is_empty(), "Moved animal maintains the same interaction ID")
-	root.get_texture().get_image().save_png("res://docs/screenshots/v0.8.2/ranch-1920.png")
+	root.get_texture().get_image().save_png("res://docs/screenshots/v0.8.3/ranch-1920.png")
 	# Three units in one fixed pile while the producer continues its next cycle.
 	var producer: Dictionary = model.state.animals[0]
 	producer.adult = true
@@ -110,11 +112,26 @@ func _run() -> void:
 	await settle()
 	check(view._product_draws.size() == 1 and int(view._product_draws[0].quantity) == 3, "One ground sprite exposes the accumulated stack quantity")
 	check((view._product_draws[0].foot as Vector2).distance_to(view._to_screen(GROUND.point(model.state.ground_products[0])).floor()) < 0.01, "Ground sprite is anchored to the fixed collection target")
-	root.get_texture().get_image().save_png("res://docs/screenshots/v0.8.2/ranch-products.png")
+	root.get_texture().get_image().save_png("res://docs/screenshots/v0.8.3/ranch-products.png")
 	root.size = Vector2i(2560,352)
 	view.resize_view(Vector2(2560,352))
 	await settle()
-	root.get_texture().get_image().save_png("res://docs/screenshots/v0.8.2/ranch-2560.png")
+	root.get_texture().get_image().save_png("res://docs/screenshots/v0.8.3/ranch-2560.png")
+	view.camera_center()
+	model.state.warehouse_hay = 16
+	model.state.trough_hay = 6
+	view.set_model(model.state,true)
+	await settle()
+	check(view.hay_summary().warehouse == 16 and view.hay_summary().trough == 6, "Visible ranch hay HUD uses distinct actual stocks")
+	root.get_texture().get_image().save_png("res://docs/screenshots/v0.8.3/ranch-hay-middle.png")
+	root.size = Vector2i(640,172)
+	view.resize_view(Vector2(640,172))
+	view.page_next()
+	await settle()
+	check(Rect2(0,0,640,172).encloses(view._hay_hud_rect()), "Ranch hay stays on-screen when scrolling a narrow compact scene")
+	root.get_texture().get_image().save_png("res://docs/screenshots/v0.8.3/ranch-hay-compact.png")
+	root.size = Vector2i(2560,352)
+	view.resize_view(Vector2(2560,352))
 	view.set_scene("pond")
 	view.set_model(model.state, true)
 	await settle()
@@ -122,11 +139,11 @@ func _run() -> void:
 	check(view._pond_bounds.size == WORLD.water_bounds().size, "Pond bounding box follows the authoritative water region")
 	check(not view._water_input_contains(view._to_screen(Vector2(300,260))), "Dock input is rejected despite lying in the water bounding box")
 	check(view._water_input_contains(view._to_screen(Vector2(800,260))), "Open water accepts net input")
-	root.get_texture().get_image().save_png("res://docs/screenshots/v0.8.2/pond-2560.png")
+	root.get_texture().get_image().save_png("res://docs/screenshots/v0.8.3/pond-2560.png")
 	root.size = Vector2i(1920,352)
 	view.resize_view(Vector2(1920,352))
 	await settle()
-	root.get_texture().get_image().save_png("res://docs/screenshots/v0.8.2/pond-1920.png")
+	root.get_texture().get_image().save_png("res://docs/screenshots/v0.8.3/pond-1920.png")
 	view.set_process(false)
 	for unused in range(30):
 		model.tick(0.2)
@@ -190,3 +207,80 @@ func _run() -> void:
 	else:
 		for failure in failures: printerr("FAIL: " + failure)
 		quit(1)
+
+func _test_crop_pixel_hits(view,model) -> void:
+	var original_plots: Array = model.state.plots.duplicate(true)
+	var original_selection: Array = view.selected_plot_ids.duplicate()
+	var original_mode: bool = view.selection_mode
+	for plot in model.state.plots:
+		plot.status = "empty"
+		plot.product = {}
+	# These real mature atlas sprites cross the previous soil row, at both
+	# the left side of the world and the second narrow-camera page.
+	for index in [16,22]:
+		model.state.plots[index].crop_id = "parsnip"
+		model.state.plots[index].status = "ready"
+		model.state.plots[index].remaining = 0.0
+	view.selection_mode = true
+	var selections: Array = []
+	var selected := func(ids): selections.append(ids.duplicate())
+	view.plots_selected.connect(selected)
+	view.set_model(model.state,true)
+	view.camera_center()
+	await settle()
+	_check_crop_probe(view,model,16,1,selections,"expanded")
+	var masks_before: int = view._crop_masks.size()
+	var mask_before: BitMap = view._crop_masks["parsnip/3"]
+	view.camera_down()
+	await settle()
+	_check_crop_probe(view,model,16,1,selections,"scrolled")
+	check(view._crop_masks.size() == masks_before and view._crop_masks["parsnip/3"] == mask_before,"Camera redraw reuses compact alpha masks instead of reading images per frame")
+	root.size = Vector2i(640,172)
+	view.resize_view(Vector2(640,172))
+	view.focus_world(WORLD.plot_center(22))
+	await settle()
+	check(view.page == 1,"Real crop hit fixture uses a horizontally shifted 640-pixel page")
+	_check_crop_probe(view,model,22,7,selections,"compact second page")
+	check(view._crop_masks.size() <= 256,"Mask cache has at most one bit plane per crop and stage")
+	view.plots_selected.disconnect(selected)
+	model.state.plots = original_plots
+	view.selection_mode = original_mode
+	view.set_model(model.state,true)
+	view.set_selection(original_selection)
+	view.page = 0
+	root.size = Vector2i(1536,352)
+	view.resize_view(Vector2(1536,352))
+	view.camera_center()
+	await settle()
+
+func _check_crop_probe(view,model,index: int,upper_index: int,selections: Array,label: String) -> void:
+	var texture: Texture2D = view.SCENE_ART.crop("parsnip",3)
+	var pixels := texture.get_image()
+	check(pixels.get_pixel(32,40).a > 0.1 and pixels.get_pixel(32,1).a == 0,"Real mature parsnip atlas supplies opaque and transparent samples "+label)
+	var foot: Vector2 = view._to_screen(WORLD.plot_crop_anchor(index)).floor()
+	var rect := Rect2(foot-Vector2(26,76),Vector2(52,78))
+	var opaque := rect.position + Vector2(32.5,40.5) / Vector2(texture.get_size()) * rect.size
+	var clear := rect.position + Vector2(32.5,1.5) / Vector2(texture.get_size()) * rect.size
+	check(Rect2(Vector2.ZERO,Vector2(view.view_width,view.view_height)).has_point(opaque) and Rect2(Vector2.ZERO,Vector2(view.view_width,view.view_height)).has_point(clear),"Both actual raster pixels visible after camera transform "+label)
+	check(WORLD.plot_rect(upper_index).has_point(view._to_world(opaque)) and WORLD.plot_rect(upper_index).has_point(view._to_world(clear)),"Both pixels occupy the prior soil row, reproducing the original wrong-row click "+label)
+	check(str(view._plot_at(opaque).get("id","")) == str(model.state.plots[index].id),"Opaque visible crop resolves its own stable plot for click and hover "+label)
+	check(str(view._plot_at(clear).get("id","")) == str(model.state.plots[upper_index].id),"Transparent crop pixel reveals the actual soil behind it "+label)
+	var press := InputEventMouseButton.new()
+	press.button_index = MOUSE_BUTTON_LEFT
+	press.pressed = true
+	press.position = opaque
+	view._input(press)
+	var release: InputEventMouseButton = press.duplicate()
+	release.pressed = false
+	view._input(release)
+	check(not selections.is_empty() and selections[-1] == [str(model.state.plots[index].id)],"Real press/release selects the visible crop instead of the upper soil "+label)
+	press.position = clear
+	release.position = clear
+	view._input(press)
+	view._input(release)
+	check(selections[-1] == [str(model.state.plots[upper_index].id)],"Real press/release on transparency selects the underlying soil "+label)
+	press.position = opaque
+	release.position = opaque+Vector2(9,3)
+	view._input(press)
+	view._input(release)
+	check(selections[-1] == [str(model.state.plots[upper_index].id)],"Drag box still selects soil rectangles despite pressing on a tall crop "+label)
