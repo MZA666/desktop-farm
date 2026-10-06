@@ -161,6 +161,7 @@ func _test_worker_sale_reload() -> void:
 func _v3(game: FarmState) -> Dictionary:
 	var data := game.snapshot()
 	data.version = 3
+	data.plots.resize(96)
 	data.erase("layout_version"); data.erase("ground_products")
 	for animal in data.animals: animal.erase("last_drop_cycle")
 	for fish in data.fish:

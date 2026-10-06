@@ -37,7 +37,7 @@ git push
 git switch -c codex/new-feature
 ```
 
-发布可用带说明的标签，例如 `git tag -a v0.8.3 -m "v0.8.3 field camera and hay"`，然后 `git push origin v0.8.3`。标签对应已验收源码，试玩包由本机 `dist/` 构建，不随源码提交。0.8.3分支为 `codex/v0.8.3-field-camera-hay`，保留此前版本记录；本轮调整农田几何、干草库存和镜头，不再沿用旧B/C分版方案。
+发布可用带说明的标签，例如 `git tag -a v0.8.4 -m "v0.8.4 field and area net upgrades"`，然后 `git push origin v0.8.4`。标签对应已验收源码，试玩包由本机 `dist/` 构建，不随源码提交。0.8.4分支为 `codex/v0.8.4-field-and-net-upgrades`，保留此前版本记录；本轮增加4块边缘耕地、就近派工和渔网面积升级。版本标签用于定位已验收源码；GitHub主分支未自动合并这些功能分支。
 
 ## 换电脑开发
 

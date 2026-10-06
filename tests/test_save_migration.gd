@@ -5,6 +5,7 @@ const STORE = preload("res://scripts/save_store.gd")
 const CONFIG = preload("res://scripts/config_loader.gd")
 const WORLD = preload("res://scripts/world_layout.gd")
 const V4 = preload("res://scripts/world_layout_v4.gd")
+const V5 = preload("res://scripts/world_layout_v5.gd")
 const RANCH = preload("res://scripts/ranch_life.gd")
 const PRODUCTS = preload("res://scripts/ground_products.gd")
 var failures: Array[String] = []
@@ -118,6 +119,7 @@ func _run() -> void:
 	check(FileAccess.get_sha256(failed_path + ".bak") == older_backup_hash, "Blocked migration leaves older backup intact")
 	_test_v2()
 	_test_v4()
+	_test_v5()
 	_finish()
 
 func _test_v2() -> void:
@@ -125,6 +127,7 @@ func _test_v2() -> void:
 	model.tick(1)
 	var v2 := model.snapshot()
 	v2.version = 2
+	v2.plots.resize(96)
 	for key in ["pond", "ranch", "layout_version", "ground_products"]: v2.erase(key)
 	for fish in v2.fish:
 		var normalized: Vector2 = preload("res://scripts/world_layout.gd").fish_from_world(Vector2(fish.x, fish.y))
@@ -246,6 +249,8 @@ func _v4_fixture() -> Dictionary:
 	game.state.net_remaining = 6.75; game.state.fish_remaining = 117.25
 	var result := game.snapshot()
 	result.version = 4; result.layout_version = 4
+	result.plots.resize(96)
+	result.pond.erase("net_area_level")
 	return result
 
 func _test_v4() -> void:
@@ -257,10 +262,11 @@ func _test_v4() -> void:
 	check(result.ok, "Strict v4 farm routes migrate to the current layout: " + str(result.message))
 	if not result.ok: return
 	var current: Dictionary = result.data
-	check(current.version == MODEL.SAVE_VERSION and current.layout_version == MODEL.LAYOUT_VERSION, "Only version markers advance to SAVE5/Layout5")
+	check(current.version == MODEL.SAVE_VERSION and current.layout_version == MODEL.LAYOUT_VERSION, "Version markers advance through frozen SAVE5/Layout5 to SAVE6/Layout6")
 	check(JSON.stringify(old, "", true, true) == original, "In-memory v4 migration does not mutate its source")
-	for key in ["coins", "elapsed", "tick_fraction", "next_id", "transaction_id", "paid_hires", "seeds", "seed_reservations", "default_seed_id", "previous_default_seed_id", "unlocked_crops", "catalog", "rng", "settings", "pond", "ranch", "shelters", "storage_level", "warehouse_hay", "trough_hay", "grass_seeds", "grass_remaining", "fish_remaining", "net_remaining", "pending_fish", "animals", "grass", "fish", "ground_products"]:
+	for key in ["coins", "elapsed", "tick_fraction", "next_id", "transaction_id", "paid_hires", "seeds", "seed_reservations", "default_seed_id", "previous_default_seed_id", "unlocked_crops", "catalog", "rng", "settings", "ranch", "shelters", "storage_level", "warehouse_hay", "trough_hay", "grass_seeds", "grass_remaining", "fish_remaining", "net_remaining", "pending_fish", "animals", "grass", "fish", "ground_products"]:
 		check(current[key] == old[key], "v4 migration preserves existing resource/production state: " + key)
+	check(current.pond.net_level == old.pond.net_level and current.pond.capacity_level == old.pond.capacity_level and current.pond.net_area_level == 0, "Existing pond upgrades are preserved and the new net-area track begins at zero")
 	for index in range(96):
 		check(current.plots[index] == old.plots[index], "v4 stable ID, crop state, timers and pending plans remain exact at index %d" % index)
 	checker.state = old.duplicate(true)
@@ -324,6 +330,105 @@ func _test_v4() -> void:
 	var future_hash := FileAccess.get_sha256(future_path)
 	var future_store := STORE.new(future_path, values)
 	check(not future_store.load_save().ok and not future_store.save(current).ok and FileAccess.get_sha256(future_path) == future_hash, "Future version is never overwritten or replaced by a migrated v4 backup")
+
+func _test_v5() -> void:
+	# Captured from the v0.8.3 migration test before SAVE6 existed. This real
+	# old-schema file includes a prepaid walk, partial water and a claimed pile.
+	var fixture := "res://tests/fixtures/save-v5-active.json"
+	check(FileAccess.get_sha256(fixture) == "d7a3b71a4094e88f4cd64f8bd5a77fb77d4eca721965f6a51374f6a7955b5b3c", "Frozen v0.8.3 fixture retains its exact recorded bytes")
+	var old: Dictionary = JSON.parse_string(FileAccess.get_file_as_string(fixture))
+	var original := JSON.stringify(old, "", true, true)
+	var checker := MODEL.new(values)
+	check(checker._validate_v5(old).ok, "Real active v5 fixture validates with frozen World5")
+	checker.state = old.duplicate(true)
+	var old_budget := checker.protection()
+	var result := checker.migrate_v5(old)
+	check(result.ok, "Active v5 save adds the four locked plots: " + str(result.message))
+	if not result.ok: return
+	var current: Dictionary = result.data
+	check(JSON.stringify(old, "", true, true) == original, "v5 append migration never mutates its source")
+	check(current.version == 6 and current.layout_version == 6 and current.plots.size() == 100, "v5 migrates to SAVE6/Layout6 with exactly 100 entities")
+	for key in old:
+		if key in ["version", "layout_version", "plots", "pond"]: continue
+		check(current[key] == old[key], "Appending plots retains every old top-level value: " + str(key))
+	for index in range(96):
+		check(current.plots[index] == old.plots[index] and WORLD.plot_position(index) == V5.plot_position(index), "Original plot state, identity and coordinates exact at %d" % index)
+	for index in range(96, 100):
+		var plot: Dictionary = current.plots[index]
+		check(plot.id == "plot_6_%d" % (index - 96) and plot.index == index and not plot.open and plot.status == "empty" and plot.remaining == 0 and plot.product.is_empty() and not plot.return_seed and plot.pending_crop_id.is_empty(), "Only appended locked empty plot %d is introduced" % index)
+	check(current.pond.net_level == old.pond.net_level and current.pond.capacity_level == old.pond.capacity_level and current.pond.net_area_level == 0, "Net area starts at zero while old cooldown/capacity levels remain exact")
+	check(checker.restore(current).ok and checker.protection() == old_budget, "Four locked plots add no seeds, money or protected budget")
+	for index in range(old.farmers.size()):
+		check(checker.state.farmers[index] == old.farmers[index], "Each v5 actor retains exact route, remaining work, paid resources and ground claim: %d" % index)
+	var replay := MODEL.new(values)
+	check(replay.restore(current).ok, "Appended schema reloads with active tasks")
+	checker.tick(1.0); replay.tick(1.0)
+	check(checker.snapshot() == replay.snapshot(), "Active v5 water/pickup and fish movement replay deterministically after migration")
+	var path := directory.path_join("real-v5.json")
+	check(DirAccess.copy_absolute(ProjectSettings.globalize_path(fixture), path) == OK, "Real v5 bytes copied into an isolated test store")
+	var source_hash := FileAccess.get_sha256(path)
+	var store := STORE.new(path, values)
+	var loaded := store.load_save()
+	check(loaded.ok and loaded.get("migrated", false), "Store upgrades an actual v5 file atomically")
+	if not loaded.ok: return
+	var backup: String = loaded.migration_backup
+	check(backup.contains("version-v5-") and FileAccess.get_sha256(backup) == source_hash and FileAccess.get_sha256(path + ".bak") == source_hash, "Both v5 backups preserve exact pre-upgrade bytes")
+	check(store.load_save().ok and not store.load_save().get("migrated", false), "Second SAVE6 startup does not append four more plots")
+	check(store.save(current).ok and FileAccess.get_sha256(backup) == source_hash, "Ordinary save cannot overwrite the immutable v5 migration backup")
+	for field in ["count", "identity", "binding", "endpoint", "layout", "remaining"]:
+		var invalid := old.duplicate(true)
+		match field:
+			"count": invalid.plots.append(current.plots[96])
+			"identity": invalid.plots[95].id = "plot_6_0"
+			"binding": invalid.farmers[0].task.target = "plot_6_0"
+			"endpoint": invalid.farmers[0].path.pop_back()
+			"layout": invalid.layout_version = 6
+			"remaining": invalid.farmers[1].remaining = -0.1
+		check(not MODEL.new(values).migrate_v5(invalid).ok, "Frozen v5 validation rejects bad data before additions: " + field)
+	for field in ["missing_area", "fractional_area", "negative_area", "future_area", "last_index", "last_identity", "last_timer"]:
+		var invalid := current.duplicate(true)
+		match field:
+			"missing_area": invalid.pond.erase("net_area_level")
+			"fractional_area": invalid.pond.net_area_level = 0.5
+			"negative_area": invalid.pond.net_area_level = -1
+			"future_area": invalid.pond.net_area_level = 4
+			"last_index": invalid.plots[99].index = 98
+			"last_identity": invalid.plots[99].id = "plot_6_2"
+			"last_timer": invalid.plots[99].remaining = -1
+		check(not MODEL.new(values).restore(invalid).ok, "SAVE6 checks all appended fields and area level: " + field)
+	# Appended IDs are full entities: seed bindings and paid actions survive a
+	# reload, and none of the final four can bypass normal seed protection.
+	var appended := MODEL.new(values)
+	appended.state.coins = 1000000
+	for index in range(76): check(appended.command("expand_plot").ok, "100-plot fixture expands atomically %d" % index)
+	appended.state.farmers = []
+	for index in range(96, 100):
+		check(appended.command("set_crop", {"plot_ids": [str(appended.state.plots[index].id)], "crop_id": "cauliflower"}).ok, "New plot participates in normal pending seed/budget plan %d" % index)
+	appended._add_farmer("farm")
+	var farmer: Dictionary = appended.state.farmers[0]
+	var paid := {"action": "sow", "target": "plot_6_3"}
+	check(appended._reserve_task(paid, str(farmer.id)), "Final appended ID claims a single paid sow seed")
+	farmer.task = paid; farmer.mode = "working"
+	check(appended._set_farmer_path(farmer, WORLD.target_position("farm", "plot_6_3", appended.state)), "Final appended ID binds to its actual added soil position")
+	var saved := appended.snapshot()
+	var resumed := MODEL.new(values)
+	check(resumed.restore(saved).ok and resumed.protection() == appended.protection() and resumed.state.farmers[0] == farmer, "100-plot seed reservations and active last-ID task roundtrip without another charge")
+	appended.tick(60); resumed.tick(60)
+	check(appended.snapshot() == resumed.snapshot(), "All 100 plot bindings replay identically after a mid-walk reload")
+	var blocked_path := directory.path_join("blocked-v5.json")
+	_write(blocked_path, old)
+	var blocked_hash := FileAccess.get_sha256(blocked_path)
+	DirAccess.make_dir_recursive_absolute(blocked_path + ".tmp")
+	var blocked := STORE.new(blocked_path, values).load_save()
+	check(not blocked.ok and blocked.get("migration_write_failed", false) and FileAccess.get_sha256(blocked_path) == blocked_hash, "Blocked v5 atomic replace preserves the original main file")
+	DirAccess.remove_absolute(blocked_path + ".tmp")
+	check(STORE.new(blocked_path, values).load_save().ok, "v5 migration retries after an unavailable write clears")
+	var future := current.duplicate(true)
+	future.version = 7
+	var future_path := directory.path_join("future-after-v6.json")
+	_write(future_path, future); _write(future_path + ".bak", old)
+	var future_hash := FileAccess.get_sha256(future_path)
+	check(not STORE.new(future_path, values).load_save().ok and not STORE.new(future_path, values).save(current).ok and FileAccess.get_sha256(future_path) == future_hash, "Future save remains untouched despite an older valid v5 backup")
 
 func _write(path: String, data: Dictionary) -> void:
 	var file := FileAccess.open(path, FileAccess.WRITE)

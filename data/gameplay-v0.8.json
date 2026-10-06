@@ -1,7 +1,7 @@
 {
-  "version": "0.8.1",
+  "version": "0.8.4",
   "parameters": {
-    "max_crop_plots": 96,
+    "max_crop_plots": 100,
     "farmer_speed": 32,
     "farmer_speed_min": 16,
     "farmer_speed_max": 48,
@@ -13,6 +13,12 @@
       { "cooldown": 15, "cost": 200 },
       { "cooldown": 10, "cost": 400 },
       { "cooldown": 5, "cost": 800 }
+    ],
+    "net_area_levels": [
+      { "radius": 20, "cost": 0 },
+      { "radius": 29, "cost": 300 },
+      { "radius": 35, "cost": 700 },
+      { "radius": 40, "cost": 1500 }
     ],
     "pond_capacity_levels": [
       { "capacity": 12, "cost": 0 },
@@ -92,7 +98,11 @@
       3551,
       3598,
       3645,
-      3692
+      3692,
+      3739,
+      3786,
+      3833,
+      3880
     ]
   },
   "source": "docs/development-proposal-v0.8.md; confirmed individual plots, whole inventory priority and actual farmer travel"

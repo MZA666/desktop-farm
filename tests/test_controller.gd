@@ -189,9 +189,9 @@ func _run() -> void:
 	check(renderer._segment_hits_rect(Vector2(0, 40), Vector2(100, 40), Rect2(30, 30, 20, 20)), "Drag segment hits fish bounds")
 	check(not renderer._segment_hits_rect(Vector2.ZERO, Vector2(100, 5), Rect2(30, 30, 20, 20)), "Drag segment outside fish does not catch")
 	check(renderer._segment_hits_rect(Vector2(40, 40), Vector2(40, 40), Rect2(30, 30, 20, 20)), "Stationary click also hits fish")
-	renderer.fish_clicked.disconnect(controller._cast_net)
-	var caught_ids: Array[String] = []
-	renderer.fish_clicked.connect(func(id: String): caught_ids.append(id))
+	renderer.disconnect("net_cast_requested", controller._cast_net_area)
+	var caught_centers: Array[Vector2] = []
+	renderer.connect("net_cast_requested", func(center: Vector2): caught_centers.append(center))
 	renderer.set_scene("pond")
 	renderer.position = Vector2.ZERO
 	renderer.resize_view(Vector2(1536, 352))
@@ -214,13 +214,18 @@ func _run() -> void:
 	var move := InputEventMouseMotion.new()
 	move.position = drag_finish
 	renderer._input(move)
-	check(caught_ids.is_empty(), "Dragging does not emit before release")
+	check(caught_centers.is_empty(), "Dragging does not emit before release")
 	var release := InputEventMouseButton.new()
 	release.button_index = MOUSE_BUTTON_LEFT
 	release.position = move.position
 	release.pressed = false
 	renderer._input(release)
-	check(caught_ids == ["first"], "Crossing two fish emits only the first on one release (caught=%s, start=%s, finish=%s, size=%s)" % [caught_ids, drag_start, drag_finish, Vector2(renderer.view_width, renderer.view_height)])
+	check(caught_centers == [water_finish], "Drag release emits one final area center, never fish crossed earlier")
+	press.position = drag_start
+	renderer._input(press)
+	release.position = renderer._to_screen(Vector2(100,100))
+	renderer._input(release)
+	check(caught_centers.size() == 1 and not renderer.get("_net_valid"), "Dragging onto land cancels the cast")
 	controller.host.shutdown()
 	controller.queue_free()
 	await process_frame
@@ -296,7 +301,8 @@ func _test_pond_modes_and_interaction(controller, blocker_path: String, valid_pa
 	controller._open_panel("pond")
 	var net_button: Button = controller.popup_body.find_child("PondUpgradeNet", true, false) as Button
 	var capacity_button: Button = controller.popup_body.find_child("PondUpgradeCapacity", true, false) as Button
-	check(net_button != null and capacity_button != null and net_button.disabled and not net_button.tooltip_text.is_empty(), "Pond panel disables upgrades that would consume protected seed funds")
+	var area_button: Button = controller.popup_body.find_child("PondUpgradeArea", true, false) as Button
+	check(net_button != null and capacity_button != null and area_button != null and area_button.disabled and net_button.disabled and not net_button.tooltip_text.is_empty(), "Pond panel disables upgrades that would consume protected seed funds")
 	var before_upgrade: Dictionary = controller.model.snapshot()
 	check(not controller._act("upgrade_net", {}, false) and JSON.stringify(before_upgrade) == JSON.stringify(controller.model.snapshot()), "Blocked pond upgrade changes neither coins nor timers")
 	controller.model.state.coins += 10000
@@ -307,7 +313,11 @@ func _test_pond_modes_and_interaction(controller, blocker_path: String, valid_pa
 	check(controller.model.state.pond.net_level == 1 and controller.model.balance() == upgrade_cash - 200, "Real net upgrade button charges only the next level cost")
 	capacity_button.pressed.emit()
 	check(controller.model.state.pond.capacity_level == 1 and controller.model.balance() == upgrade_cash - 500, "Real pond capacity button independently charges 300")
-	check(controller.model.state.net_remaining == 7.0 and controller.model.state.fish_remaining == 37.0, "Both UI upgrades preserve active pond timers")
+	area_button.pressed.emit()
+	check(controller.model.state.pond.net_area_level == 1 and controller.model.balance() == upgrade_cash - 800, "Real net area upgrade independently costs300")
+	check(controller.saves.load_save().data.pond.net_area_level == 1 and controller.POND.net_catch_limit(controller.model.state, controller.config) == 2, "Area level and two-fish capacity persist")
+	check(controller.model.state.net_remaining == 7.0 and controller.model.state.fish_remaining == 37.0, "All three UI upgrades preserve active pond timers")
+	_test_area_batch(controller, blocker_path, valid_path)
 	controller._close_panel()
 	controller.toolbar.find_child("DisplayMode", true, false).pressed.emit()
 	check(controller.model.state.settings.display_mode == "compact" and controller.scene_window.content_scale_size.y == 208 and controller.view.view_height == 172, "Real display mode button selects the compact scenery window")
@@ -345,3 +355,36 @@ func _test_pond_modes_and_interaction(controller, blocker_path: String, valid_pa
 	controller._apply_settings()
 	controller.view.set_model(controller.model.state, true)
 	controller._save_now()
+
+func _test_area_batch(controller, blocker_path: String, valid_path: String) -> void:
+	var before: Dictionary = controller.model.snapshot()
+	controller.model.state.pond.net_area_level = 3
+	controller.model.state.net_remaining = 0.0
+	var template: Dictionary = controller.model.state.fish[0].duplicate(true)
+	var product := str(controller.model.fish_types[str(template.type_id)].product_id)
+	controller.model.state.catalog.erase(product)
+	controller.model.state.fish = []
+	for index in range(5):
+		var fish: Dictionary = template.duplicate(true)
+		fish.id = "area_ui_%d" % index
+		for key in ["x", "previous_x", "target_x"]: fish[key] = 800.0 + index * 8
+		for key in ["y", "previous_y", "target_y"]: fish[key] = 260.0
+		controller.model.state.fish.append(fish)
+	var staged: Dictionary = controller.model.snapshot()
+	controller.saves.path = blocker_path.path_join("area-batch-fails.json")
+	var feedback_count: int = controller.view.get("_income_feedback").size()
+	controller._cast_net_area(Vector2(800,260))
+	check(JSON.stringify(controller.model.snapshot()) == JSON.stringify(staged), "Failed batch save restores all fish, discoveries, cash and cooldown")
+	check(controller.last_action_result.is_empty() and controller.view.get("_income_feedback").size() == feedback_count, "Rejected disk write emits no sale feedback")
+	controller.saves.path = valid_path
+	check(controller._save_now(), "Batch save failure can be recovered")
+	var cash: int = controller.model.balance()
+	controller._cast_net_area(Vector2(800,260))
+	var price: int = int(controller.model.fish_types[str(template.type_id)].sell_price)
+	check(controller.model.state.fish.size() == 1 and controller.last_action_result.count == 4, "Actual coordinate cast commits four of five nearby fish")
+	check(controller.last_action_result.discovered_count == 1 and controller.last_action_result.sold_count == 3 and controller.model.balance() == cash + price*3, "New same-species batch consumes one and sells three")
+	check(controller.model.state.catalog.has(product) and controller.panel_name == "pond", "Batch uses automatic discovery without a capture popup")
+	var stored: Dictionary = controller.saves.load_save().data
+	check(stored.fish.size() == 1 and stored.pond.net_area_level == 3 and stored.coins == controller.model.balance(), "Entire batch is persisted as one transaction")
+	check(controller.model.restore(before).ok, "Area test restores its original valid model")
+	check(controller._save_now(), "Area test restores the fixture disk snapshot")

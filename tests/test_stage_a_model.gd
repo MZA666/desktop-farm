@@ -42,13 +42,14 @@ func growing() -> FarmState:
 func _test_budget_and_library() -> void:
 	var game := fresh()
 	check(game.state.version == Model.SAVE_VERSION and game.state.layout_version == Model.LAYOUT_VERSION and not game.state.has("regions"), "Current schema retains independent plots and saves its layout version")
-	check(game.state.plots.size() == 96 and game.state.plots[23].open and not game.state.plots[24].open, "Initial first 24 of 96 plots open")
-	for i in range(96):
+	check(game.state.plots.size() == 100 and game.state.plots[23].open and not game.state.plots[24].open, "Initial first 24 of 100 plots open")
+	for i in range(100):
 		check(int(game.state.plots[i].index) == i and str(game.state.plots[i].id) == "plot_%d_%d" % [i / 16, i % 16], "Stable legacy ID and global index %d" % i)
 	check(game.protection() == 480, "Gift first batch leaves 480 budget")
 	game.tick(1)
 	check(game.protection() == 480 and int(game.state.seeds.parsnip) == 23, "Claimed first seed is not counted twice")
-	check(game.seed_preview("plot_0_0").in_flight and game.seed_preview("plot_0_0").cost == 0, "Preview reports owned in-flight seed without another quote")
+	var in_flight_id := str(game.state.farmers[0].task.target)
+	check(game.seed_preview(in_flight_id).in_flight and game.seed_preview(in_flight_id).cost == 0, "Preview reports owned in-flight seed without another quote")
 	var bought := fresh()
 	check(bought.command("buy_seeds", {"crop_id": "parsnip", "count": 24}).ok, "Seed purchase may convert protected cash into inventory")
 	check(bought.balance() == 520 and bought.state.seeds.parsnip == 48 and bought.protection() == 0 and bought.investable() == 520, "Purchase cash/stock/budget conserve investable money")
@@ -69,7 +70,14 @@ func _test_budget_and_library() -> void:
 	for i in range(72):
 		cost_sum += all.plot_expansion_price()
 		check(all.command("expand_plot").ok, "Independent expansion %d succeeds without region gates" % i)
-	check(cost_sum == 145500 and all.plot_expansion_price() == -1, "72 exact expansion prices sum to 145500 then stop at 96")
+	check(cost_sum == 145500 and all.plot_expansion_price() == 3739, "Original 72 expansion prices remain exact before the four additions")
+	var addition_sum := 0
+	for cost in [3739, 3786, 3833, 3880]:
+		check(all.plot_expansion_price() == cost, "New appended plot retains the approved continuation price %d" % cost)
+		addition_sum += all.plot_expansion_price()
+		check(all.command("expand_plot").ok, "New soil-edge plot unlocks individually")
+	check(addition_sum == 15238 and all.plot_expansion_price() == -1 and all.state.plots.all(func(p): return p.open), "Four additions total 15238 and expansion stops at all 100")
+	check(all.protection() == 3520 and all.state.seeds.parsnip == 24, "Opening added empty plots reserves their actual next two batches without gifting seeds")
 	var wrong := all.snapshot()
 	check(not all.command("expand_plot").ok and JSON.stringify(wrong) == JSON.stringify(all.snapshot()), "Full expansion rejects without mutation")
 
@@ -112,15 +120,16 @@ func _test_world_and_travel() -> void:
 	check(World.legacy_plot_position(0) == Vector2(64, 20) and World.legacy_plot_position(23) == Vector2(288, 84) and World.legacy_plot_position(95) == Vector2(1056, 84), "Legacy coordinate mapping remains available for strict migration")
 	check(World.V4.plot_position(0) == Vector2(448, 144) and World.V4.plot_position(23) == Vector2(798, 182) and World.V4.plot_position(95) == Vector2(1198, 334), "Frozen v4 retains its exact plot coordinates for migration")
 	var all_inside := true
-	for index in range(96): all_inside = all_inside and World.soil_contains_rect(World.plot_rect(index))
-	check(all_inside, "The current farm fits all 96 stable plot IDs in its annotated soil")
+	for index in range(100): all_inside = all_inside and World.soil_contains_rect(World.plot_rect(index))
+	check(all_inside, "The current farm fits all 100 stable plot IDs in its annotated soil")
 	var game := fresh()
 	game.state.farmers = game.state.farmers.filter(func(f): return f.home == "farm")
 	game.tick(1)
 	var farmer: Dictionary = game.state.farmers[0]
+	var dispatched_plot := game._find(game.state.plots, str(farmer.task.target))
 	var start := Vector2(float(farmer.x), float(farmer.y))
 	var target := Vector2(float(farmer.path_target_x), float(farmer.path_target_y))
-	check(farmer.phase == "walking" and farmer.mode == "working" and game.state.plots[0].status == "empty", "Sow remains uncommitted during real travel")
+	check(farmer.phase == "walking" and farmer.mode == "working" and dispatched_plot.status == "empty", "Sow remains uncommitted during real travel")
 	game.tick(1)
 	check(is_equal_approx(Vector2(float(farmer.x), float(farmer.y)).distance_to(start), 32.0), "Default speed moves 32 real world pixels in one second")
 	var position := Vector2(float(farmer.x), float(farmer.y))
@@ -131,7 +140,7 @@ func _test_world_and_travel() -> void:
 	game.tick(30)
 	resumed.tick(30)
 	check(JSON.stringify(game.snapshot()) == JSON.stringify(resumed.snapshot()), "Real-distance work deterministic across restore")
-	check(game.state.plots[0].status == "growing" and target == World.target_position("farm", "plot_0_0", game.state), "Only arrival plus full actions starts growth")
+	check(dispatched_plot.status == "growing" and target == World.target_position("farm", str(dispatched_plot.id), game.state), "Only arrival plus full actions starts growth")
 	var invalid := saved.duplicate(true)
 	invalid.farmers[0].x = NAN
 	check(not resumed.restore(invalid).ok, "NaN world position rejected")
@@ -139,17 +148,19 @@ func _test_world_and_travel() -> void:
 	exact.state.farmers = exact.state.farmers.filter(func(f): return f.home == "farm")
 	var worker: Dictionary = exact.state.farmers[0]
 	exact._dispatch(worker)
+	var exact_plot := exact._find(exact.state.plots, str(worker.task.target))
 	var distance := Vector2(float(worker.x), float(worker.y)).distance_to(Vector2(float(worker.path_target_x), float(worker.path_target_y)))
 	exact._advance_farmer(worker, distance / 32.0)
-	check(worker.phase == "acting" and is_equal_approx(float(worker.remaining), 2.0) and exact.state.plots[0].status == "empty", "Exact arrival starts full two-second action without early commit")
+	check(worker.phase == "acting" and is_equal_approx(float(worker.remaining), 2.0) and exact_plot.status == "empty", "Exact arrival starts full two-second action without early commit")
 	exact._advance_farmer(worker, 1.999)
-	check(exact.state.plots[0].status == "empty", "Action cannot commit before the last millisecond")
+	check(exact_plot.status == "empty", "Action cannot commit before the last millisecond")
 	exact._advance_farmer(worker, 0.001)
-	check(exact.state.plots[0].status == "unwatered" and worker.task.is_empty(), "Arrival plus exactly two seconds commits once")
+	check(exact_plot.status == "unwatered" and worker.task.is_empty(), "Arrival plus exactly two seconds commits once")
 
 func legacy_fixture() -> Dictionary:
 	var data := fresh().snapshot()
 	data.version = 1
+	data.plots.resize(96)
 	for fish in data.fish:
 		var normalized: Vector2 = World.fish_from_world(Vector2(fish.x, fish.y))
 		fish.x = normalized.x; fish.y = normalized.y

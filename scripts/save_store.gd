@@ -109,7 +109,7 @@ func _prepare_load(result: Dictionary, source: String, from_backup: bool) -> Dic
 			if not checked.ok: return checked
 			result.data = checker.snapshot()
 		return result
-	if version not in [1, 2, 3, 4] or config.is_empty():
+	if version not in [1, 2, 3, 4, 5] or config.is_empty():
 		return {"ok": false, "message": "不支持的存档版本：%s" % version}
 	var model := FarmState.new(config)
 	var migration: Dictionary
@@ -118,12 +118,13 @@ func _prepare_load(result: Dictionary, source: String, from_backup: bool) -> Dic
 		2: migration = model.migrate_v2(result.data)
 		3: migration = model.migrate_v3(result.data)
 		4: migration = model.migrate_v4(result.data)
+		5: migration = model.migrate_v5(result.data)
 	if not migration.ok:
 		return migration
 	var checked := model.restore(migration.data)
 	if not checked.ok:
 		return checked
-	# Preserve the exact legacy file before writing v5. Every migration backup
+	# Preserve the exact legacy file before writing the current schema. Each backup
 	# has a unique name; no subsequent save or recovery can overwrite it.
 	var stamp := str(int(Time.get_unix_time_from_system())) + "-" + str(Time.get_ticks_usec())
 	var legacy_backup := path + ".version-v%d-" % version + stamp + ".json"
@@ -152,4 +153,4 @@ func _failure(message: String) -> Dictionary:
 	return {"ok": false, "message": message}
 
 func _unsupported_version(version: Variant) -> bool:
-	return not (version is int or version is float) or not is_finite(float(version)) or float(version) != floorf(float(version)) or int(version) not in [1, 2, 3, 4, FarmState.SAVE_VERSION]
+	return not (version is int or version is float) or not is_finite(float(version)) or float(version) != floorf(float(version)) or int(version) not in [1, 2, 3, 4, 5, FarmState.SAVE_VERSION]

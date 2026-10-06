@@ -457,7 +457,7 @@ func _test_full_scale() -> void:
 	game.state.paid_hires = 6
 	game.state.pond.capacity_level = 3
 	while game.state.fish.size() < 36: game._spawn_fish()
-	check(game.state.plots.size() == 96 and game.state.grass.size() == 96 and game.state.animals.size() == 84 and game.state.farmers.size() == 9 and game.state.fish.size() == 36, "Full-scale fixture matches v3 96/96/84/9/36 caps")
+	check(game.state.plots.size() == 100 and game.state.grass.size() == 96 and game.state.animals.size() == 84 and game.state.farmers.size() == 9 and game.state.fish.size() == 36, "Full-scale fixture matches current 100/96/84/9/36 caps")
 	var total_started := Time.get_ticks_usec()
 	game.tick(900)
 	var midpoint := game.snapshot()

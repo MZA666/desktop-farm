@@ -16,6 +16,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 CONFIG = json.loads((ROOT / "data/production.json").read_text(encoding="utf-8"))
+GAMEPLAY = json.loads((ROOT / "data/gameplay-v0.8.json").read_text(encoding="utf-8"))
 SOURCE_BYTES = (ROOT / "data/source/workbook-v0.5.json").read_bytes()
 WORKBOOK = {
     s["sheet"]: {c["cell"]: c["cached"] if c.get("type") == "f" else c["value"]
@@ -251,6 +252,36 @@ class ConfigValidation(unittest.TestCase):
         self.assertTrue(CONFIG["source"]["workbook"].endswith("production-values-v0-5.xlsx"))
         self.assertTrue(CONFIG["source"]["design"].endswith("desktop-farm-design-v0-5.docx"))
         self.assertEqual(len(CONFIG["source"]["decision_overrides"]), 3)
+
+    def test_current_runtime_preserves_paid_plot_prices_and_appends_four(self):
+        self.assertEqual(GAMEPLAY["version"], "0.8.4")
+        self.assertEqual(GAMEPLAY["parameters"]["max_crop_plots"], 100)
+        costs = GAMEPLAY["upgrades"]["individual_plot_costs"]
+        # Exact accepted v0.8.3 schedule, including its original rounding.
+        historical = [350, 397, 444, 491, 538, 585, 632, 679, 726, 773, 821, 868,
+                      915, 962, 1009, 1056, 1103, 1150, 1197, 1244, 1291, 1338,
+                      1385, 1432, 1480, 1527, 1574, 1621, 1668, 1715, 1762, 1809,
+                      1856, 1903, 1950, 1997, 2044, 2091, 2139, 2186, 2233, 2280,
+                      2327, 2374, 2421, 2468, 2515, 2562, 2609, 2656, 2703, 2750,
+                      2797, 2845, 2892, 2939, 2986, 3033, 3080, 3127, 3174, 3221,
+                      3268, 3315, 3362, 3409, 3456, 3504, 3551, 3598, 3645, 3692]
+        self.assertEqual(costs[:72], historical)
+        self.assertEqual(costs[72:], [3739, 3786, 3833, 3880])
+        self.assertEqual(len(costs), 100 - 24)
+        self.assertTrue(all(type(cost) is int and cost > 0 for cost in costs))
+
+    def test_area_net_levels_have_independent_price_and_geometric_capacity(self):
+        levels = GAMEPLAY["upgrades"]["net_area_levels"]
+        self.assertEqual(levels, [{"radius": 20, "cost": 0}, {"radius": 29, "cost": 300},
+                                  {"radius": 35, "cost": 700}, {"radius": 40, "cost": 1500}])
+        self.assertEqual([math.floor(level["radius"] ** 2 / levels[0]["radius"] ** 2 + 1e-6)
+                          for level in levels], [1, 2, 3, 4])
+        self.assertEqual(GAMEPLAY["upgrades"]["net_levels"],
+                         [{"cooldown": 20, "cost": 0}, {"cooldown": 15, "cost": 200},
+                          {"cooldown": 10, "cost": 400}, {"cooldown": 5, "cost": 800}])
+        self.assertEqual(GAMEPLAY["upgrades"]["pond_capacity_levels"],
+                         [{"capacity": 12, "cost": 0}, {"capacity": 18, "cost": 300},
+                          {"capacity": 24, "cost": 600}, {"capacity": 36, "cost": 1800}])
 
 
 if __name__ == "__main__":

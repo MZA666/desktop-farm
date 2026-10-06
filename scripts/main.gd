@@ -43,6 +43,7 @@ var auto_save_elapsed := 0.0
 var ui_elapsed := 0.0
 var toast := "欢迎来到桌面农场。农夫会自动照料，你也可以点击地块浇水。"
 var toast_remaining := 12.0
+var last_action_result: Dictionary = {}
 var save_blocked := false
 var startup_blocked := false
 var quitting := false
@@ -116,6 +117,7 @@ func _ready() -> void:
 	view.plots_selected.connect(_on_plots_selected)
 	view.locked_plot_clicked.connect(func(_id: String): _open_panel("build"))
 	view.fish_clicked.connect(_cast_net)
+	view.connect("net_cast_requested", _cast_net_area)
 	view.connect("animal_clicked", Callable(self, "_interact_animal"))
 	if view.has_signal("shelter_clicked"):
 		view.connect("shelter_clicked", Callable(self, "_open_shelter"))
@@ -470,6 +472,7 @@ func _process(delta: float) -> void:
 		if not planting_seed_id.is_empty(): _refresh_plant_controls()
 
 func _act(action: String, payload: Dictionary = {}, rebuild := true) -> bool:
+	last_action_result = {}
 	if startup_blocked:
 		_open_panel("save_error")
 		return false
@@ -491,6 +494,7 @@ func _act(action: String, payload: Dictionary = {}, rebuild := true) -> bool:
 	view.set_model(model.state, true)
 	_refresh_labels()
 	if result.ok and rebuild and popup.visible: _render_panel()
+	if result.ok: last_action_result = result.duplicate(true)
 	return bool(result.ok)
 
 func _save_now() -> bool:
@@ -524,7 +528,15 @@ func _refresh_labels() -> void:
 	else:
 		var working: int = model.state.farmers.filter(func(f): return str(f.mode) == "working").size()
 		var hungry: int = model.state.animals.filter(func(a): return bool(a.hungry)).size()
-		status_label.text = "农夫 %d人在忙 · %s" % [working, "保存异常，请重试" if save_blocked else ("%d只动物缺粮" % hungry if hungry > 0 else "点击缺水地块浇水 · 种子库可安排种植")]
+		var detail := "种子库可安排种植"
+		if current_scene == "farm":
+			var ready: int = model.state.plots.filter(func(p): return bool(p.open) and str(p.status) == "ready").size()
+			var dry: int = model.state.plots.filter(func(p): return bool(p.open) and str(p.status) == "unwatered").size()
+			var empty: int = model.state.plots.filter(func(p): return bool(p.open) and str(p.status) == "empty").size()
+			detail = "待收 %d · 缺水 %d · 待播 %d" % [ready, dry, empty]
+		elif current_scene == "ranch": detail = "%d只缺粮 · 产物由农夫拾取" % hungry if hungry > 0 else "产物落地后由农夫拾取"
+		else: detail = "水面点击下网 · 鱼塘升级可扩大范围"
+		status_label.text = "农夫 %d人在忙 · %s" % [working, "保存异常，请重试" if save_blocked else detail]
 
 func _set_scene(id: String) -> void:
 	current_scene = id
@@ -571,7 +583,20 @@ func _on_tray_action(action: String) -> void:
 		"quit": _quit_game()
 
 func _cast_net(id: String) -> void:
-	if _act("cast_net", {"fish_id": id}, false): view.call("show_net_feedback")
+	for fish in model.state.fish:
+		if str(fish.id) == id:
+			view.call("_track_net", view.call("_to_screen", Vector2(float(fish.x), float(fish.y))))
+			break
+	if _act("cast_net", {"fish_id": id}, false): _net_feedback()
+
+func _cast_net_area(center: Vector2) -> void:
+	view.set("_net_center", center)
+	view.set("_net_valid", POND.WORLD.water_contains(center))
+	if _act("cast_net", {"center_x": center.x, "center_y": center.y}, false): _net_feedback()
+
+func _net_feedback() -> void:
+	view.call("show_net_feedback")
+	view.call("show_income_feedback", int(last_action_result.get("sale_value", 0)), view.get("_net_center"))
 
 func _interact_animal(id: String) -> void:
 	if _act("interact_animal", {"instance_id": id}, false): view.call("show_animal_feedback", id)
@@ -843,8 +868,8 @@ func _panel_build() -> void:
 	_title("独立耕地")
 	var opened: int = model.state.plots.filter(func(p): return bool(p.open)).size()
 	var land_row := _row()
-	_expand_label(land_row, "已开 %d / 96 块" % opened)
-	if opened < 96:
+	_expand_label(land_row, "已开 %d / %d 块" % [opened, model.state.plots.size()])
+	if opened < model.state.plots.size():
 		var quote := _preview_command("expand_plot")
 		var expand := _button(land_row, "开垦下一块 %d" % model.plot_expansion_price(), func(): _act("expand_plot"))
 		expand.name = "ExpandIndividualPlot"
@@ -1223,8 +1248,8 @@ func _panel_settings() -> void:
 func _panel_pond() -> void:
 	popup.title = "鱼塘升级"
 	_title("渔网与鱼塘")
-	_paragraph("首次捕获自动登记图鉴并消耗鱼，已登记的鱼自动出售。点击或拖过鱼可下网，未命中也会进入冷却。")
-	for entry in [{"key": "net_level", "action": "upgrade_net", "label": "渔网", "name": "PondUpgradeNet"}, {"key": "capacity_level", "action": "upgrade_pond", "label": "鱼塘容量", "name": "PondUpgradeCapacity"}]:
+	_paragraph("点击水面下网，拖动时预览范围，松手捕获网内最近的鱼；空网也会冷却。同一批次首次捕到新鱼种时，消耗一条登记，其余自动出售。")
+	for entry in [{"key": "net_level", "action": "upgrade_net", "label": "收网速度", "name": "PondUpgradeNet"}, {"key": "net_area_level", "action": "upgrade_net_area", "label": "渔网范围", "name": "PondUpgradeArea"}, {"key": "capacity_level", "action": "upgrade_pond", "label": "鱼塘容量", "name": "PondUpgradeCapacity"}]:
 		var card := _card(popup_body, "fish", "silver_fish")
 		_wrapped_label(card, str(entry.label))
 		var detail := _wrapped_label(card, "")
@@ -1243,15 +1268,21 @@ func _refresh_pond_quotes() -> void:
 	var upgrades: Dictionary = config.get("upgrades", {})
 	for key in _pond_quote_controls:
 		var controls: Dictionary = _pond_quote_controls[key]
-		var fallback: Array = POND.NET_LEVELS if key == "net_level" else POND.CAPACITY_LEVELS
-		var levels: Array = upgrades.get("net_levels" if key == "net_level" else "pond_capacity_levels", fallback)
+		var config_key := {"net_level": "net_levels", "net_area_level": "net_area_levels", "capacity_level": "pond_capacity_levels"}
+		var fallback: Array = POND.NET_LEVELS if key == "net_level" else (POND.NET_AREA_LEVELS if key == "net_area_level" else POND.CAPACITY_LEVELS)
+		var levels: Array = upgrades.get(config_key[key], fallback)
 		var level := int(model.state.pond.get(key, 0))
 		var maximum := level >= levels.size() - 1
 		var quote := _preview_command(str(controls.action))
 		var cost := 0 if maximum else int(levels[level + 1].cost)
 		var detail := "等级 %d / %d · 下网冷却 %s" % [level, levels.size() - 1, _duration(POND.cooldown(model.state, config))] if key == "net_level" else "等级 %d / %d · 容纳 %d 条鱼（当前 %d 条）" % [level, levels.size() - 1, POND.capacity(model.state, config), model.state.fish.size()]
+		if key == "net_area_level":
+			detail = "等级 %d / %d · 直径 %d像素 · 最多%d条（面积 %.2f倍）" % [level, levels.size()-1, int(POND.net_radius(model.state, config)*2), POND.net_catch_limit(model.state, config), POND.net_area(model.state, config)/(PI*400)]
 		if not maximum:
-			detail += " → %s" % (_duration(float(levels[level + 1].cooldown)) if key == "net_level" else "%d 条" % int(levels[level + 1].capacity))
+			if key == "net_area_level":
+				var next_state := {"pond": {"net_area_level": level+1}}
+				detail += " → 直径%d像素 / 最多%d条" % [int(POND.net_radius(next_state,config)*2), POND.net_catch_limit(next_state,config)]
+			else: detail += " → %s" % (_duration(float(levels[level + 1].cooldown)) if key == "net_level" else "%d 条" % int(levels[level + 1].capacity))
 		controls.detail.text = detail
 		controls.button.text = "已达最高等级" if maximum else "升级 %s · %d 金币" % [controls.label, cost]
 		controls.button.disabled = maximum or not quote.ok
@@ -1545,7 +1576,7 @@ func _make_benchmark_fixture() -> void:
 	model.state.paid_hires = 6
 	for id in SCENE_NAMES:
 		for unused in range(3): model._add_farmer(str(id))
-	model.state.pond = {"net_level": 3, "capacity_level": 3}
+	model.state.pond = {"net_level": 3, "net_area_level": 3, "capacity_level": 3}
 	model.state.fish.clear()
 	for unused in range(36): model._spawn_fish()
 	model.state.settings.display_mode = "expanded"
@@ -1598,6 +1629,7 @@ func _smoke_capture() -> void:
 		await RenderingServer.frame_post_draw
 		_smoke_save_scene(smoke_path.get_basename() + "-" + scene_id + ".png")
 	# Hit the live fish sprite through the renderer's real mouse route.
+	model.state.pond.net_area_level = 0
 	if not _smoke_require(not view._fish_hits.is_empty(), "UI_FISH_HIT_GEOMETRY_EMPTY"): return
 	var fish_hit: Dictionary = view._fish_hits[0]
 	var fish_count_before: int = model.state.fish.size()
@@ -1617,9 +1649,9 @@ func _smoke_capture() -> void:
 	_smoke_save_scene(smoke_path.get_basename() + "-animal-interaction.png")
 	print("UI_ANIMAL_INTERACTION_OK")
 	_set_scene("pond")
-	# Exercise both first-level upgrades after the full-capacity capture.
+	# Exercise all three independent first-level upgrades.
 	model.state.fish = model.state.fish.slice(0, 12)
-	model.state.pond = {"net_level": 0, "capacity_level": 0}
+	model.state.pond = {"net_level": 0, "net_area_level": 0, "capacity_level": 0}
 	view.set_model(model.state, true)
 	for name in ["hub", "crops", "inventory", "build", "animals", "farmers", "catalog", "settings", "pond"]:
 		var direct_buttons := {"hub": "Management", "crops": "SeedShop", "inventory": "SeedInventory", "animals": "AnimalShop", "pond": "PondManagement"}
@@ -1646,7 +1678,8 @@ func _smoke_capture() -> void:
 			var cash_before := model.balance()
 			(popup_body.find_child("PondUpgradeNet", true, false) as Button).pressed.emit()
 			(popup_body.find_child("PondUpgradeCapacity", true, false) as Button).pressed.emit()
-			if not _smoke_require(int(model.state.pond.net_level) == 1 and int(model.state.pond.capacity_level) == 1 and model.balance() == cash_before - 500, "UI_POND_UPGRADE_FAILED"): return
+			(popup_body.find_child("PondUpgradeArea", true, false) as Button).pressed.emit()
+			if not _smoke_require(int(model.state.pond.net_level) == 1 and int(model.state.pond.capacity_level) == 1 and int(model.state.pond.net_area_level) == 1 and model.balance() == cash_before - 800, "UI_POND_UPGRADE_FAILED"): return
 			print("UI_POND_UPGRADES_OK")
 		if name in ["crops", "inventory", "animals", "catalog"]:
 			popup.size = Vector2i(540, 500)
@@ -1668,6 +1701,7 @@ func _smoke_capture() -> void:
 			popup.get_texture().get_image().save_png(smoke_path.get_basename() + "-menu-catalog-detail.png")
 	# Verify real farm mouse routing and the planting HUD with an isolated save.
 	_close_panel()
+	if not await _smoke_area_batch(): return
 	_set_scene("farm")
 	view.set_interactive(true)
 	if not _act("buy_seeds", {"crop_id": "carrot", "count": 5}, false):
@@ -1747,6 +1781,30 @@ func _smoke_plot_point(hit: Dictionary) -> Vector2:
 			var actual: Dictionary = view._plot_at(point)
 			if str(actual.get("id", "")) == str(hit.id): return point
 	return Vector2(INF,INF)
+
+func _smoke_area_batch() -> bool:
+	model.state.pond.net_area_level = 3
+	model.state.net_remaining = 0.0
+	var template: Dictionary = model.state.fish[0].duplicate(true)
+	var kind: Dictionary = model.fish_types[str(template.type_id)]
+	model.state.catalog.erase(str(kind.product_id))
+	model.state.fish = []
+	for index in range(5):
+		var fish: Dictionary = template.duplicate(true)
+		fish.id = model._uid("fish")
+		for key in ["x", "previous_x", "target_x"]: fish[key] = 800.0 + index*8
+		for key in ["y", "previous_y", "target_y"]: fish[key] = 260.0
+		model.state.fish.append(fish)
+	view.set_model(model.state, true)
+	for unused in range(3): await get_tree().process_frame
+	var balance_before := model.balance()
+	_smoke_click(view.call("_to_screen", Vector2(800,260)))
+	if not _smoke_require(int(last_action_result.get("count",0)) == 4 and model.state.fish.size() == 1 and int(last_action_result.get("discovered_count",0)) == 1 and int(last_action_result.get("sold_count",0)) == 3 and model.balance() == balance_before + int(kind.sell_price)*3 and not popup.visible, "UI_AREA_BATCH_FAILED"): return false
+	for unused in range(3): await get_tree().process_frame
+	await RenderingServer.frame_post_draw
+	_smoke_save_scene(smoke_path.get_basename() + "-area-batch.png")
+	print("UI_AREA_BATCH_OK: caught4 discovered1 sold3 one cooldown no popup")
+	return true
 
 func _smoke_click(local_position: Vector2) -> void:
 	var event := InputEventMouseButton.new()

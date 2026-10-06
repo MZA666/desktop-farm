@@ -25,7 +25,7 @@ func _run() -> void:
 		quit(2)
 		return
 	Engine.max_fps = 30
-	DirAccess.make_dir_recursive_absolute("res://docs/screenshots/v0.8.3")
+	DirAccess.make_dir_recursive_absolute("res://docs/screenshots/v0.8.4")
 	root.size = Vector2i(1536, 352)
 	root.position = Vector2i(0, 40)
 	var model = MODEL.new(CONFIG.load_values())
@@ -41,19 +41,25 @@ func _run() -> void:
 		plot.remaining = float(model.crops[str(plot.crop_id)].grow_seconds) * float(4 - index % 4) / 4
 	view.set_model(model.state, true)
 	await settle()
-	check(view._plot_hits.size() == 96, "Expanded farm camera shows all96 independent soil hits")
+	check(view._plot_hits.size() == 100, "Expanded farm camera shows all100 independent soil hits")
 	var farm_image := root.get_texture().get_image()
 	check(farm_image.get_size() == Vector2i(1536, 352), "Farm raster uses expanded viewport at actual entity scale")
-	farm_image.save_png("res://docs/screenshots/v0.8.3/farm-1536.png")
+	farm_image.save_png("res://docs/screenshots/v0.8.4/farm-1536.png")
 	for soil_hit in view._plot_hits:
 		var actual := Rect2(view._to_world(soil_hit.rect.position),soil_hit.rect.size)
 		check(actual == WORLD.plot_rect(int(soil_hit.index)), "Rendered slot uses authoritative soil rectangle %s" % soil_hit.id)
 		check(WORLD.soil_contains_rect(actual), "Rendered slot stays on actual painted soil %s" % soil_hit.id)
 	await _test_crop_pixel_hits(view,model)
+	# Growth silhouette changes do not alter terrain pixels.
+	var cached_bakes: int = view._static_bake_count
+	model.state.plots[0].remaining = float(model.crops[str(model.state.plots[0].crop_id)].grow_seconds)*0.1
+	view.set_model(model.state)
+	await settle()
+	check(view._static_bake_count == cached_bakes, "Changing live crop phase reuses unchanged soil texture")
 	root.size = Vector2i(2560,352)
 	view.resize_view(Vector2(2560,352))
 	await settle()
-	root.get_texture().get_image().save_png("res://docs/screenshots/v0.8.3/farm-2560.png")
+	root.get_texture().get_image().save_png("res://docs/screenshots/v0.8.4/farm-2560.png")
 	var snapshot := JSON.stringify(model.snapshot())
 	view.camera_down()
 	view.page_next()
@@ -63,6 +69,18 @@ func _run() -> void:
 	check(view.camera_y >= 0 and view.camera_y <= 340, "Compact vertical camera stays inworld bounds")
 	view.camera_up()
 	check(view.camera_y >= 0, "Camera up clamps to world edge")
+	var middle_release := InputEventMouseButton.new()
+	middle_release.button_index = MOUSE_BUTTON_MIDDLE
+	middle_release.pressed = false
+	middle_release.position = Vector2(-8,-8)
+	view._panning = true
+	view.set_interactive(false)
+	view._input(middle_release)
+	check(not view._panning, "Middle release outside scenery still ends pan during an interaction mode change")
+	view.set_interactive(true)
+	view._panning = true
+	view.set_scene("farm")
+	check(not view._panning, "Scene selection cancels the previous camera gesture")
 	view.resize_view(Vector2(1920, 352))
 	root.size = Vector2i(1920, 352)
 	view.set_scene("ranch")
@@ -100,7 +118,7 @@ func _run() -> void:
 	for candidate in view._animal_hits:
 		if str(candidate.id) == str(model.state.animals[0].id): same_animal = candidate; break
 	check(not same_animal.is_empty(), "Moved animal maintains the same interaction ID")
-	root.get_texture().get_image().save_png("res://docs/screenshots/v0.8.3/ranch-1920.png")
+	root.get_texture().get_image().save_png("res://docs/screenshots/v0.8.4/ranch-1920.png")
 	# Three units in one fixed pile while the producer continues its next cycle.
 	var producer: Dictionary = model.state.animals[0]
 	producer.adult = true
@@ -112,24 +130,25 @@ func _run() -> void:
 	await settle()
 	check(view._product_draws.size() == 1 and int(view._product_draws[0].quantity) == 3, "One ground sprite exposes the accumulated stack quantity")
 	check((view._product_draws[0].foot as Vector2).distance_to(view._to_screen(GROUND.point(model.state.ground_products[0])).floor()) < 0.01, "Ground sprite is anchored to the fixed collection target")
-	root.get_texture().get_image().save_png("res://docs/screenshots/v0.8.3/ranch-products.png")
+	root.get_texture().get_image().save_png("res://docs/screenshots/v0.8.4/ranch-products.png")
+	await _test_pickup_feedback(view,model)
 	root.size = Vector2i(2560,352)
 	view.resize_view(Vector2(2560,352))
 	await settle()
-	root.get_texture().get_image().save_png("res://docs/screenshots/v0.8.3/ranch-2560.png")
+	root.get_texture().get_image().save_png("res://docs/screenshots/v0.8.4/ranch-2560.png")
 	view.camera_center()
 	model.state.warehouse_hay = 16
 	model.state.trough_hay = 6
 	view.set_model(model.state,true)
 	await settle()
 	check(view.hay_summary().warehouse == 16 and view.hay_summary().trough == 6, "Visible ranch hay HUD uses distinct actual stocks")
-	root.get_texture().get_image().save_png("res://docs/screenshots/v0.8.3/ranch-hay-middle.png")
+	root.get_texture().get_image().save_png("res://docs/screenshots/v0.8.4/ranch-hay-middle.png")
 	root.size = Vector2i(640,172)
 	view.resize_view(Vector2(640,172))
 	view.page_next()
 	await settle()
 	check(Rect2(0,0,640,172).encloses(view._hay_hud_rect()), "Ranch hay stays on-screen when scrolling a narrow compact scene")
-	root.get_texture().get_image().save_png("res://docs/screenshots/v0.8.3/ranch-hay-compact.png")
+	root.get_texture().get_image().save_png("res://docs/screenshots/v0.8.4/ranch-hay-compact.png")
 	root.size = Vector2i(2560,352)
 	view.resize_view(Vector2(2560,352))
 	view.set_scene("pond")
@@ -139,11 +158,12 @@ func _run() -> void:
 	check(view._pond_bounds.size == WORLD.water_bounds().size, "Pond bounding box follows the authoritative water region")
 	check(not view._water_input_contains(view._to_screen(Vector2(300,260))), "Dock input is rejected despite lying in the water bounding box")
 	check(view._water_input_contains(view._to_screen(Vector2(800,260))), "Open water accepts net input")
-	root.get_texture().get_image().save_png("res://docs/screenshots/v0.8.3/pond-2560.png")
+	root.get_texture().get_image().save_png("res://docs/screenshots/v0.8.4/pond-2560.png")
 	root.size = Vector2i(1920,352)
 	view.resize_view(Vector2(1920,352))
 	await settle()
-	root.get_texture().get_image().save_png("res://docs/screenshots/v0.8.3/pond-1920.png")
+	root.get_texture().get_image().save_png("res://docs/screenshots/v0.8.4/pond-1920.png")
+	await _test_area_preview(view,model)
 	view.set_process(false)
 	for unused in range(30):
 		model.tick(0.2)
@@ -160,6 +180,12 @@ func _run() -> void:
 			for fish_track in view._fish_tracks.values():
 				check(WORLD.fish_position_safe(view._fish_position(fish_track)), "Delayed UI sampling never shortcuts a fish across a shore")
 	view.set_process(true)
+	await settle()
+	var pond_bakes: int = view._static_bake_count
+	model.tick(1)
+	view.set_model(model.state)
+	await settle()
+	check(view._static_bake_count == pond_bakes, "Fish movement and elapsed seconds reuse the pond background")
 	var before_hidden := JSON.stringify(model.snapshot())
 	view.set_desktop_suspended(true)
 	var bake_count: int = view._static_bake_count
@@ -284,3 +310,66 @@ func _check_crop_probe(view,model,index: int,upper_index: int,selections: Array,
 	view._input(press)
 	view._input(release)
 	check(selections[-1] == [str(model.state.plots[upper_index].id)],"Drag box still selects soil rectangles despite pressing on a tall crop "+label)
+
+func _test_area_preview(view, model) -> void:
+	var center := Vector2(800,260)
+	view._net_dragging = true
+	view._track_net(view._to_screen(center))
+	view.set_process(false)
+	model.state.pond.net_area_level = 3
+	view.set_model(model.state,true)
+	view._redraw_animation()
+	await settle()
+	check(not view._net_segments.is_empty(), "Area4 renders real clipped net mesh")
+	for segment in view._net_segments:
+		check(WORLD.water_contains(segment[0].lerp(segment[1],0.5)), "Every rendered mesh section stays on water")
+		check(center.distance_to(segment[0]) <= 40.01 and center.distance_to(segment[1]) <= 40.01, "Rendered mesh uses the same40px authoritative radius")
+	root.get_texture().get_image().save_png("res://docs/screenshots/v0.8.4/pond-area-net.png")
+	# At the dock edge, only the water portion of the circle remains visible.
+	view._track_net(view._to_screen(Vector2(438,306)))
+	view._redraw_animation()
+	await settle()
+	for segment in view._net_segments:
+		check(WORLD.water_contains(segment[0].lerp(segment[1],0.5)), "Shore/dock clip removes dry mesh segments")
+	view.cancel_gestures()
+	check(not view._net_dragging and not view._net_valid, "Canceling hides the uncommitted net")
+	var animal: Dictionary = model.state.animals[0]
+	animal.hungry = false
+	animal.last_reward_elapsed = float(model.state.elapsed)
+	view.set_model(model.state,true)
+	check(view.animal_interaction_hint(animal).contains("02:00"), "Animal tooltip shows the current personal reward countdown")
+	animal.last_reward_elapsed = float(model.state.elapsed) - 120
+	model.state.ranch.global_reward_elapsed = float(model.state.elapsed)
+	check(view.animal_interaction_hint(animal).contains("00:02"), "Animal tooltip also respects the global2sec spacing")
+	model.state.ranch.global_reward_elapsed -= 2
+	check(view.animal_interaction_hint(animal).contains("可获得"), "Available reward uses the matching hint")
+	var quota_key := "adult_bonus_used" if bool(animal.adult) else "juvenile_bonus_used"
+	animal[quota_key] = float(model.animal_types[str(animal.type_id)].get("produce_seconds" if bool(animal.adult) else "adult_seconds"))* (0.1 if bool(animal.adult) else 0.2)
+	check(view.animal_interaction_hint(animal).contains("额度已用完"), "Exhausted stage quota never advertises another reward")
+	view.set_process(true)
+
+func _test_pickup_feedback(view, model) -> void:
+	var before: Dictionary = model.state.duplicate(true)
+	var pile: Dictionary = model.state.ground_products[0]
+	var batch: Dictionary = pile.batches[0]
+	var price := int(batch.sell_price)
+	view._income_feedback.clear()
+	view.set_model(model.state,true)
+	# A simultaneous seed order can exceed pickup proceeds; display the pickup
+	# itself rather than treating net wallet change as the sale amount.
+	batch.quantity -= 1
+	pile.quantity -= 1
+	model.state.coins -= 20
+	model.state.elapsed += 1
+	view.set_model(model.state)
+	check(view._income_feedback.size() == 1 and int(view._income_feedback[0].amount) == price, "Actual pickup displays its sale despite concurrent seed spending")
+	view.set_desktop_suspended(true)
+	batch.quantity -= 1
+	pile.quantity -= 1
+	model.state.elapsed += 1
+	view.set_model(model.state)
+	check(view._income_feedback.size() == 1, "Suspended scenery does not accumulate invisible income animations")
+	view.set_desktop_suspended(false)
+	model.state = before
+	view.set_model(model.state,true)
+	await settle()

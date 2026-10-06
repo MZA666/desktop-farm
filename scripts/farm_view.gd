@@ -79,6 +79,7 @@ var _static_layer: Node2D
 var _static_bake_count := 0
 var _static_layout_key := ""
 var _farm_visual_key := -1
+var _terrain_visual_key := -1
 var _plots_by_id: Dictionary = {}
 var _farm_dragging := false
 var _farm_drag_start := Vector2.ZERO
@@ -136,8 +137,10 @@ func set_model(values: Dictionary, force := false) -> void:
 	_sample_farmers(values)
 	var second := int(floor(float(values.get("elapsed", 0))))
 	var visual_key := _farm_state_key() if scene_name == "farm" else _farm_visual_key
-	var needs_update := visual_key != _farm_visual_key if scene_name == "farm" else second != _last_static_second
+	var terrain_key := _terrain_state_key(visual_key) if scene_name == "farm" else _terrain_visual_key
+	var needs_update := terrain_key != _terrain_visual_key if scene_name == "farm" else second != _last_static_second
 	_farm_visual_key = visual_key
+	_terrain_visual_key = terrain_key
 	if force or needs_update:
 		_last_static_second = second
 		_invalidate_scene()
@@ -242,10 +245,13 @@ func _farm_state_key() -> int:
 		var status := str(plot.get("status", "empty"))
 		var crop: Dictionary = _crops.get(str(plot.get("crop_id", "")), {})
 		var growth := 1.0 - float(plot.get("remaining", 0)) / maxf(1.0, float(crop.get("grow_seconds", 720)))
-		var stage := 0 if growth < 0.25 else 1 if growth < 0.7 else 2
+		var stage := clampi(floori(growth * 4), 0, 3)
 		var processing_step := floori((1.0 - float(plot.get("remaining", 0)) / 180.0) * 8) if status == "processing" else 0
-		parts.append([plot.get("id", ""), plot.get("index", 0), plot.get("open", false), plot.get("crop_id", ""), status, stage if status == "growing" else 0, processing_step])
+		parts.append([plot.get("id", ""), plot.get("index", 0), plot.get("open", false), plot.get("crop_id", ""), (plot.get("product", {}) as Dictionary).get("id", ""), status, stage if status == "growing" else 0, processing_step])
 	return hash(parts)
+
+func _terrain_state_key(visual_key: int) -> int:
+	return visual_key
 
 func _index(entries: Variant) -> Dictionary:
 	if entries is Dictionary:

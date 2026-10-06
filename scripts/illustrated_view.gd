@@ -5,6 +5,7 @@ extends "res://scripts/farm_view.gd"
 ## All model coordinates stay in the world when the camera or height changes.
 signal animal_clicked(instance_id: String)
 signal shelter_clicked(shelter_id: String)
+signal net_cast_requested(center: Vector2)
 const SCENE_ART = preload("res://scripts/scene_assets.gd")
 const POND_RULES = preload("res://scripts/pond_rules.gd")
 const CAMERA_BUTTON_STEP := 32.0
@@ -22,6 +23,12 @@ var _pan_origin := Vector2.ZERO
 var _ranch_visual_key := -1
 var _animal_hover := ""
 var _net_flash_until := 0.0
+var _net_center := Vector2.ZERO
+var _net_valid := false
+var _net_segments: Array = []
+var _income_feedback: Array = []
+var _pickup_samples: Dictionary = {}
+var _pickup_sample_elapsed := -1.0
 var _fish_tracks: Dictionary = {}
 var _last_fish_sample := -1.0
 var _gait_tracks: Dictionary = {}
@@ -44,6 +51,7 @@ func _ready() -> void:
 	_invalidate_scene()
 
 func set_model(values: Dictionary, force := false) -> void:
+	_sample_pickups(values)
 	_sample_animals(values)
 	_sample_fish(values)
 	_shelter_counts.clear()
@@ -53,14 +61,22 @@ func set_model(values: Dictionary, force := false) -> void:
 		var entry: Dictionary = _shelter_counts[sid]
 		entry.total = int(entry.total) + 1
 		entry.kinds[str(animal.type_id)] = int(entry.kinds.get(str(animal.type_id), 0)) + 1
+	# Scenic pond/ranch changes are tracked below; elapsed seconds alone do
+	# not change a terrain pixel and should not rebake the background.
+	if scene_name != "farm": _last_static_second = floori(float(values.get("elapsed", 0)))
 	super.set_model(values, force)
-	var visual_key := hash([values.get("grass", []), values.get("shelters", {}), values.get("pond", {}), values.get("storage_level", 0), values.get("trough_hay", 0), values.get("warehouse_hay", 0)])
-	if scene_name != "farm" and visual_key != _ranch_visual_key:
+	var grass_visuals: Array = []
+	for patch in values.get("grass", []):
+		grass_visuals.append([patch.get("open", false), patch.get("clumps", 0), patch.get("x", 0), patch.get("y", 0), patch.get("appearance", 0), patch.get("mother", false)])
+	var visual_key := hash([grass_visuals, values.get("storage_level", 0), values.get("trough_hay", 0), values.get("warehouse_hay", 0)])
+	if scene_name == "ranch" and visual_key != _ranch_visual_key:
 		_ranch_visual_key = visual_key
 		_invalidate_scene()
 
 func set_scene(value: String) -> void:
+	cancel_gestures()
 	super.set_scene(value)
+	_net_valid = false
 	camera_y = float(_scene_camera.get(scene_name, WORLD.world_size(scene_name).y * 0.5)) - view_height * 0.5
 	_animal_hits.clear()
 	_animal_hover = ""
@@ -83,6 +99,12 @@ func resize_view(size: Vector2) -> void:
 func _static_key() -> String:
 	return "%s/%d/%d/%d/%d" % [scene_name, page, ceili(view_width), ceili(view_height), roundi(camera_y)]
 
+func _terrain_state_key(_visual_key: int) -> int:
+	var parts: Array = []
+	for plot in model_state.get("plots", []):
+		parts.append([plot.get("index",0), plot.get("open",false), str(plot.get("status","empty")) in ["growing","ready","processing"], str(plot.get("status","empty")) == "empty"])
+	return hash(parts)
+
 func _update_camera() -> void:
 	super._update_camera()
 	camera_y = clampf(camera_y, 0, maxf(0, WORLD.world_size(scene_name).y - view_height))
@@ -97,6 +119,7 @@ func _to_world(screen_position: Vector2) -> Vector2:
 func cancel_gestures() -> void:
 	super.cancel_gestures()
 	_panning = false
+	_net_valid = false
 
 func _camera_span() -> float:
 	return view_width if view_width >= WORLD.world_size(scene_name).x else maxf(192.0, view_width - 48.0)
@@ -134,6 +157,26 @@ func show_net_feedback() -> void:
 	_net_flash_until = _animation_seconds + 0.65
 	_redraw_animation()
 
+func show_income_feedback(amount: int, center: Vector2) -> void:
+	if amount <= 0 or _desktop_suspended: return
+	if _income_feedback.size() >= 24: _income_feedback.pop_front()
+	_income_feedback.append({"amount": amount, "center": center, "scene": scene_name, "until": _animation_seconds + 1.6})
+	_redraw_animation()
+
+func _sample_pickups(values: Dictionary) -> void:
+	var current: Dictionary = {}
+	for pile in values.get("ground_products", []):
+		for batch in pile.get("batches", []):
+			current[str(batch.id)] = {"quantity": int(batch.quantity), "price": int(batch.sell_price), "center": Vector2(float(pile.x), float(pile.y))}
+	var now := float(values.get("elapsed", 0))
+	if scene_name == "ranch" and not _desktop_suspended and now > _pickup_sample_elapsed:
+		for id in _pickup_samples:
+			var previous: Dictionary = _pickup_samples[id]
+			var removed := int(previous.quantity) - int(current.get(id, {}).get("quantity", 0))
+			if removed > 0: show_income_feedback(removed * int(previous.price), previous.center)
+	_pickup_samples = current
+	_pickup_sample_elapsed = now
+
 func _process(delta: float) -> void:
 	super._process(delta)
 	_animal_hover = ""
@@ -149,6 +192,9 @@ func _process(delta: float) -> void:
 				break
 
 func _input(event: InputEvent) -> void:
+	# Releases over a UI button (or during a mode change) still end panning.
+	if event is InputEventMouseButton and event.button_index == MOUSE_BUTTON_MIDDLE and not event.pressed:
+		_panning = false
 	if not interactive or _desktop_suspended or not is_visible_in_tree(): return
 	var control := get_viewport().gui_get_hovered_control()
 	if control != null and control.mouse_filter != Control.MOUSE_FILTER_IGNORE:
@@ -165,6 +211,13 @@ func _input(event: InputEvent) -> void:
 		return
 	if event is InputEventMouseButton:
 		var mouse: Vector2 = get_global_transform_with_canvas().affine_inverse() * event.position
+		if scene_name == "pond" and event.button_index == MOUSE_BUTTON_LEFT and not event.pressed and _net_dragging:
+			_track_net(mouse)
+			_net_dragging = false
+			if _net_valid: net_cast_requested.emit(_net_center)
+			_redraw_animation()
+			get_viewport().set_input_as_handled()
+			return
 		if event.button_index == MOUSE_BUTTON_MIDDLE:
 			if event.pressed and Rect2(Vector2.ZERO, Vector2(view_width, view_height)).has_point(mouse):
 				_panning = true
@@ -275,6 +328,9 @@ func _illustrated_soil() -> void:
 		for row in range(3):
 			var yy := bounds.position.y + floorf(bounds.size.y * float(row + 1) / 4.0)
 			_canvas().draw_line(Vector2(bounds.position.x + 4, yy), Vector2(bounds.end.x - 4, yy), Color(0.30, 0.15, 0.07, 0.38), 1)
+		if str(plot.status) == "empty":
+			for offset in [Vector2(4,4), Vector2(bounds.size.x-6,4), Vector2(4,bounds.size.y-6), bounds.size-Vector2(6,6)]:
+				_box(Rect2(bounds.position + offset, Vector2(2,2)), Color("#bdae73"))
 
 func _illustrated_grass() -> void:
 	for patch in model_state.get("grass", []):
@@ -386,7 +442,7 @@ func _draw_animated() -> void:
 			"product": _illustrated_product(foot, actor.data)
 			"farmer": _illustrated_farmer(foot, actor.data, actor.get("track", {}), actor.foot)
 	if scene_name == "farm":
-		var hit_key := hash([page, view_width, view_height, camera_y, _crop_hits])
+		var hit_key := hash([page, view_width, view_height, camera_y, _farm_visual_key])
 		if hit_key != _crop_hit_key:
 			_crop_hit_key = hit_key
 			# Re-evaluate a stationary pointer after a camera move or a changed
@@ -394,13 +450,16 @@ func _draw_animated() -> void:
 			_last_mouse = Vector2(INF, INF)
 	var foreground: Texture2D = SCENE_ART.foreground(scene_name)
 	if foreground != null: _canvas().draw_texture_rect(foreground, Rect2(_to_screen(Vector2.ZERO), WORLD.world_size(scene_name)), false)
-	if scene_name == "farm": _draw_farm_overlay()
+	if scene_name == "farm":
+		_draw_crop_states()
+		_draw_farm_overlay()
 	elif scene_name == "ranch":
 		_draw_shelter_signs()
 		if not _shelter_hover.is_empty(): _shelter_tooltip()
 		else: _animal_tooltip()
 		_draw_hay_hud()
 	elif scene_name == "pond": _pond_hint()
+	_draw_income_feedback()
 	_draw_target = null
 
 func _illustrated_crop(foot: Vector2, plot: Dictionary) -> void:
@@ -418,17 +477,43 @@ func _illustrated_crop(foot: Vector2, plot: Dictionary) -> void:
 		if ART.CROP_IDS.has(product_id): id = product_id
 	var texture: Texture2D = SCENE_ART.crop(id, stage)
 	if texture != null:
-		var rect := Rect2(foot - Vector2(26, 76), Vector2(52, 78))
+		var rect := _crop_draw_rect(foot, id)
+		_canvas().draw_circle(foot + Vector2(0, -1), 10, Color(0.18, 0.10, 0.035, 0.22))
 		_canvas().draw_texture_rect(texture, rect, false)
 		var mask := _crop_mask(id, stage, texture)
 		if mask != null:
 			_crop_hits.append({"id": str(plot.id), "index": int(plot.index), "rect": rect, "mask": mask})
-	if status == "unwatered": _draw_drop(foot + Vector2(18, -12), Color("#acddea"))
-	elif status == "ready": _star(foot + Vector2(22, -34), GOLD)
-	elif status == "processing":
-		var remaining := clampf(1.0 - float(plot.remaining) / 180.0, 0, 1)
-		_box(Rect2(foot + Vector2(-18, -1), Vector2(36, 3)), Color("#654526"))
-		_box(Rect2(foot + Vector2(-18, -1), Vector2(36 * remaining, 3)), GOLD)
+
+func _crop_draw_rect(foot: Vector2, id: String) -> Rect2:
+	# Preserve each ground anchor while giving leafy crops less visual weight.
+	var size_value := Vector2(52, 78) if id in ["parsnip", "corn", "wheat", "sunflower", "bean", "hops"] else Vector2(48, 66)
+	return Rect2(foot - Vector2(size_value.x * 0.5, size_value.y - 2), size_value)
+
+func _draw_crop_states() -> void:
+	# Draw after all crops/actors so the next row cannot hide a water/ready mark.
+	for plot in model_state.get("plots", []):
+		if not bool(plot.open): continue
+		var foot := _to_screen(WORLD.plot_crop_anchor(int(plot.index))).floor()
+		if not Rect2(-32, -80, view_width + 64, view_height + 160).has_point(foot): continue
+		var status := str(plot.status)
+		if status in ["unwatered", "ready"]:
+			var mark := foot + Vector2(18, -12)
+			_canvas().draw_circle(mark, 6, Color(0.22, 0.13, 0.06, 0.7))
+			if status == "unwatered": _draw_drop(mark, Color("#acddea"))
+			else: _star(mark, GOLD)
+		elif status == "processing":
+			var remaining := clampf(1.0 - float(plot.remaining) / 180.0, 0, 1)
+			_box(Rect2(foot + Vector2(-18, -1), Vector2(36, 3)), Color("#654526"))
+			_box(Rect2(foot + Vector2(-18, -1), Vector2(36 * remaining, 3)), GOLD)
+
+func _draw_income_feedback() -> void:
+	_income_feedback = _income_feedback.filter(func(entry): return float(entry.until) > _animation_seconds)
+	for entry in _income_feedback:
+		if str(entry.scene) != scene_name: continue
+		var lift := (1.6 - float(entry.until) + _animation_seconds) * 18
+		var origin := _to_screen(entry.center) + Vector2(-25, -20 - lift)
+		_label("+%d" % int(entry.amount), origin + Vector2(1, 1), INK, 14, 100)
+		_label("+%d" % int(entry.amount), origin, GOLD, 14, 100)
 
 func _crop_mask(id: String, stage: int, texture: Texture2D) -> BitMap:
 	var key := "%s/%d" % [id, stage]
@@ -567,11 +652,9 @@ func _illustrated_water() -> void:
 		var drift := sin(_animation_seconds * 0.75 + index) * 7
 		_canvas().draw_line(center + Vector2(drift, 0), center + Vector2(drift + 12, 0), Color(0.78, 0.95, 0.94, 0.34), 1)
 		_canvas().draw_line(center + Vector2(drift + 3, 3), center + Vector2(drift + 8, 3), Color(0.23, 0.67, 0.77, 0.27), 1)
-	if _net_dragging:
-		_canvas().draw_circle(_net_previous, 18, Color(1, 0.91, 0.58, 0.16))
-		_canvas().draw_arc(_net_previous, 18, 0, TAU, 16, GOLD, 1)
-	elif _net_flash_until > _animation_seconds:
-		_canvas().draw_arc(_net_previous, 14 + (_animation_seconds + 0.65 - _net_flash_until) * 30, 0, TAU, 20, Color(1, 0.91, 0.58, 0.6), 2)
+	_net_segments.clear()
+	if _net_valid and (_net_dragging or _net_flash_until > _animation_seconds):
+		_draw_area_net(_net_center, POND_RULES.net_radius(model_state, config))
 	var level := int((model_state.get("pond", {}) as Dictionary).get("net_level", 0))
 	var dock := _to_screen(WORLD.POND_DOCK)
 	for index in range(level + 1):
@@ -635,24 +718,45 @@ func _water_input_contains(point: Vector2) -> bool:
 	return WORLD.water_contains(_to_world(point))
 
 func _track_net(point: Vector2) -> void:
-	if _net_candidate.is_empty():
-		var start := _to_world(_net_previous)
-		var finish := _to_world(point)
-		for interval in WORLD.net_segment_intervals(start,finish):
-			var safe_start := _to_screen(start.lerp(finish,interval.x))
-			var safe_finish := _to_screen(start.lerp(finish,interval.y))
-			for hit in _fish_hits:
-				if _segment_hits_rect(safe_start,safe_finish,hit.rect):
-					_net_candidate = str(hit.id)
-					break
-			if not _net_candidate.is_empty(): break
 	_net_previous = point
+	_net_candidate = ""
+	_net_center = _to_world(point)
+	_net_valid = Rect2(Vector2.ZERO, Vector2(view_width, view_height)).has_point(point) and WORLD.water_contains(_net_center)
+	if not _net_valid: return
+	# A visible fish body can be tapped at the fin. Snap to its authoritative
+	# center so the visual hit is included in the same model area calculation.
+	for hit in _fish_hits:
+		if not (hit.rect as Rect2).has_point(point): continue
+		for fish in model_state.get("fish", []):
+			if str(fish.id) != str(hit.id): continue
+			_net_center = WORLD.fish_visual_position(fish)
+			_net_candidate = str(hit.id)
+			return
+
+func _draw_area_net(center: Vector2, radius: float) -> void:
+	for index in range(32):
+		var a := center + Vector2.from_angle(TAU * index / 32.0) * radius
+		var b := center + Vector2.from_angle(TAU * (index + 1) / 32.0) * radius
+		_net_line(a, b, GOLD, 1.5)
+	for offset in range(-int(radius) + 4, int(radius), 8):
+		var span := sqrt(maxf(0, radius * radius - offset * offset))
+		_net_line(center + Vector2(-span, offset), center + Vector2(span, offset), Color(1,0.92,0.65,0.45), 1)
+		_net_line(center + Vector2(offset, -span), center + Vector2(offset, span), Color(1,0.92,0.65,0.45), 1)
+
+func _net_line(a: Vector2, b: Vector2, color: Color, width: float) -> void:
+	for interval in WORLD.net_segment_intervals(a, b):
+		# Inset tiny boundary endpoints: dock and shore do not display mesh.
+		var start := a.lerp(b, minf(interval.y, interval.x + 0.0001))
+		var finish := a.lerp(b, maxf(interval.x, interval.y - 0.0001))
+		_net_segments.append([start, finish])
+		_canvas().draw_line(_to_screen(start), _to_screen(finish), color, width)
 
 func _pond_hint() -> void:
 	var cooldown := float(model_state.get("net_remaining", 0))
 	var message := "%d / %d条 · " % [(model_state.get("fish", []) as Array).size(), POND_RULES.capacity(model_state, config)]
-	message += "渔网 " + _clock(cooldown) if cooldown > 0 else ("点击或拖过鱼撒网" if interactive else "观察中")
-	var width := minf(320, view_width - 24)
+	message += "最多%d条 · " % POND_RULES.net_catch_limit(model_state, config)
+	message += "冷却 " + _clock(cooldown) if cooldown > 0 else ("点水面下网，拖动定位" if interactive else "观察中")
+	var width := minf(384, view_width - 24)
 	_box(Rect2(12, view_height - 27, width, 23), Color(0.96, 0.91, 0.74, 0.90))
 	_label(message, Vector2(20, view_height - 11), INK, 12, width - 16)
 
@@ -663,12 +767,25 @@ func _animal_tooltip() -> void:
 		var animal: Dictionary = hit.animal
 		var definition: Dictionary = _animals.get(str(animal.type_id), {})
 		var title := str(definition.get("name", animal.type_id)) + (" · 成年" if bool(animal.adult) else " · 幼年")
-		var detail := "缺粮，成长与产出暂停" if bool(animal.hungry) else "点击互动 · 每只120秒奖励冷却"
+		var detail := animal_interaction_hint(animal)
 		var position_value := Vector2(clampf((hit.rect as Rect2).position.x, 8, maxf(8, view_width - 250)), 8)
 		_box(Rect2(position_value, Vector2(242, 45)), Color("#f0e0b9"))
 		_label(title, position_value + Vector2(8, 17), INK, 12, 226)
 		_label(detail, position_value + Vector2(8, 35), MUTED, 11, 226)
 		break
+
+func animal_interaction_hint(animal: Dictionary) -> String:
+	if bool(animal.get("hungry", false)): return "缺粮，成长与产出暂停"
+	var now := float(model_state.get("elapsed", 0))
+	var wait := maxf(0, 120 - now + float(animal.get("last_reward_elapsed", -120)))
+	wait = maxf(wait, 2 - now + float((model_state.get("ranch", {}) as Dictionary).get("global_reward_elapsed", -2)))
+	if wait > 0: return "互动奖励还需 %s" % _clock(wait)
+	var kind: Dictionary = _animals.get(str(animal.get("type_id", "")), {})
+	var adult := bool(animal.get("adult",false))
+	var used := float(animal.get("adult_bonus_used" if adult else "juvenile_bonus_used",0))
+	var cap := float(kind.get("produce_seconds" if adult else "adult_seconds",0)) * (0.1 if adult else 0.2)
+	if used >= cap: return "本阶段互动额度已用完"
+	return "点击互动 · 可获得成长/产出加成"
 
 func _ranch_pages() -> Array:
 	# Compatibility for tooling: ordinary camera pages contain nearby barns.

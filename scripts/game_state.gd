@@ -5,17 +5,20 @@ extends RefCounted
 ## All seconds measure active process time. tick() is the only clock entry point.
 signal changed
 
-const SAVE_VERSION := 5
-const LAYOUT_VERSION := 5
+const SAVE_VERSION := 6
+const LAYOUT_VERSION := 6
 const SEED_PLAN = preload("res://scripts/seed_planner.gd")
 const WORLD = preload("res://scripts/world_layout.gd")
 const WORLD_V3 = preload("res://scripts/world_layout_v3.gd")
 const WORLD_V4 = preload("res://scripts/world_layout_v4.gd")
+const WORLD_V5 = preload("res://scripts/world_layout_v5.gd")
 const RANCH = preload("res://scripts/ranch_life.gd")
 const POND = preload("res://scripts/pond_rules.gd")
 const PRODUCTS = preload("res://scripts/ground_products.gd")
 const FISH_MOTION = preload("res://scripts/fish_motion.gd")
 const SCENES := ["farm", "ranch", "pond"]
+const FARM_NEARBY_QUEUE_SECONDS := 30.0
+const FARM_MAX_WAIT_SECONDS := 60.0
 var config: Dictionary = {}
 var state: Dictionary = {}
 var crops: Dictionary = {}
@@ -72,14 +75,14 @@ func new_game() -> void:
 		"animals": [], "farmers": [], "fish": [], "pending_fish": {}, "ground_products": [],
 		"fish_remaining": float(_p("fish_spawn_seconds", 180)), "net_remaining": 0.0,
 		"catalog": {}, "rng": {"grass": 1567331, "fish": 3917737, "crop": 998231, "animal": 712367},
-		"pond": {"net_level": 0, "capacity_level": 0}, "ranch": {"global_reward_elapsed": -2.0},
+		"pond": {"net_level": 0, "capacity_level": 0, "net_area_level": 0}, "ranch": {"global_reward_elapsed": -2.0},
 		"settings": {"topmost": false, "interactive": true, "power_saving": false, "collapsed": false, "farmer_speed": 32.0, "display_mode": "expanded"},
 	}
 	_tick_fraction = 0.0
 	for id in crops:
 		if int(crops[id].get("unlock_price", 0)) == 0:
 			state.unlocked_crops.append(id)
-	for index in range(96):
+	for index in range(WORLD.PLOT_COUNT):
 		state.plots.append({"id": "plot_%d_%d" % [index / 16, index % 16], "index": index,
 			"open": index < int(initial.get("crop_plots", 24)), "crop_id": default_crop,
 			"preferred_crop_id": default_crop, "pending_crop_id": "",
@@ -121,7 +124,7 @@ func get_plots() -> Array:
 func plot_expansion_price() -> int:
 	var owned: int = state.plots.filter(func(p): return bool(p.open)).size()
 	var prices: Array = config.get("upgrades", {}).get("individual_plot_costs", [])
-	return int(prices[owned - 24]) if owned >= 24 and owned < 96 and prices.size() == 72 else -1
+	return int(prices[owned - 24]) if owned >= 24 and owned < WORLD.PLOT_COUNT and prices.size() == WORLD.PLOT_COUNT - 24 else -1
 
 func seed_preview(plot_id: String) -> Dictionary:
 	var plot := _find(state.plots, plot_id)
@@ -200,6 +203,10 @@ func restore(data: Dictionary) -> Dictionary:
 		var migrated := migrate_v4(data)
 		if not migrated.ok: return migrated
 		data = migrated.data
+	elif _integer(data.get("version")) and int(data.version) == 5:
+		var migrated := migrate_v5(data)
+		if not migrated.ok: return migrated
+		data = migrated.data
 	data = data.duplicate(true)
 	PRODUCTS.reconcile(data)
 	var saved_farmers: Array = data.farmers if data.get("farmers") is Array else []
@@ -228,7 +235,7 @@ func restore(data: Dictionary) -> Dictionary:
 	changed.emit()
 	return _result(true, "存档已恢复")
 
-func _validate_v2(data: Dictionary, modern := false) -> Dictionary:
+func _validate_v2(data: Dictionary, modern := false, expected_plots := 96) -> Dictionary:
 	if not _integer(data.get("version")) or int(data.version) != 2:
 		return _result(false, "不支持的存档版本")
 	if data.has("regions") or not data.get("seed_reservations") is Array:
@@ -240,12 +247,13 @@ func _validate_v2(data: Dictionary, modern := false) -> Dictionary:
 		return _result(false, "上一默认订购种无效")
 	if not data.get("settings") is Dictionary or not _number(data.settings.get("farmer_speed")) or float(data.settings.farmer_speed) < 16 or float(data.settings.farmer_speed) > 48:
 		return _result(false, "农夫速度无效")
-	if not data.get("plots") is Array or data.plots.size() != 96: return _result(false, "地块数量无效")
+	if not data.get("plots") is Array or data.plots.size() != expected_plots: return _result(false, "地块数量无效")
 	if not data.get("farmers") is Array: return _result(false, "农夫列表无效")
 	var legacy := data.duplicate(true)
 	legacy.version = 1
 	legacy.regions = []
-	for ri in range(6): legacy.regions.append({"index": ri, "unlocked": true, "current_crop_id": "parsnip", "pending_crop_id": ""})
+	# Temporary adapters share entity checks; regions never enter a modern save.
+	for ri in range(ceili(expected_plots / 16.0)): legacy.regions.append({"index": ri, "unlocked": true, "current_crop_id": "parsnip", "pending_crop_id": ""})
 	for i in range(data.plots.size()):
 		var plot: Variant = data.plots[i]
 		if not plot is Dictionary or plot.has("region") or not _integer(plot.get("index")) or int(plot.index) != i:
@@ -254,7 +262,7 @@ func _validate_v2(data: Dictionary, modern := false) -> Dictionary:
 			return _result(false, "地块种植计划无效")
 		legacy.plots[i].region = i / 16
 		legacy.plots[i].index = i % 16
-	var common := _validate_v1(legacy, pond_capacity_from(data) if modern else 12)
+	var common := _validate_v1(legacy, pond_capacity_from(data) if modern else 12) if expected_plots == 96 else _validate_economy(legacy, pond_capacity_from(data), expected_plots)
 	if not common.ok: return common
 	var claim_keys := {}
 	for claim in data.seed_reservations:
@@ -285,7 +293,7 @@ func pond_capacity_from(data: Dictionary) -> int:
 func _legacy_position_valid(scene: String, position: Vector2) -> bool:
 	return position.is_finite() and position.x >= 0 and position.y >= 0 and position.y < 172 and position.x < (1920.0 if scene == "ranch" else 1152.0)
 
-func _validate_v3(data: Dictionary) -> Dictionary:
+func _validate_v3(data: Dictionary, expected_plots := 96) -> Dictionary:
 	if not _integer(data.get("version")) or int(data.version) != 3: return _result(false, "不支持的存档版本")
 	if not data.get("pond") is Dictionary: return _result(false, "鱼塘升级字段缺失")
 	for key in ["net_level", "capacity_level"]:
@@ -293,7 +301,7 @@ func _validate_v3(data: Dictionary) -> Dictionary:
 	if not data.get("settings") is Dictionary or not ["expanded", "compact"].has(str(data.settings.get("display_mode", ""))): return _result(false, "显示模式无效")
 	var legacy := data.duplicate(true)
 	legacy.version = 2
-	var common := _validate_v2(legacy, true)
+	var common := _validate_v2(legacy, true, expected_plots)
 	if not common.ok: return common
 	var ranch_error := RANCH.validate(data, animal_types, true)
 	if not ranch_error.is_empty(): return _result(false, ranch_error)
@@ -313,8 +321,12 @@ func _validate(data: Dictionary) -> Dictionary:
 func _validate_v4(data: Dictionary) -> Dictionary:
 	return _validate_world_state(data, 4, 4, WORLD_V4)
 
+func _validate_v5(data: Dictionary) -> Dictionary:
+	return _validate_world_state(data, 5, 5, WORLD_V5)
+
 func _validate_world_state(data: Dictionary, save_version: int, layout_version: int, geometry: Script) -> Dictionary:
 	if not _integer(data.get("version")) or int(data.version) != save_version or not _integer(data.get("layout_version")) or int(data.layout_version) != layout_version: return _result(false, "不支持的存档或布局版本")
+	if save_version >= 6 and (not data.get("pond") is Dictionary or not _integer(data.pond.get("net_area_level")) or int(data.pond.net_area_level) < 0 or int(data.pond.net_area_level) > 3): return _result(false, "渔网面积等级无效")
 	if not data.get("farmers") is Array: return _result(false, "农夫列表类型无效")
 	for farmer in data.farmers:
 		if not farmer is Dictionary: return _result(false, "农夫对象类型无效")
@@ -323,7 +335,9 @@ func _validate_world_state(data: Dictionary, save_version: int, layout_version: 
 	var legacy := data.duplicate(true)
 	legacy.version = 3
 	for farmer in legacy.get("farmers", []): farmer.path = []
-	var common := _validate_v3(legacy)
+	# Old schemas retain their strict 96-plot validation. SAVE6 checks every
+	# appended entity, reservation and active task against its 100-plot schema.
+	var common := _validate_v3(legacy, geometry.PLOT_COUNT if save_version >= 6 else 96)
 	if not common.ok: return common
 	var ranch_error := RANCH.validate(data, animal_types)
 	if not ranch_error.is_empty(): return _result(false, ranch_error)
@@ -514,34 +528,51 @@ func migrate_v4(data: Dictionary) -> Dictionary:
 	var checked := _validate_v4(data)
 	if not checked.ok: return checked
 	var migrated := data.duplicate(true)
-	migrated.version = SAVE_VERSION
-	migrated.layout_version = LAYOUT_VERSION
+	migrated.version = 5
+	migrated.layout_version = 5
 	for farmer in migrated.farmers:
 		if str(farmer.scene) != "farm": continue
 		var position: Vector2 = RANCH.point(farmer)
 		if str(farmer.mode) != "working":
-			if not WORLD.is_walkable("farm", position):
-				position = WORLD.clamp_to_walkable("farm", position)
+			if not WORLD_V5.is_walkable("farm", position):
+				position = WORLD_V5.clamp_to_walkable("farm", position)
 				farmer.x = position.x; farmer.y = position.y
 				farmer.path_target_x = position.x; farmer.path_target_y = position.y
 			continue
-		var destination: Vector2 = WORLD.target_position("farm", str(farmer.task.target), migrated)
-		if not WORLD.is_walkable("farm", destination): return _result(false, "新农田任务目的地不可通行，原档未改变")
+		var destination: Vector2 = WORLD_V5.target_position("farm", str(farmer.task.target), migrated)
+		if not WORLD_V5.is_walkable("farm", destination): return _result(false, "新农田任务目的地不可通行，原档未改变")
 		# Acting is already-paid work: only move its foot anchor, retaining its
 		# remaining work, elapsed time, stamina and reserved seed exactly.
 		if str(farmer.phase) == "acting":
 			position = destination
 			farmer.path = []
 		else:
-			position = WORLD.clamp_to_walkable("farm", position)
-			farmer.path = RANCH.pack_path(WORLD.find_path("farm", position, destination))
+			position = WORLD_V5.clamp_to_walkable("farm", position)
+			farmer.path = RANCH.pack_path(WORLD_V5.find_path("farm", position, destination))
 			if farmer.path.is_empty() and position.distance_to(destination) > 0.01: return _result(false, "旧农田任务无法迁入新布局，原档未改变")
 			farmer.remaining = RANCH.path_length(position, farmer.path) / float(migrated.settings.farmer_speed)
 		farmer.x = position.x; farmer.y = position.y
 		farmer.path_target_x = destination.x; farmer.path_target_y = destination.y
+	var valid := _validate_v5(migrated)
+	if not valid.ok: return valid
+	return migrate_v5(migrated)
+
+func migrate_v5(data: Dictionary) -> Dictionary:
+	# Appending plots leaves all existing coordinates, paths and timers exact.
+	# Validate the frozen schema first so additions cannot hide a corrupt file.
+	var checked := _validate_v5(data)
+	if not checked.ok: return checked
+	var migrated := data.duplicate(true)
+	migrated.version = SAVE_VERSION
+	migrated.layout_version = LAYOUT_VERSION
+	migrated.pond.net_area_level = 0
+	for index in range(96, WORLD.PLOT_COUNT):
+		migrated.plots.append({"id": "plot_%d_%d" % [index / 16, index % 16], "index": index,
+			"open": false, "crop_id": "parsnip", "preferred_crop_id": "parsnip", "pending_crop_id": "",
+			"status": "empty", "remaining": 0.0, "return_seed": false, "product": {}, "queued_at": 0.0})
 	var valid := _validate(migrated)
 	if not valid.ok: return valid
-	return {"ok": true, "data": migrated, "message": "存档已迁入新农田布局，原有经营与领取进度已保留"}
+	return {"ok": true, "data": migrated, "message": "新增4块待扩建农田，原有经营与领取进度已保留"}
 
 func _release_migrated_collection(farmer: Dictionary) -> void:
 	farmer.task = {}; farmer.mode = "idle"; farmer.phase = "idle"; farmer.remaining = 0.0
@@ -555,6 +586,9 @@ func _route_safe(scene: String, origin: Vector2, path: Array, geometry: Script =
 	return true
 
 func _validate_v1(data: Dictionary, fish_capacity := 12) -> Dictionary:
+	return _validate_economy(data, fish_capacity, 96)
+
+func _validate_economy(data: Dictionary, fish_capacity: int, expected_plots: int) -> Dictionary:
 	if not _finite_tree(data): return _result(false, "旧存档包含非有限数值")
 	if not _integer(data.get("version")) or int(data.version) != 1:
 		return _result(false, "不支持的旧存档版本")
@@ -588,7 +622,7 @@ func _validate_v1(data: Dictionary, fish_capacity := 12) -> Dictionary:
 	var capacity := int(storage_levels[int(data.storage_level)].capacity)
 	if int(data.warehouse_hay) > capacity or int(data.trough_hay) > capacity:
 		return _result(false, "存档干草超出容量")
-	if data.regions.size() != 6 or data.plots.size() != 96 or data.grass.size() != 96 or data.fish.size() > fish_capacity or data.farmers.size() > 9:
+	if data.regions.size() != ceili(expected_plots / 16.0) or data.plots.size() != expected_plots or data.grass.size() != 96 or data.fish.size() > fish_capacity or data.farmers.size() > 9:
 		return _result(false, "存档对象数量无效")
 	var ids := {}
 	var highest_generated_id := 0
@@ -713,7 +747,7 @@ func _check_investment() -> Dictionary:
 	return _result(true, "操作完成")
 
 func _execute_command(action: String, payload: Dictionary) -> Dictionary:
-	if action in ["cast_net", "resolve_pending_fish", "upgrade_net", "upgrade_pond"]:
+	if action in ["cast_net", "resolve_pending_fish", "upgrade_net", "upgrade_pond", "upgrade_net_area"]:
 		return POND.command(state, config, action, payload, protection())
 	if action == "resolve_fish": return POND.command(state, config, "resolve_pending_fish", {}, protection())
 	if action == "interact_animal":
@@ -781,7 +815,7 @@ func _execute_command(action: String, payload: Dictionary) -> Dictionary:
 				if not plot.open:
 					target = plot
 					break
-			if target.is_empty(): return _result(false, "地块已开满96格")
+			if target.is_empty(): return _result(false, "地块已开满%d格" % WORLD.PLOT_COUNT)
 			state.coins = balance() - price
 			target.open = true
 			target.preferred_crop_id = str(state.default_seed_id)
@@ -1232,13 +1266,19 @@ func _dispatch(farmer: Dictionary) -> void:
 			else:
 				farmer.mode = "resting"
 			return
+		var selected_route: Variant = null
+		if str(farmer.scene) == "farm":
+			var choice := _farm_dispatch_choice(farmer, tasks)
+			if choice.is_empty(): return
+			task = choice.task
+			selected_route = choice.route
 		if _reserve_task(task, str(farmer.id)):
 			farmer.task = task
 			farmer.mode = "working"
 			var destination: Vector2 = _task_destination(str(farmer.scene), task)
 			farmer.task_elapsed = 0.0
 			farmer.track_remaining = 0.0
-			if not _set_farmer_path(farmer, destination): _cancel_task(farmer)
+			if not _set_farmer_path(farmer, destination, selected_route): _cancel_task(farmer)
 		return
 	if str(farmer.scene) == str(farmer.home) and float(farmer.energy) >= 100:
 		for scene in SCENES:
@@ -1249,6 +1289,33 @@ func _dispatch(farmer: Dictionary) -> void:
 				farmer.destination = scene
 				farmer.remaining = float(_p("support_seconds", 5))
 				return
+
+func _farm_dispatch_choice(farmer: Dictionary, sorted_tasks: Array) -> Dictionary:
+	# Only dispatching idle workers compare paths. Priority remains authoritative:
+	# harvest before water before sow, with a bounded age window for nearby work.
+	if sorted_tasks.is_empty(): return {}
+	var oldest: Dictionary = sorted_tasks.front()
+	var priority := int(oldest.priority)
+	var queued := float(oldest.queued_at)
+	var overdue := float(state.elapsed) - queued >= FARM_MAX_WAIT_SECONDS
+	var position := Vector2(float(farmer.x), float(farmer.y))
+	var best := {}
+	var best_distance := INF
+	for task in sorted_tasks:
+		if int(task.priority) != priority: break
+		if not overdue and float(task.queued_at) > queued + FARM_NEARBY_QUEUE_SECONDS: break
+		var destination := _task_destination("farm", task)
+		var route: Array = WORLD.find_path("farm", position, destination)
+		if route.is_empty() and position.distance_to(destination) > 0.001: continue
+		var packed := RANCH.pack_path(route)
+		var distance := RANCH.path_length(position, packed)
+		# A reachable overdue task wins by queue age/order. Unreachable tasks
+		# cannot freeze the entire farm. Equal distances retain the stable queue.
+		if overdue: return {"task": task, "route": route, "distance": distance}
+		if distance < best_distance - 0.000001:
+			best_distance = distance
+			best = {"task": task, "route": route, "distance": distance}
+	return best
 
 func _reserve_task(task: Dictionary, farmer_id := "") -> bool:
 	var action := str(task.action)
@@ -1320,9 +1387,9 @@ func _task_destination(scene: String, task: Dictionary) -> Vector2:
 func _action_seconds(task: Dictionary) -> float:
 	return 2.0 if str(task.get("action", "")) == "collect_product" else float(_p("action_seconds", 2))
 
-func _set_farmer_path(farmer: Dictionary, destination: Vector2) -> bool:
+func _set_farmer_path(farmer: Dictionary, destination: Vector2, selected_route: Variant = null) -> bool:
 	var position := Vector2(float(farmer.x), float(farmer.y))
-	var route: Array = WORLD.find_path(str(farmer.scene), position, destination)
+	var route: Array = WORLD.find_path(str(farmer.scene), position, destination) if selected_route == null else selected_route
 	if route.is_empty() and position.distance_to(destination) > 0.001: return false
 	farmer.path_target_x = destination.x
 	farmer.path_target_y = destination.y

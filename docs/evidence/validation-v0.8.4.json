@@ -1,0 +1,162 @@
+{
+  "version": "0.8.4",
+  "core_regression_date": "2026-10-04",
+  "final_ui_release_date": "2026-10-06",
+  "headless_suites": [
+    {
+      "suite": "Simulation",
+      "assertions": 440,
+      "passed": true,
+      "log_sha256": "dd821d43f14efffb380e785c0db624f8e5687496c103241d66cd6a92a6cb0c09",
+      "log_file": ".review/test-Simulation.log"
+    },
+    {
+      "suite": "StageA",
+      "assertions": 237,
+      "passed": true,
+      "log_sha256": "3ea9e9b6a9ccb313ea3a371f23bebc8edbbe5d62c6b72ac7fbef5031150afa17",
+      "log_file": ".review/test-StageA.log"
+    },
+    {
+      "suite": "SaveMigration",
+      "assertions": 551,
+      "passed": true,
+      "log_sha256": "b14d58ba16f7814e2a355e419b0597f0c49288ddb8e7bbf88e9f1319615908a9",
+      "log_file": ".review/test-SaveMigration.log"
+    },
+    {
+      "suite": "Native",
+      "assertions": null,
+      "passed": true,
+      "log_sha256": "ab7676a4b7454ed9240d244b6be7094949b1a5f0f7c6484552916c082b62903a",
+      "log_file": ".review/test-Native.log"
+    },
+    {
+      "suite": "Controller",
+      "assertions": 126,
+      "passed": true,
+      "log_sha256": "e0dbdcb7ba42b0655dae83fb47f4302fd5838cb995a8551300c4d64e7b8d90aa",
+      "log_file": ".review/test-Controller.log"
+    },
+    {
+      "suite": "PixelArt",
+      "assertions": 485,
+      "passed": true,
+      "log_sha256": "2e2e10eb2fa5e2b9bd190161f651b58ff42660744b48d36755699d30a415431f",
+      "log_file": ".review/test-PixelArt.log"
+    },
+    {
+      "suite": "PondRules",
+      "assertions": 104,
+      "passed": true,
+      "log_sha256": "992cc949ef391a45c7dffcd97622e0597d22a5907428486f166f77a3e0c1addd",
+      "log_file": ".review/test-PondRules.log"
+    },
+    {
+      "suite": "RanchLife",
+      "assertions": 6670,
+      "passed": true,
+      "log_sha256": "be69b4b59ca7310428013a7021b29d93baaa528b6ff436b0bf166f43657e7f5e",
+      "log_file": ".review/test-RanchLife.log"
+    },
+    {
+      "suite": "GroundProducts",
+      "assertions": 201,
+      "passed": true,
+      "log_sha256": "8c9f7040ed061db9ccb36840a4a99801113605c9f219fd1ef390a73c8eb50851",
+      "log_file": ".review/test-GroundProducts.log"
+    },
+    {
+      "suite": "WorldLayout",
+      "assertions": 6558,
+      "passed": true,
+      "log_sha256": "9b28b2bf21c357e3c388f442112f4478f674f7bb88908654b13f040f56e0b071",
+      "log_file": ".review/test-WorldLayout.log"
+    },
+    {
+      "suite": "WorldLayoutV4",
+      "assertions": 13776,
+      "passed": true,
+      "log_sha256": "22e47489b838711195146b9ba1671861309b77b10b6fdb765b2d2542bd370d14",
+      "log_file": ".review/test-WorldLayoutV4.log"
+    },
+    {
+      "suite": "WorldLayoutV5",
+      "assertions": 7694,
+      "passed": true,
+      "log_sha256": "92f8d2350c0004df0969066a7d436d28234bafd548fc8ce7c9bdd5d5f0162ec1",
+      "log_file": ".review/test-WorldLayoutV5.log"
+    },
+    {
+      "suite": "WorldLayoutV6",
+      "assertions": 7623,
+      "passed": true,
+      "log_sha256": "af860283b7670e9d6ef941931c168852e8f495a455d83b4023985bfd10383ea4",
+      "log_file": ".review/test-WorldLayoutV6.log"
+    },
+    {
+      "suite": "Dispatch",
+      "assertions": 43,
+      "passed": true,
+      "log_sha256": "20daddb54ac39a16c1bc03901b73f57c5b8932fc66caad4e6a6a58ae76860bad",
+      "log_file": ".review/test-Dispatch.log"
+    },
+    {
+      "suite": "CameraHay",
+      "assertions": 48,
+      "passed": true,
+      "log_sha256": "1d41c1a662474da8059bacf872eb252d951c7a2bc02152890c5eb1ef94030a3d",
+      "log_file": ".review/test-CameraHay.log"
+    },
+    {
+      "suite": "DisplayModes",
+      "assertions": 633,
+      "passed": true,
+      "log_sha256": "db4fd52380f41153e8a7254feec741ef7a7351661237263e9c24185dbc28bc41",
+      "log_file": ".review/test-DisplayModes.log"
+    },
+    {
+      "suite": "SceneAssets",
+      "assertions": 5204,
+      "passed": true,
+      "log_sha256": "cc8c5a2978eac086f7752346e5076df9abfeffd2b2930fd61ecd816a73a69bd2",
+      "log_file": ".review/test-SceneAssets.log"
+    }
+  ],
+  "counted_headless_assertions": 50393,
+  "config_checks": 15,
+  "final_graphics_assertions": 4614,
+  "real_camera_input_steps": 112,
+  "real_camera_assertions": 894,
+  "extra_checks": [
+    {
+      "log_file": ".review/v084-illustrated-final.log",
+      "passed": true,
+      "marker": "ILLUSTRATED_VIEW_PASS: 4614",
+      "log_sha256": "fef098a87f89cd26df8d34b2b45b13607fa65abed9e3442f09b9488486bc4bda"
+    },
+    {
+      "log_file": ".review/v084-camera-real-final.log",
+      "passed": true,
+      "marker": "PRODUCT_CAMERA_INPUT_PASS real_steps=112 checks=894",
+      "log_sha256": "3d464df2688f662dfe39be05b1bbaea2d4a7e77ee913166d1f2674ee211cbb01"
+    },
+    {
+      "log_file": ".review/release-v084-smoke-final.log",
+      "passed": true,
+      "marker": "UI_AREA_BATCH_OK: caught4 discovered1 sold3",
+      "log_sha256": "c5ac944115f7f1839c9a89496b314a0b0c01c6071f7cb9f87302789c768e4b54"
+    },
+    {
+      "log_file": ".review/verify-export-v084.log",
+      "passed": true,
+      "marker": "EXPORTED_V084_CODE_PASS",
+      "log_sha256": "58f1857a15f7a0e7d049fbadee5a6c71d28b3cfda13e45f5097122fe274c61b0"
+    }
+  ],
+  "simulation_resume_identical": true,
+  "player_save_read_or_write": false,
+  "player_process_stopped": false,
+  "external_pck_checker_native_note": "External engine path could not load the packaged native DLL; native correctness was independently verified by the actual release EXE.",
+  "performance_report": "performance-v0.8.4.json"
+}

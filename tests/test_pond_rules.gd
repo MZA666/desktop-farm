@@ -14,6 +14,10 @@ func _init() -> void:
 	_test_legacy_pending_once()
 	_test_upgrade_budget_and_timers()
 	_test_config_and_rejections()
+	_test_area_geometry_and_selection()
+	_test_multi_fish_atomic_settlement()
+	_test_water_cast_validation()
+	_test_area_upgrade_budget_and_independence()
 	if assertions == 0: failures.append("No pond assertions ran")
 	if failures.is_empty():
 		print("POND_RULES_PASS: %d capture/upgrade/idempotency/timer assertions" % assertions)
@@ -129,3 +133,133 @@ func _test_config_and_rejections() -> void:
 	original = JSON.stringify(malformed)
 	check(not Pond.command(malformed, config, "resolve_pending_fish").ok and JSON.stringify(malformed) == original, "Invalid legacy pending fish is preserved for recovery")
 	check(not Pond.command(malformed, config, "unknown").ok and JSON.stringify(malformed) == original, "Unknown actions have no side effects")
+
+func positioned(id: String, point: Vector2, kind := "silver_kind") -> Dictionary:
+	return {"id": id, "type_id": kind, "x": point.x, "y": point.y}
+
+func area_state(level := 0) -> Dictionary:
+	var state := fresh()
+	state.pond.net_area_level = level
+	state.fish = []
+	return state
+
+func center_payload(point := Vector2(800, 240)) -> Dictionary:
+	return {"center_x": point.x, "center_y": point.y}
+
+func _test_area_geometry_and_selection() -> void:
+	var radii := [20.0, 29.0, 35.0, 40.0]
+	for level in range(4):
+		var state := area_state(level)
+		check(Pond.net_radius(state) == radii[level], "Area level uses the accepted physical radius")
+		check(is_equal_approx(Pond.net_area(state), PI * radii[level] * radii[level]), "Net area follows the displayed circular footprint")
+		check(Pond.net_catch_limit(state) == level + 1, "Actual circle area allows one through four simultaneous catches")
+		for i in range(6): state.fish.append(positioned("fish_%d" % i, Vector2(800 + i, 240)))
+		var result := Pond.command(state, config, "cast_net", center_payload())
+		check(result.ok and result.count == level + 1 and state.fish.size() == 5 - level, "Every area tier limits a crowded cast rather than granting unlimited nearby fish")
+		check(state.net_remaining == 20.0 and state.fish_remaining == 87.0, "A many-fish cast spends one cooldown and leaves the spawn cycle intact")
+	var thresholds := config.duplicate(true)
+	thresholds.upgrades = {"net_area_levels": Pond.NET_AREA_LEVELS.duplicate(true)}
+	thresholds.upgrades.net_area_levels[1].radius = 20.0 * sqrt(2.0) - 0.001
+	thresholds.upgrades.net_area_levels[2].radius = 20.0 * sqrt(3.0)
+	check(Pond.net_catch_limit(area_state(1), thresholds) == 1, "Capacity does not round a circle below two base areas upward")
+	check(Pond.net_catch_limit(area_state(2), thresholds) == 3, "Exact area threshold survives floating-point representation")
+	var underfilled := area_state(3)
+	underfilled.fish = [positioned("inside", Vector2(839.9, 240)), positioned("outside", Vector2(840.1, 240))]
+	var result := Pond.command(underfilled, config, "cast_net", center_payload())
+	check(result.count == 1 and result.caught_ids == ["inside"] and underfilled.fish[0].id == "outside", "A large but underfilled net catches only physically enclosed fish")
+	var crowded := area_state(3)
+	crowded.fish = [positioned("far", Vector2(839, 240)), positioned("outside", Vector2(841, 240)),
+		positioned("tie_b", Vector2(810, 240)), positioned("tie_a", Vector2(790, 240)),
+		positioned("center", Vector2(800, 240)), positioned("next", Vector2(820, 240))]
+	result = Pond.command(crowded, config, "cast_net", center_payload())
+	check(result.caught_ids == ["center", "tie_a", "tie_b", "next"], "Selection prefers nearest fish with stable IDs breaking equal-distance ties")
+	check(crowded.fish.size() == 2 and crowded.fish[0].id == "far" and crowded.fish[1].id == "outside", "Unselected fish retain their order, position, and presence")
+	var boundary := area_state()
+	boundary.fish = [positioned("edge", Vector2(820, 240)), positioned("over", Vector2(820.01, 240))]
+	result = Pond.command(boundary, config, "cast_net", center_payload())
+	check(result.caught_ids == ["edge"] and boundary.fish[0].id == "over", "Fish centers on the exact circle edge are inside; centers just beyond it are outside")
+	var authoritative := area_state()
+	authoritative.fish = [positioned("inside", Vector2(801, 240)), positioned("far", Vector2(1000, 240))]
+	var forced := center_payload()
+	forced.merge({"fish_ids": ["far"], "radius": 9999, "limit": 9999, "net_area_level": 3})
+	result = Pond.command(authoritative, config, "cast_net", forced)
+	check(result.caught_ids == ["inside"] and result.radius == 20.0 and result.limit == 1, "Client lists, area levels, radii, and limits cannot override actual net upgrades or geometry")
+	var legacy := area_state(1)
+	legacy.fish = [positioned("target", Vector2(800, 240)), positioned("near", Vector2(820, 240)), positioned("far", Vector2(835, 240))]
+	result = Pond.command(legacy, config, "cast_net", {"fish_id": "target"})
+	check(result.caught_ids == ["target", "near"] and legacy.fish.size() == 1, "Legacy positioned fish targeting obeys the same area capture rule")
+
+func _test_multi_fish_atomic_settlement() -> void:
+	var state := area_state(3)
+	state.fish = [positioned("one", Vector2(800, 240)), positioned("two", Vector2(801, 240)),
+		positioned("three", Vector2(802, 240)), positioned("gold", Vector2(803, 240), "gold_kind")]
+	var result := Pond.command(state, config, "cast_net", center_payload())
+	check(result.ok and result.count == 4 and result.sold_count == 2 and result.discovered_count == 2 and result.sale_value == 60, "One unseen fish per species is consumed; later same-species fish in the batch sell immediately")
+	check(state.coins == 1060 and state.fish.is_empty() and state.pending_fish.is_empty(), "All removals, sales, and discoveries finish in the same cast with no popup state")
+	check(state.catalog.silver_product.count == 1 and state.catalog.gold_product.count == 1, "A batch does not inflate catalog counts with known fish sales")
+	check(state.net_remaining == 20.0 and state.fish_remaining == 87.0 and state.transaction_id == 7, "Batch settlement leaves spawn and outer transaction ownership intact")
+	state.fish = [positioned("repeat_one", Vector2(800, 240)), positioned("repeat_two", Vector2(801, 240)), positioned("repeat_gold", Vector2(802, 240), "gold_kind")]
+	state.net_remaining = 0.0
+	var catalog_before := JSON.stringify(state.catalog)
+	result = Pond.command(state, config, "cast_net", center_payload())
+	check(result.sold_count == 3 and result.discovered_count == 0 and result.sale_value == 130 and state.coins == 1190, "Already cataloged mixed species all sell in a later batch")
+	check(JSON.stringify(state.catalog) == catalog_before, "Known batch sales preserve all existing catalog metadata")
+	var saved := JSON.stringify(state)
+	var restored: Dictionary = JSON.parse_string(saved)
+	var restored_before := JSON.stringify(restored)
+	check(not Pond.command(restored, config, "cast_net", center_payload()).ok and JSON.stringify(restored) == restored_before, "Reloading a completed batch keeps the single cooldown and prevents another payout")
+	for known in [false, true]:
+		var malformed := area_state(2)
+		if known: malformed.catalog.silver_product = {"id": "silver_product", "count": 4, "name": "小银鱼", "sell_price": 30, "sources": ["fish"], "first_obtained": 1.0}
+		malformed.fish = [positioned("valid", Vector2(800, 240)), positioned("invalid", Vector2(801, 240), "missing")]
+		var before := JSON.stringify(malformed)
+		check(not Pond.command(malformed, config, "cast_net", center_payload()).ok and JSON.stringify(malformed) == before, "An invalid second species rolls back both a first discovery and a first sale without removing fish or starting cooldown")
+	var bad_price := config.duplicate(true)
+	bad_price.fish[1].sell_price = 7.5
+	var malformed := area_state(1)
+	malformed.fish = [positioned("silver", Vector2(800, 240)), positioned("gold", Vector2(801, 240), "gold_kind")]
+	var before := JSON.stringify(malformed)
+	check(not Pond.command(malformed, bad_price, "cast_net", center_payload()).ok and JSON.stringify(malformed) == before, "Fractional invalid batch prices cannot truncate money or partly publish earlier discoveries")
+	var bad_kind := config.duplicate(true)
+	bad_kind.fish = {"silver_kind": config.fish[0], "gold_kind": "malformed_record"}
+	check(not Pond.command(malformed, bad_kind, "cast_net", center_payload()).ok and JSON.stringify(malformed) == before, "A malformed keyed second fish definition rejects the whole cast without a script type failure")
+
+func _test_water_cast_validation() -> void:
+	for payload in [center_payload(Vector2(100, 100)), center_payload(Vector2(376.5, 258)),
+		center_payload(Vector2(-1, 240)), {"center_x": NAN, "center_y": 240.0},
+		{"center_x": INF, "center_y": 240.0}, {"center_x": 800.0},
+		{"center_x": "800", "center_y": 240.0}, {"center_x": true, "center_y": 240.0}]:
+		var state := area_state(3)
+		state.fish = [positioned("fish", Vector2(800, 240))]
+		var before := JSON.stringify(state)
+		check(not Pond.command(state, config, "cast_net", payload).ok and JSON.stringify(state) == before, "Land, pier, outside, and non-finite/non-numeric cast centers leave every state field untouched")
+	var empty := area_state(3)
+	var result := Pond.command(empty, config, "cast_net", center_payload())
+	check(result.ok and result.count == 0 and result.sale_value == 0 and result.caught_ids.is_empty(), "An empty but valid water circle is a normal miss")
+	check(empty.net_remaining == 20.0 and empty.fish_remaining == 87.0 and empty.coins == 1000, "A valid empty-water cast consumes only one cooldown")
+	var malformed := area_state(2)
+	malformed.fish = [positioned("valid", Vector2(800, 240)), {"id": "invalid", "type_id": "silver_kind", "x": "not_a_number", "y": 240.0}]
+	var before := JSON.stringify(malformed)
+	check(not Pond.command(malformed, config, "cast_net", center_payload()).ok and JSON.stringify(malformed) == before, "Invalid model positions fail before publishing any catch")
+
+func _test_area_upgrade_budget_and_independence() -> void:
+	var state := area_state()
+	state.net_remaining = 17.0
+	state.coins = 779
+	var before := JSON.stringify(state)
+	check(not Pond.command(state, config, "upgrade_net_area", {}, 480).ok and JSON.stringify(state) == before, "An area upgrade rejects even a one-coin seed-budget deficit")
+	state.coins = 780
+	check(Pond.command(state, config, "upgrade_net_area", {}, 480).ok and state.coins == 480 and state.pond.net_area_level == 1, "First area upgrade charges exactly 300 while retaining the protected seed budget")
+	check(Pond.net_radius(state) == 29.0 and Pond.net_catch_limit(state) == 2 and Pond.cooldown(state) == 20.0 and Pond.capacity(state) == 12, "Area size and batch capacity are independent of cooldown and pond population upgrades")
+	check(state.net_remaining == 17.0 and state.fish_remaining == 87.0, "Area upgrades do not restart or shorten active cast/spawn timers")
+	state.coins = 10000
+	check(Pond.command(state, config, "upgrade_net_area").ok and state.coins == 9300 and Pond.net_catch_limit(state) == 3, "Second area upgrade costs 700 for three area-limited catches")
+	check(Pond.command(state, config, "upgrade_net_area").ok and state.coins == 7800 and Pond.net_catch_limit(state) == 4, "Third area upgrade costs 1500 for four area-limited catches")
+	before = JSON.stringify(state)
+	check(not Pond.command(state, config, "upgrade_net_area").ok and JSON.stringify(state) == before, "Max area level cannot charge again")
+	check(Pond.command(state, config, "upgrade_net").ok and Pond.command(state, config, "upgrade_pond").ok and Pond.net_radius(state) == 40.0 and Pond.cooldown(state) == 15.0 and Pond.capacity(state) == 18, "Purchasing each other upgrade leaves the purchased net area intact")
+	var configured := config.duplicate(true)
+	configured.upgrades = {"net_area_levels": Pond.NET_AREA_LEVELS.duplicate(true)}
+	check(Pond.net_radius(state, configured) == 40.0 and Pond.net_catch_limit(state, configured) == 4, "Runtime exported area tables match fallback geometric behavior")
+	var restored: Dictionary = JSON.parse_string(JSON.stringify(state))
+	check(Pond.net_radius(restored, configured) == 40.0 and restored.net_remaining == 17.0 and restored.fish_remaining == 87.0, "Serialized independent area level and live timers retain their actual values")
