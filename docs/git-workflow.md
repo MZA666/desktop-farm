@@ -2,7 +2,7 @@
 
 Git 在本地记录每次代码修改；GitHub、GitLab 或 Gitee 仓库保存远端副本。浏览器登录用于管理网站，首次从命令行推送可能仍需通过 Git Credential Manager 登录。
 
-本项目已接入 [MZA666/desktop-farm](https://github.com/MZA666/desktop-farm)，远端名为 `origin`、分支为 `main`。下面的“首次接入”用于全新项目；当前项目日常修改只需检查、提交、推送，不需要重复添加远端。
+本项目已接入 [MZA666/desktop-farm](https://github.com/MZA666/desktop-farm)，远端名为 `origin`，主分支为 `main`。0.8.6商店卡顿修复使用独立分支 `codex/v0.8.6-shop-performance`。下面的“首次接入”用于全新项目；当前项目日常修改只需检查、提交、推送，不需要重复添加远端。
 
 ## 首次接入远端
 
@@ -37,9 +37,13 @@ git push
 git switch -c codex/new-feature
 ```
 
-发布可用带说明的标签，例如 `git tag -a v0.8.4 -m "v0.8.4 field and area net upgrades"`，然后 `git push origin v0.8.4`。标签对应已验收源码，试玩包由本机 `dist/` 构建，不随源码提交。0.8.4分支为 `codex/v0.8.4-field-and-net-upgrades`，保留此前版本记录；本轮增加4块边缘耕地、就近派工和渔网面积升级。版本标签用于定位已验收源码；GitHub主分支未自动合并这些功能分支。
+发布可用带说明的标签，例如 `git tag -a v0.8.6 -m "v0.8.6 shop performance fix"`，然后 `git push origin v0.8.6`。标签对应已验收源码，试玩包由本机 `dist/` 构建，不随源码提交。版本标签用于定位已验收源码；功能分支不会自动合入GitHub主分支。
 
-0.8.5种子筛选修复基于0.8.4，分支为 `codex/v0.8.5-seed-filter-fix`，发布标签为 `v0.8.5`。修复和回归证据单独提交，沿用SAVE6/Layout6；不自动合并主分支。试玩包为 `dist/DesktopFarm-v0.8.5-win64.zip`，源码测试和实际交付验收见 `docs/validation-v0.8.5.md`。
+0.8.4分支为 `codex/v0.8.4-field-and-net-upgrades`，保留此前版本记录；该版本增加4块边缘耕地、就近派工和渔网面积升级，玩法规格见 `docs/development-spec-v0.8.4.md`。
+
+0.8.5种子筛选修复基于0.8.4，分支为 `codex/v0.8.5-seed-filter-fix`，发布标签为 `v0.8.5`。搜索框×只清关键词，「清除筛选」同时清搜索、季节、类型和已解锁条件；种子库恢复全部有库存的种类，商店恢复53种。这些功能继续保留在0.8.6中。
+
+0.8.6商店卡顿修复基于0.8.5，分支为 `codex/v0.8.6-shop-performance`，版本标签使用 `v0.8.6`。修复和回归证据单独提交，沿用SAVE6/Layout6，可延续0.8.4和0.8.5进度；不自动合并主分支。当前试玩包为 `dist/DesktopFarm-v0.8.6-win64.zip`，源码测试和交付验收见 `docs/validation-v0.8.6.md`，商店响应测量见 `docs/shop-performance-v0.8.6.md`。整款游戏的CPU与内存仍以 `docs/release-performance-v0.8.4.md` 为历史基线，商店专项优化不代表全部性能目标已达标。
 
 ## 换电脑开发
 

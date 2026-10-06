@@ -7,6 +7,8 @@ const VIEW = preload("res://scripts/illustrated_view.gd")
 const HOST = preload("res://scripts/desktop_host.gd")
 const ASSETS = preload("res://scripts/pixel_assets.gd")
 const POND = preload("res://scripts/pond_rules.gd")
+const SHOP_PERFORMANCE = preload("res://scripts/shop_performance.gd")
+const SEED_PREVIEW_ACTIONS := ["buy_seeds", "unlock_crop", "set_default_seed", "set_crop"]
 const SCENE_NAMES := {"farm": "农场", "ranch": "牧场", "pond": "鱼塘"}
 const INK := Color("#4f3828")
 const CREAM := Color("#f4e6c8")
@@ -50,6 +52,7 @@ var quitting := false
 var smoke_path := ""
 var benchmark_fixture := false
 var benchmark_options: Dictionary = {}
+var shop_performance_requested := false
 var _dragging := false
 var _drag_mouse := Vector2i.ZERO
 var _drag_origin := Vector2i.ZERO
@@ -70,6 +73,8 @@ var animal_shop_mode := "buy"
 var animal_shelter_filter := "全部"
 var _preview_model: FarmState
 var _preview_snapshot: Dictionary = {}
+var _preview_seed_snapshot: Dictionary = {}
+var _preview_protection := 0
 var _shop_refresh_elapsed := 0.0
 var _shop_revision := ""
 var _crop_quote_controls: Dictionary = {}
@@ -163,6 +168,8 @@ func _ready() -> void:
 		_smoke_capture.call_deferred()
 	if not benchmark_options.is_empty():
 		_run_benchmark.call_deferred()
+	if shop_performance_requested and not bool(get_meta("external_shop_performance", false)):
+		_run_shop_performance.call_deferred()
 
 func _make_theme() -> Theme:
 	var result := Theme.new()
@@ -672,28 +679,64 @@ func _render_panel() -> void:
 	_shop_revision = _shop_state_revision()
 
 func _prepare_preview() -> void:
-	if _preview_model == null: _preview_model = MODEL.new(config)
+	if _preview_model == null:
+		_preview_model = MODEL.new()
+		_preview_model.config_from(config)
 	_preview_snapshot = model.snapshot()
+	_preview_protection = model.protection()
+	# These four commands only use the seed allocator and plot planning fields.
+	# Keep its real ordered plots/tasks/stock, without copying animal paths,
+	# fish, grass, catalog or crop products for each of the 53 shop cards.
+	var plots: Array = []
+	for plot in _preview_snapshot.plots:
+		plots.append({"id": plot.id, "open": plot.open, "status": plot.status, "crop_id": plot.crop_id, "preferred_crop_id": plot.preferred_crop_id, "pending_crop_id": plot.pending_crop_id, "return_seed": plot.return_seed})
+	var farmers: Array = []
+	for farmer in _preview_snapshot.farmers: farmers.append({"task": farmer.task.duplicate(true)})
+	_preview_seed_snapshot = {"coins": _preview_snapshot.coins, "plots": plots, "farmers": farmers, "seeds": _preview_snapshot.seeds.duplicate(true), "seed_reservations": _preview_snapshot.seed_reservations.duplicate(true), "default_seed_id": _preview_snapshot.default_seed_id, "previous_default_seed_id": _preview_snapshot.previous_default_seed_id, "unlocked_crops": _preview_snapshot.unlocked_crops.duplicate()}
 
 func _preview_command(action: String, payload: Dictionary = {}) -> Dictionary:
 	if _preview_snapshot.is_empty(): _prepare_preview()
-	_preview_model.restore(_preview_snapshot)
-	var preview: Dictionary = _preview_model.command(action, payload)
-	# The public command restores failed mutations. A second dry calculation
-	# on this disposable model keeps the proposed reservation visible even
-	# when it is unaffordable; no signal or disk write reaches the live model.
-	if not preview.ok and action in ["set_crop", "set_default_seed", "unlock_crop"]:
-		_preview_model._execute_command(action, payload)
+	# This snapshot comes from the running, validated model. A disposable deep
+	# copy retains command prerequisites without revalidating an entire save
+	# for every shop card. Actual purchases still use command() and atomic save.
+	_preview_model.state = (_preview_seed_snapshot if action in SEED_PREVIEW_ACTIONS else _preview_snapshot).duplicate(true)
+	_preview_model._tick_fraction = float(_preview_snapshot.tick_fraction)
+	_preview_model._last_investment_protection = -1
+	var preview: Dictionary = _preview_model._execute_command(action, payload, _preview_protection if action == "unlock_crop" else -1)
+	var proposed := bool(preview.ok) or action in ["set_crop", "set_default_seed", "unlock_crop"]
+	# Preserve the former rollback semantics: failed purchases show the original
+	# budget, while failed crop plans/default changes/unlocks show the proposal.
+	if not proposed: _preview_model.state = _preview_snapshot
+	var protection_after := _preview_protection
+	if proposed:
+		if _preview_model._last_investment_protection >= 0:
+			protection_after = _preview_model._last_investment_protection
+		elif preview.ok:
+			protection_after = _preview_model.protection()
+		# Failed crop/default/unlock prerequisites return before any mutation;
+		# investment failures supplied the proposed budget in the branch above.
 	var result := {"ok": bool(preview.ok), "message": str(preview.message),
 		"balance_before": int(_preview_snapshot.coins), "balance_after": _preview_model.balance(),
-		"protection_before": model.protection(), "protection_after": _preview_model.protection(),
-		"investable_before": model.investable(), "investable_after": _preview_model.investable()}
+		"protection_before": _preview_protection, "protection_after": protection_after,
+		"investable_before": maxi(0, int(_preview_snapshot.coins) - _preview_protection), "investable_after": maxi(0, _preview_model.balance() - protection_after)}
 	if startup_blocked or save_blocked:
 		result.ok = false
 		result.message = "存档异常，请先在设置中恢复保存"
 	return result
 
 func _shop_state_revision() -> String:
+	if panel_name in ["crops", "inventory"]:
+		var plot_budgets: Array = []
+		for plot in model.state.plots:
+			plot_budgets.append([str(plot.id), bool(plot.open), str(plot.crop_id), str(plot.preferred_crop_id), str(plot.pending_crop_id), bool(plot.return_seed), str(plot.status) == "empty"])
+		var sowing: Array = []
+		for farmer in model.state.farmers:
+			var task: Dictionary = farmer.task
+			if str(task.get("action", "")) == "sow":
+				sowing.append([str(farmer.id), str(task.target), str(task.crop_id), str(task.seed_source)])
+		# Animal movement, growth timers and fish positions do not change crop
+		# quotes. Keep every input to the seed allocator, including in-flight work.
+		return str(hash([model.balance(), plot_budgets, sowing, model.state.seeds, model.state.seed_reservations, model.state.default_seed_id, model.state.unlocked_crops, selected_plot_ids, seed_purchase_count, startup_blocked, save_blocked]))
 	# In-flight seeds remain in the library until sowing completes. Track task
 	# identity without movement timers, so completion also invalidates the list.
 	var sowing_seeds: Array = []
@@ -838,6 +881,12 @@ func _filtered_crops() -> Array:
 
 func _render_crop_list() -> void:
 	if not is_instance_valid(crop_list): return
+	# Populate a detached list in one batch. Updating hundreds of live controls
+	# individually repeatedly propagates theme/layout work through the popup.
+	var list_parent := crop_list.get_parent()
+	var list_index := crop_list.get_index()
+	crop_list.theme = theme
+	list_parent.remove_child(crop_list)
 	_clear_children(crop_list)
 	_crop_quote_controls.clear()
 	_prepare_preview()
@@ -871,6 +920,8 @@ func _render_crop_list() -> void:
 		var reason := _wrapped_label(card, "", ALERT)
 		_crop_quote_controls[crop_id] = {"crop": crop, "buy": buy, "plan": plan, "default": auto_order, "quote": quote, "reason": reason, "detail": detail}
 	_refresh_crop_quotes()
+	list_parent.add_child(crop_list)
+	list_parent.move_child(crop_list, list_index)
 
 func _crop_description(crop: Dictionary) -> String:
 	var stock: Dictionary = model.seed_inventory_summary(str(crop.id))
@@ -1445,7 +1496,13 @@ func _cancel_pointer_actions() -> void:
 func _parse_benchmark_options() -> bool:
 	# Duration activates this normal-entry test runner. Fixture-only controller
 	# tests and the source SceneTree helper keep their own lifetime unchanged.
-	var arguments := OS.get_cmdline_user_args()
+	var arguments: Array = Array(OS.get_cmdline_user_args())
+	shop_performance_requested = arguments.any(func(argument): return str(argument).begins_with("--shop-performance-"))
+	if shop_performance_requested:
+		if not benchmark_fixture or not smoke_path.is_empty() or arguments.any(func(argument): return str(argument).begins_with("--benchmark-seconds=")):
+			printerr("Shop-performance runner requires an isolated fixture and its own test lifetime.")
+			return false
+		return true
 	if not benchmark_fixture: return true
 	var duration_text := ""
 	var options := {"scene": "farm", "power": false, "collapsed": false, "compact": false, "record": false, "output": ""}
@@ -1468,6 +1525,12 @@ func _parse_benchmark_options() -> bool:
 	options.phase = "collapsed_30" if options.collapsed else str(options.scene) + ("_compact_30" if options.compact else ("_15" if options.power else "_30"))
 	benchmark_options = options
 	return true
+
+func _run_shop_performance() -> void:
+	var runner := SHOP_PERFORMANCE.new()
+	var exit_code: int = await runner.run(self, get_tree())
+	host.shutdown()
+	get_tree().quit(exit_code)
 
 func _benchmark_write(name: String, content: Dictionary) -> bool:
 	var file := FileAccess.open(str(benchmark_options.output).path_join(name), FileAccess.WRITE)

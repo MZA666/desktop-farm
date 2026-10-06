@@ -137,6 +137,8 @@ func _run() -> void:
 	controller._open_panel("inventory")
 	check(controller.popup_body.find_child("SeedPlan_carrot", true, false) != null, "Purchased crop appears in the real library panel")
 	await _test_inventory_search_reset(controller)
+	_test_fast_preview_equivalence(controller)
+	_test_crop_motion_refresh_contract(controller)
 	controller._open_panel("settings")
 	var speed_control: SpinBox = controller.popup_body.find_child("FarmerSpeed", true, false) as SpinBox
 	check(speed_control != null and speed_control.min_value == 16 and speed_control.max_value == 48 and speed_control.step == 4, "Settings expose the bounded walking speed control")
@@ -396,6 +398,191 @@ func _test_inventory_search_reset(controller) -> void:
 	controller._close_panel()
 	controller.view.set_model(controller.model.state, true)
 	check(controller._save_now(), "Inventory search regression restores its original test-store snapshot")
+
+func _preview_fixture(controller, rich: bool) -> Dictionary:
+	# Small but fully valid model fixtures keep the old restore oracle bounded.
+	# They include a prepaid walk, first/next seed claims and a returned seed.
+	var fixture: FarmState = controller.MODEL.new(controller.config)
+	fixture.state.farmers = []; fixture.state.animals = []; fixture.state.fish = []
+	fixture.state.coins = 1000000
+	if rich:
+		fixture.state.unlocked_crops = controller.config.crops.map(func(c): return str(c.id))
+	elif not fixture.state.unlocked_crops.has("sunflower"):
+		fixture.state.unlocked_crops.append("sunflower")
+	fixture.state.seeds = {"carrot": 1, "cauliflower": 2}
+	fixture.state.seed_reservations = []
+	for plot in fixture.state.plots:
+		if not plot.open: continue
+		plot.status = "growing"
+		plot.remaining = float(fixture.crops.parsnip.first_seconds)
+		plot.product = fixture._product_for_crop(fixture.crops.parsnip)
+	fixture.state.plots[1].pending_crop_id = "cauliflower"
+	fixture._fill_seed_reservations(fixture.state)
+	var first: Dictionary = fixture.state.plots[0]
+	first.status = "empty"; first.remaining = 0.0; first.product = {}
+	first.preferred_crop_id = "carrot"
+	var returned: Dictionary = fixture.state.plots[2]
+	returned.status = "empty"; returned.remaining = 0.0; returned.product = {}
+	returned.crop_id = "sunflower"; returned.preferred_crop_id = "sunflower"
+	returned.return_seed = true
+	fixture._add_farmer("farm")
+	fixture._dispatch(fixture.state.farmers[0])
+	check(fixture.state.farmers[0].task.crop_id == "carrot" and fixture.state.seed_reservations.size() == 2, "Preview fixture retains a prepaid walk and both pending seed reservations")
+	if not rich: fixture.state.coins = 0
+	return fixture.snapshot()
+
+func _old_preview_oracle(controller, legacy: FarmState, snapshot: Dictionary, action: String, payload: Dictionary, before_protection: int) -> Dictionary:
+	var restored := legacy.restore(snapshot)
+	if not restored.ok:
+		failures.append("Old preview oracle fixture must pass strict restore: " + str(restored.message))
+		return {}
+	var result := legacy.command(action, payload)
+	# Preserve the exact old UI rule: unsuccessful purchases use rolled-back
+	# figures, whereas crop/default/unlock show the second dry proposal.
+	if not result.ok and action in ["set_crop", "set_default_seed", "unlock_crop"]:
+		legacy._execute_command(action, payload)
+	var quote := {"ok": bool(result.ok), "message": str(result.message),
+		"balance_before": int(snapshot.coins), "balance_after": legacy.balance(),
+		"protection_before": before_protection, "protection_after": legacy.protection(),
+		"investable_before": maxi(0, int(snapshot.coins) - before_protection), "investable_after": legacy.investable()}
+	if controller.startup_blocked or controller.save_blocked:
+		quote.ok = false
+		quote.message = "存档异常，请先在设置中恢复保存"
+	return quote
+
+func _test_fast_preview_equivalence(controller) -> void:
+	var baseline: Dictionary = controller.model.snapshot()
+	var original_selection: Array = controller.selected_plot_ids.duplicate()
+	var original_save_blocked: bool = controller.save_blocked
+	var original_startup_blocked: bool = controller.startup_blocked
+	var legacy: FarmState = controller.MODEL.new(controller.config)
+	var compared := 0
+	for rich in [true, false]:
+		var snapshot := _preview_fixture(controller, rich)
+		check(controller.model.restore(snapshot).ok, "Fast preview matrix starts from a valid " + ("rich" if rich else "poor") + " reserved-seed model")
+		controller.selected_plot_ids = ["plot_0_0", "plot_0_1", "plot_0_2"]
+		controller._prepare_preview()
+		var before_protection: int = controller.model.protection()
+		for crop in controller.config.crops:
+			var id := str(crop.id)
+			for entry in [
+				{"action": "buy_seeds", "payload": {"crop_id": id, "count": 2}},
+				{"action": "unlock_crop", "payload": {"crop_id": id}},
+				{"action": "set_default_seed", "payload": {"crop_id": id}},
+				{"action": "set_crop", "payload": {"crop_id": id, "plot_ids": controller.selected_plot_ids.duplicate()}},
+				{"action": "set_crop", "payload": {"crop_id": id, "plot_ids": []}}
+			]:
+				var action := str(entry.action)
+				var payload: Dictionary = entry.payload
+				var expected := _old_preview_oracle(controller, legacy, snapshot, action, payload, before_protection)
+				var actual: Dictionary = controller._preview_command(action, payload)
+				check(actual == expected, "Fast preview equals old restore/command/proposal for %s / %s / %s" % [action, id, "rich" if rich else "poor"])
+				compared += 1
+		for entry in [
+			{"action": "buy_seeds", "payload": {"crop_id": "parsnip", "count": 0}},
+			{"action": "buy_seeds", "payload": {"crop_id": "parsnip", "count": 0.5}},
+			{"action": "buy_seeds", "payload": {"crop_id": "parsnip", "count": 1000001}},
+			{"action": "set_crop", "payload": {"crop_id": "cauliflower", "plot_ids": ["plot_0_1", "missing"]}},
+			{"action": "set_crop", "payload": {"crop_id": "cauliflower", "plot_ids": ["plot_0_1", "plot_0_1"]}},
+			{"action": "set_default_seed", "payload": {"crop_id": "missing"}},
+			{"action": "unlock_crop", "payload": {"crop_id": "missing"}}
+		]:
+			var expected := _old_preview_oracle(controller, legacy, snapshot, str(entry.action), entry.payload, before_protection)
+			check(controller._preview_command(str(entry.action), entry.payload) == expected, "Fast preview preserves guarded invalid-payload and rollback semantics: " + str(entry))
+			compared += 1
+		if not rich:
+			var purchase: Dictionary = controller._preview_command("buy_seeds", {"crop_id": "cauliflower", "count": 2})
+			check(not purchase.ok and purchase.balance_after == snapshot.coins and purchase.protection_after == before_protection, "Unaffordable buy_seeds displays original rolled-back money and protected budget")
+			var proposal: Dictionary = controller._preview_command("set_default_seed", {"crop_id": "cauliflower"})
+			check(not proposal.ok and proposal.protection_after > before_protection and proposal.investable_after == 0, "Failed default order still displays the second dry proposed reservation and zero investable balance")
+		check(controller.model.snapshot() == snapshot and controller.selected_plot_ids == ["plot_0_0", "plot_0_1", "plot_0_2"], "All 53-crop preview calculations leave live seeds, paid tasks, RNG, transactions and selection unchanged")
+		# Error-state disabling keeps the same proposed budget figures.
+		for field in ["save_blocked", "startup_blocked"]:
+			controller.set(field, true)
+			var payload := {"crop_id": "cauliflower"}
+			var expected := _old_preview_oracle(controller, legacy, snapshot, "set_default_seed", payload, before_protection)
+			check(controller._preview_command("set_default_seed", payload) == expected, "Fast preview preserves blocked-save messaging and budget semantics: " + str(field))
+			controller.set(field, false)
+			compared += 1
+	controller.save_blocked = original_save_blocked
+	controller.startup_blocked = original_startup_blocked
+	check(controller.model.restore(baseline).ok, "Fast preview regression restores the original isolated controller model")
+	controller.selected_plot_ids = original_selection
+	controller._prepare_preview()
+	print("FAST_PREVIEW_EQUIVALENCE: %d legacy/fast comparisons across53crops, rich/poor states, paid/reserved/returned seeds and invalid payloads" % compared)
+
+func _test_crop_motion_refresh_contract(controller) -> void:
+	var baseline: Dictionary = controller.model.snapshot()
+	var selection: Array = controller.selected_plot_ids.duplicate()
+	controller.selected_plot_ids = []
+	# A real paid sow route gives farmer motion while the other full-scale
+	# actors continue moving. No harvest/payment can complete during 0.6 sec.
+	var first_plot: Dictionary = controller.model.state.plots[0]
+	first_plot.status = "empty"; first_plot.remaining = 0.0; first_plot.product = {}
+	first_plot.crop_id = "parsnip"; first_plot.preferred_crop_id = "carrot"
+	first_plot.pending_crop_id = ""; first_plot.return_seed = false
+	controller.model.state.seeds.carrot = 1
+	var worker: Dictionary = controller.model.state.farmers[0]
+	controller.model._dispatch(worker)
+	check(worker.task.action == "sow" and worker.phase == "walking", "Motion refresh fixture starts a real reserved-seed walk")
+	controller.crop_search = "花椰菜"; controller.crop_season = "全部"; controller.crop_mechanism = "全部"; controller.crop_unlocked_only = false
+	controller._open_panel("crops")
+	var search := controller.popup_body.find_child("CropSearch", true, false) as LineEdit
+	var action := controller.popup_body.find_child("CropAction_cauliflower", true, false) as Button
+	search.grab_focus()
+	controller._prepare_preview()
+	controller._shop_revision = controller._shop_state_revision()
+	var revision: String = controller._shop_revision
+	var preview_before := JSON.stringify(controller._preview_snapshot, "", true, true)
+	var moving_before: Dictionary = controller.model.snapshot()
+	var protected_before: int = controller.model.protection()
+	controller.model.tick(0.6)
+	var animal_moved := false
+	for index in range(controller.model.state.animals.size()):
+		var animal: Dictionary = controller.model.state.animals[index]
+		var old: Dictionary = moving_before.animals[index]
+		if animal.x != old.x or animal.y != old.y: animal_moved = true
+	check(animal_moved and controller.model.state.animals[0].food_remaining != moving_before.animals[0].food_remaining, "Real ranch motion changes animal positions and life timers")
+	check(controller.model.state.fish[0].x != moving_before.fish[0].x or controller.model.state.fish[0].y != moving_before.fish[0].y, "Real pond motion changes fish coordinates")
+	check(worker.remaining != moving_before.farmers[0].remaining and worker.task_elapsed != moving_before.farmers[0].task_elapsed and worker.task == moving_before.farmers[0].task, "Real walking changes farmer timers while keeping the same paid seed task")
+	check(controller.model.balance() == int(moving_before.coins) and controller.model.protection() == protected_before, "Motion fixture changes no money or protected planting budget")
+	controller._refresh_open_shop()
+	check(controller._shop_state_revision() == revision and JSON.stringify(controller._preview_snapshot, "", true, true) == preview_before, "Animal/fish/farmer motion skips crop quote preparation rather than only preserving card identity")
+	check(controller.popup_body.find_child("CropSearch", true, false) == search and controller.popup_body.find_child("CropAction_cauliflower", true, false) == action and controller.popup.gui_get_focus_owner() == search, "Skipped motion refresh keeps the focused search and existing action card")
+	check(controller._act("buy_seeds", {"crop_id": "carrot", "count": 2}, false), "A real seed purchase changes economic inputs for the open crop panel")
+	controller._refresh_open_shop()
+	check(controller._preview_snapshot.coins == controller.model.balance() and JSON.stringify(controller._preview_snapshot, "", true, true) != preview_before and controller.popup_body.find_child("CropAction_cauliflower", true, false) == action, "Money/stock changes refresh the existing quotes without rebuilding the card")
+	var before_pending: String = controller._shop_revision
+	check(controller._act("set_crop", {"crop_id": "cauliflower", "plot_ids": ["plot_0_1"]}, false), "A real crop command creates a pending plan on a growing plot")
+	controller._refresh_open_shop()
+	check(controller._shop_revision != before_pending and controller._preview_snapshot.plots[1].pending_crop_id == "cauliflower" and controller.popup.gui_get_focus_owner() == search, "Pending plans refresh crop quotes while preserving search focus")
+	# Valid paired states with plentiful inventory isolate semantic flags:
+	# both budgets stay zero, so a protection-only hash cannot pass these cases.
+	var fixture := _preview_fixture(controller, true)
+	fixture.seeds.parsnip = 1000
+	check(controller.model.restore(fixture).ok and controller.model.protection() == 0, "Semantic flag fixtures strictly restore with zero protected budget")
+	controller._prepare_preview()
+	controller._refresh_crop_quotes()
+	controller._shop_revision = controller._shop_state_revision()
+	var returned_revision: String = controller._shop_revision
+	controller.model.state.plots[2].return_seed = false
+	check(controller.model._validate(controller.model.snapshot()).ok and controller.model.protection() == 0, "Removing a dedicated returned seed remains valid with the same zero budget")
+	controller._refresh_open_shop()
+	check(controller._shop_revision != returned_revision and not controller._preview_snapshot.plots[2].return_seed, "Returned-seed semantics invalidate quotes even when total protection is unchanged")
+	var growing_revision: String = controller._shop_revision
+	var growing: Dictionary = controller.model.state.plots[3]
+	growing.status = "empty"; growing.remaining = 0.0; growing.product = {}
+	check(controller.model._validate(controller.model.snapshot()).ok and controller.model.protection() == 0, "Growing-to-empty fixture remains strictly valid with abundant stock and no budget change")
+	controller._refresh_open_shop()
+	check(controller._shop_revision != growing_revision and controller._preview_snapshot.plots[3].status == "empty", "Empty-plot classification refreshes quotes independently of movement clocks or budget totals")
+	check(controller.model.restore(baseline).ok, "Motion/economy refresh regression restores its original isolated model")
+	controller.selected_plot_ids = selection
+	controller.crop_search = ""; controller.crop_season = "全部"; controller.crop_mechanism = "全部"; controller.crop_unlocked_only = false
+	controller._close_panel()
+	controller.view.set_selection(selection)
+	controller.view.set_model(controller.model.state, true)
+	controller._prepare_preview()
+	check(controller._save_now(), "Motion/economy refresh regression restores the test-store after its real transactions")
 
 func _test_pond_modes_and_interaction(controller, blocker_path: String, valid_path: String) -> void:
 	var baseline: Dictionary = controller.model.snapshot()

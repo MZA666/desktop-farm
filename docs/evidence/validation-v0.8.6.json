@@ -1,0 +1,257 @@
+{
+  "version": "0.8.6",
+  "date": "2026-10-06",
+  "baseline": "0.8.5",
+  "parent_commit": "883810a",
+  "environment": "Windows 11 x64 / Intel Iris Xe / Godot 4.7.2",
+  "save_version": 6,
+  "layout_version": 6,
+  "isolated_fixture": true,
+  "player_save_accessed": false,
+  "player_save_written": false,
+  "player_process_stopped": false,
+  "core_assertions": 1443,
+  "controller_assertions": 766,
+  "simulation_assertions": 440,
+  "stage_a_assertions": 237,
+  "preview_equivalence_comparisons_included_in_controller": 548,
+  "real_input_checks": 89,
+  "real_clicks": 8,
+  "real_input_samples": [
+    {
+      "case": "single_result_reset",
+      "native_ack": "0 1 527546 527546",
+      "native_point": [
+        988,
+        369
+      ],
+      "popup_size": [
+        760,
+        500
+      ],
+      "step": 0
+    },
+    {
+      "case": "builtin_clear_icon",
+      "native_ack": "1 1 527546 527546",
+      "native_point": [
+        930,
+        369
+      ],
+      "popup_size": [
+        760,
+        500
+      ],
+      "step": 1
+    },
+    {
+      "case": "zero_result_reset",
+      "native_ack": "2 1 527546 527546",
+      "native_point": [
+        988,
+        369
+      ],
+      "popup_size": [
+        760,
+        500
+      ],
+      "step": 2
+    },
+    {
+      "case": "combined_filter_reset",
+      "native_ack": "3 1 527546 527546",
+      "native_point": [
+        988,
+        369
+      ],
+      "popup_size": [
+        760,
+        500
+      ],
+      "step": 3
+    },
+    {
+      "case": "after_stock_refresh_reset",
+      "native_ack": "4 1 527546 527546",
+      "native_point": [
+        988,
+        369
+      ],
+      "popup_size": [
+        760,
+        500
+      ],
+      "step": 4
+    },
+    {
+      "case": "shop_single_result_reset",
+      "native_ack": "5 1 527546 527546",
+      "native_point": [
+        988,
+        404
+      ],
+      "popup_size": [
+        760,
+        500
+      ],
+      "step": 5
+    },
+    {
+      "case": "narrow_reachable_reset_returns_top",
+      "native_ack": "6 1 527546 527546",
+      "native_point": [
+        760,
+        389
+      ],
+      "popup_size": [
+        540,
+        360
+      ],
+      "step": 6
+    },
+    {
+      "case": "narrow_builtin_clear_icon",
+      "native_ack": "7 1 527546 527546",
+      "native_point": [
+        702,
+        413
+      ],
+      "popup_size": [
+        540,
+        360
+      ],
+      "step": 7
+    }
+  ],
+  "real_input_evidence": {
+    "path": ".review/seed-filter-input-25356-1010954.json",
+    "bytes": 1054,
+    "sha256": "FDF32CC0AC74CE15D04138ACBA12286C1F5FC53BFCB26EEC6D13A8BE93EB36AC"
+  },
+  "exported_exe_exit_code": 0,
+  "exported_exe_markers": [
+    "UI_STARTUP_WINDOW_OK",
+    "UI_DISPLAY_MODES_OK",
+    "UI_FISH_NO_POPUP_OK",
+    "UI_ANIMAL_INTERACTION_OK",
+    "UI_POND_UPGRADES_OK",
+    "UI_AREA_BATCH_OK: caught4 discovered1 sold3 one cooldown no popup",
+    "UI_SEED_FILTER_RESET_OK kinds=2",
+    "UI_SEED_PLANTING_OK",
+    "UI_PANELS_OK",
+    "UI_COLLAPSED_MENU_OK",
+    "UI_SHOPS_AND_CLOSE_OK"
+  ],
+  "fixture_guard_exit_code": 2,
+  "fixture_guard_output_created": false,
+  "shop_performance": {
+    "checks": 61,
+    "passed": true,
+    "observed_process_exit_code": null,
+    "completion_evidence": "Completed JSON and SHOP_PERFORMANCE_COMPLETE marker; process ended. Exit code was not captured.",
+    "baseline_execution": "Godot reading 0.8.5 source, debug_feature=true/editor_feature=true",
+    "release_execution": "Actual exported 0.8.6 EXE, debug_feature=false/editor_feature=false",
+    "execution_modes_differ": true,
+    "records": {
+      "baseline": {
+        "path": "docs/evidence/shop-performance-v085-baseline.json",
+        "bytes": 36502,
+        "sha256": "6BF5FE5C6736587C122C779A35C49D40B2E7118DCF3347548D4FF4023396523F"
+      },
+      "release": {
+        "path": "docs/evidence/shop-performance-v086-release.json",
+        "bytes": 49306,
+        "sha256": "2BD386DFE33B2A2D824A65265DA1CB7E0AB8D51B39062979C16320BBDD1C070F"
+      }
+    }
+  },
+  "logs": {
+    "controller": {
+      "path": ".review/test-Controller.log",
+      "bytes": 383,
+      "sha256": "4E5B33FE2C119578999BE87F5B194D3C34218011B140FA8AFA46D3FF08C6192D"
+    },
+    "simulation": {
+      "path": ".review/test-Simulation.log",
+      "bytes": 574,
+      "sha256": "470C5596EABB8CA044F0F05377E2FA79985B2584CD36D7611E5A9E993DCBD706"
+    },
+    "stage_a": {
+      "path": ".review/test-StageA.log",
+      "bytes": 146,
+      "sha256": "3EA9E9B6A9CCB313EA3A371F23BEBC8EDBBE5D62C6B72AC7FBEF5031150AFA17"
+    },
+    "real_input": {
+      "path": ".review/v086-seed-filter-gui-elevated.log",
+      "bytes": 226,
+      "sha256": "AFB745D279A9A9D93A699AD06E27664326619498174FAE005E8E956C32326277"
+    },
+    "exported_exe": {
+      "path": ".review/release-v086-smoke.log",
+      "bytes": 517,
+      "sha256": "3BBFA8CEC87074DCD4014DE8EB381145D40309BF5E4B6C0ADF55E7C2B8A3A507"
+    },
+    "fixture_guard": {
+      "path": ".review/release-v086-guard.log",
+      "bytes": 261,
+      "sha256": "B7B63661061886D016BDF7051AD25B70D44C9977913953FFDF055AE06371FE74"
+    },
+    "shop_performance": {
+      "path": ".review/shop-performance-v086-release.log",
+      "bytes": 1967,
+      "sha256": "34C1A60B7F6331DD143DCA6569609520EE3917E76EA00957843B825D968B19B5"
+    }
+  },
+  "release_files": {
+    "DesktopFarm.exe": {
+      "path": "dist/DesktopFarm-v0.8.6/DesktopFarm.exe",
+      "bytes": 109135872,
+      "sha256": "F8F9436D765B11EF6D1BDADCC2854A984A39C9651E0F02F768CBA276C6ED8BDD"
+    },
+    "DesktopFarm.pck": {
+      "path": "dist/DesktopFarm-v0.8.6/DesktopFarm.pck",
+      "bytes": 16977436,
+      "sha256": "34ED61FBA24C47A8EB220D8425A65D31F82878566DAB904710680A449CD42B86"
+    },
+    "desktop_native.dll": {
+      "path": "dist/DesktopFarm-v0.8.6/desktop_native.dll",
+      "bytes": 202752,
+      "sha256": "1ADDA3DA0C9DB9EA74C540B90E1249E47D494B056C9E0A4C7EC4796BFD9E4785"
+    }
+  },
+  "unchanged_native_dll": true,
+  "source_files": {
+    "scripts/main.gd": {
+      "path": "scripts/main.gd",
+      "bytes": 102374,
+      "sha256": "7EDAD21DA5C84AEACEE22A4FB158095A5723CC627959A2E9A2BB1540D3F126F0"
+    },
+    "scripts/game_state.gd": {
+      "path": "scripts/game_state.gd",
+      "bytes": 79252,
+      "sha256": "EBAC7FE14101DB69C0F0415ED913D6EA5269A2A1330F789B86D987BC922226E2"
+    },
+    "scripts/shop_performance.gd": {
+      "path": "scripts/shop_performance.gd",
+      "bytes": 17266,
+      "sha256": "FFF9D45B43B747EED86EB116F46D716B02852113EF8504A793153CEEDCF07028"
+    },
+    "tests/test_controller.gd": {
+      "path": "tests/test_controller.gd",
+      "bytes": 59738,
+      "sha256": "0A87E09A2F2AE53A45990B5D14B32220CC1AEDB81752C1B6F2E8F61DB0D3AB45"
+    },
+    "tests/test_shop_performance.gd": {
+      "path": "tests/test_shop_performance.gd",
+      "bytes": 1076,
+      "sha256": "E48D651A6ED5037E95F795D048D7C98FDCAF44F28AEBB60BE9DAE4213723EE3A"
+    }
+  },
+  "full_v084_regression_repeated": false,
+  "long_term_cpu_memory_remeasured": false,
+  "environment_notes": [
+    "Default-sandbox smoke could not persist isolated fixture settings. Same EXE passed full smoke with isolated-test write permission.",
+    "Default-sandbox logs can report unavailable root certificates/editor-settings writes; offline checks passed.",
+    "Native real input was verified with access to its test windows; failed sandbox attempt is not counted as passing."
+  ]
+}

@@ -26,6 +26,7 @@ var animal_types: Dictionary = {}
 var shelter_types: Dictionary = {}
 var fish_types: Dictionary = {}
 var _tick_fraction := 0.0
+var _last_investment_protection := -1
 var crop_order: Array = []
 
 func _init(values: Dictionary = {}) -> void:
@@ -741,12 +742,17 @@ func command(action: String, payload: Dictionary = {}) -> Dictionary:
 	changed.emit()
 	return result
 
-func _check_investment() -> Dictionary:
-	if balance() < protection():
-		return _result(false, "金币不足：需要保留 %d 金币补种预算" % protection())
+func _check_investment(known_protection := -1) -> Dictionary:
+	# The UI may reuse the already computed budget for an unlock, which changes
+	# money and unlocked IDs but leaves every seed-allocation input untouched.
+	# Real commands omit this argument and compute the authoritative budget.
+	var protected_budget: int = protection() if known_protection < 0 else known_protection
+	_last_investment_protection = protected_budget
+	if balance() < protected_budget:
+		return _result(false, "金币不足：需要保留 %d 金币补种预算" % protected_budget)
 	return _result(true, "操作完成")
 
-func _execute_command(action: String, payload: Dictionary) -> Dictionary:
+func _execute_command(action: String, payload: Dictionary, known_unlock_protection := -1) -> Dictionary:
 	if action in ["cast_net", "resolve_pending_fish", "upgrade_net", "upgrade_pond", "upgrade_net_area"]:
 		return POND.command(state, config, action, payload, protection())
 	if action == "resolve_fish": return POND.command(state, config, "resolve_pending_fish", {}, protection())
@@ -806,7 +812,7 @@ func _execute_command(action: String, payload: Dictionary) -> Dictionary:
 				return _result(false, "此作物不存在或已解锁")
 			state.coins = balance() - int(crops[id].unlock_price)
 			state.unlocked_crops.append(id)
-			return _check_investment()
+			return _check_investment(known_unlock_protection)
 		"expand_plot":
 			var price := plot_expansion_price()
 			if price < 0: return _result(false, "地块已开满或费用配置无效")
