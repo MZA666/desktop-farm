@@ -39,6 +39,8 @@ git switch -c codex/new-feature
 
 发布可用带说明的标签，例如 `git tag -a v0.8.4 -m "v0.8.4 field and area net upgrades"`，然后 `git push origin v0.8.4`。标签对应已验收源码，试玩包由本机 `dist/` 构建，不随源码提交。0.8.4分支为 `codex/v0.8.4-field-and-net-upgrades`，保留此前版本记录；本轮增加4块边缘耕地、就近派工和渔网面积升级。版本标签用于定位已验收源码；GitHub主分支未自动合并这些功能分支。
 
+0.8.5种子筛选修复基于0.8.4，分支为 `codex/v0.8.5-seed-filter-fix`，发布标签为 `v0.8.5`。修复和回归证据单独提交，沿用SAVE6/Layout6；不自动合并主分支。试玩包为 `dist/DesktopFarm-v0.8.5-win64.zip`，源码测试和实际交付验收见 `docs/validation-v0.8.5.md`。
+
 ## 换电脑开发
 
 先安装 Git 和 Python 3，然后克隆仓库，在克隆目录中执行：

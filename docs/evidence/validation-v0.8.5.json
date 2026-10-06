@@ -1,0 +1,166 @@
+{
+  "version": "0.8.5",
+  "date": "2026-10-06",
+  "baseline": "0.8.4",
+  "environment": "Windows 11 x64 / Intel Iris Xe / Godot 4.7.2",
+  "save_version": 6,
+  "layout_version": 6,
+  "isolated_fixture": true,
+  "controller_assertions": 190,
+  "real_input_checks": 89,
+  "real_clicks": 8,
+  "real_input_samples": [
+    {
+      "case": "single_result_reset",
+      "native_ack": "0 1 15206830 15206830",
+      "native_point": [
+        988,
+        369
+      ],
+      "popup_size": [
+        760,
+        500
+      ],
+      "step": 0
+    },
+    {
+      "case": "builtin_clear_icon",
+      "native_ack": "1 1 15206830 15206830",
+      "native_point": [
+        930,
+        369
+      ],
+      "popup_size": [
+        760,
+        500
+      ],
+      "step": 1
+    },
+    {
+      "case": "zero_result_reset",
+      "native_ack": "2 1 15206830 15206830",
+      "native_point": [
+        988,
+        369
+      ],
+      "popup_size": [
+        760,
+        500
+      ],
+      "step": 2
+    },
+    {
+      "case": "combined_filter_reset",
+      "native_ack": "3 1 15206830 15206830",
+      "native_point": [
+        988,
+        369
+      ],
+      "popup_size": [
+        760,
+        500
+      ],
+      "step": 3
+    },
+    {
+      "case": "after_stock_refresh_reset",
+      "native_ack": "4 1 15206830 15206830",
+      "native_point": [
+        988,
+        369
+      ],
+      "popup_size": [
+        760,
+        500
+      ],
+      "step": 4
+    },
+    {
+      "case": "shop_single_result_reset",
+      "native_ack": "5 1 15206830 15206830",
+      "native_point": [
+        988,
+        404
+      ],
+      "popup_size": [
+        760,
+        500
+      ],
+      "step": 5
+    },
+    {
+      "case": "narrow_reachable_reset_returns_top",
+      "native_ack": "6 1 15206830 15206830",
+      "native_point": [
+        760,
+        389
+      ],
+      "popup_size": [
+        540,
+        360
+      ],
+      "step": 6
+    },
+    {
+      "case": "narrow_builtin_clear_icon",
+      "native_ack": "7 1 15206830 15206830",
+      "native_point": [
+        702,
+        413
+      ],
+      "popup_size": [
+        540,
+        360
+      ],
+      "step": 7
+    }
+  ],
+  "exported_exe_exit_code": 0,
+  "exported_exe_markers": [
+    "UI_STARTUP_WINDOW_OK",
+    "UI_DISPLAY_MODES_OK",
+    "UI_FISH_NO_POPUP_OK",
+    "UI_ANIMAL_INTERACTION_OK",
+    "UI_POND_UPGRADES_OK",
+    "UI_AREA_BATCH_OK: caught4 discovered1 sold3 one cooldown no popup",
+    "UI_SEED_FILTER_RESET_OK kinds=2",
+    "UI_SEED_PLANTING_OK",
+    "UI_PANELS_OK",
+    "UI_COLLAPSED_MENU_OK",
+    "UI_SHOPS_AND_CLOSE_OK"
+  ],
+  "logs": {
+    "controller": {
+      "path": ".review/test-Controller.log",
+      "bytes": 123,
+      "sha256": "B9517606DC3E1063E352C8A89DA90B7BEC7D4CBF4A28860D35C9DC1F260F9388"
+    },
+    "real_input": {
+      "path": ".review/v085-seed-filter-gui.log",
+      "bytes": 226,
+      "sha256": "AFB745D279A9A9D93A699AD06E27664326619498174FAE005E8E956C32326277"
+    },
+    "exported_exe": {
+      "path": ".review/release-v085-smoke.log",
+      "bytes": 517,
+      "sha256": "F6BC158E1D8BDC87EBEEB344DF6052FB2B547F6C07A2C76B489F467D28C59CBA"
+    }
+  },
+  "release_files": {
+    "DesktopFarm.exe": {
+      "bytes": 109135872,
+      "sha256": "AD3448C7A9B98589C8CFC02D683F3726EA63EA1FF4E1E69966D803C559022D31"
+    },
+    "DesktopFarm.pck": {
+      "bytes": 16961436,
+      "sha256": "90303402C5F871E6CBD5C27F79CB64BB4E287DDCF96A36A4479D22C924D0A015"
+    },
+    "desktop_native.dll": {
+      "bytes": 202752,
+      "sha256": "1ADDA3DA0C9DB9EA74C540B90E1249E47D494B056C9E0A4C7EC4796BFD9E4785"
+    }
+  },
+  "unchanged_native_dll": true,
+  "full_v084_regression_repeated": false,
+  "performance_remeasured": false
+}

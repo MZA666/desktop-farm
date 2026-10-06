@@ -58,6 +58,8 @@ var crop_season := "全部"
 var crop_mechanism := "全部"
 var crop_unlocked_only := false
 var crop_list: VBoxContainer
+var _crop_list_ids: Array[String] = []
+var popup_scroll: ScrollContainer
 var catalog_category := "全部"
 var catalog_discovered_only := false
 var catalog_search := ""
@@ -409,6 +411,7 @@ func _build_popup() -> void:
 	background.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	popup.add_child(background)
 	var scroll := ScrollContainer.new()
+	popup_scroll = scroll
 	scroll.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	scroll.offset_left = 16
 	scroll.offset_top = 12
@@ -612,6 +615,7 @@ func _open_shelter(id: String) -> void:
 func _open_panel(name: String) -> void:
 	panel_name = name
 	_render_panel()
+	if is_instance_valid(popup_scroll): popup_scroll.scroll_vertical = 0
 	var area := host.get_work_area() if is_instance_valid(host) and host.ready_for_desktop else Rect2i(Vector2i.ZERO, DisplayServer.screen_get_usable_rect().size)
 	popup.size = Vector2i(mini(760, maxi(540, area.size.x - 40)), mini(500, maxi(360, area.size.y - 100)))
 	popup.position = area.position + Vector2i((area.size.x - popup.size.x) / 2, maxi(20, area.size.y - host.logical_window_height() - popup.size.y - 16))
@@ -632,6 +636,7 @@ func _close_panel() -> void:
 
 func _render_panel() -> void:
 	crop_list = null
+	_crop_list_ids.clear()
 	catalog_grid = null
 	_catalog_count_label = null
 	_budget_footer = null
@@ -689,7 +694,14 @@ func _preview_command(action: String, payload: Dictionary = {}) -> Dictionary:
 	return result
 
 func _shop_state_revision() -> String:
-	return str(hash([model.balance(), model.protection(), model.state.animals, model.state.pond, model.state.catalog, model.state.seeds, model.state.seed_reservations, model.state.default_seed_id, model.state.unlocked_crops, save_blocked]))
+	# In-flight seeds remain in the library until sowing completes. Track task
+	# identity without movement timers, so completion also invalidates the list.
+	var sowing_seeds: Array = []
+	for farmer in model.state.farmers:
+		var task: Dictionary = farmer.task
+		if str(task.get("action", "")) == "sow" and str(task.get("seed_source", "")) != "dedicated":
+			sowing_seeds.append([str(farmer.id), str(task.get("crop_id", "")), str(task.get("seed_source", ""))])
+	return str(hash([model.balance(), model.protection(), model.state.animals, model.state.pond, model.state.catalog, model.state.seeds, model.state.seed_reservations, sowing_seeds, model.state.default_seed_id, model.state.unlocked_crops, save_blocked]))
 
 func _budget_summary() -> String:
 	return "金币 %d  |  补种保护 %d  |  可投资 %d" % [model.balance(), model.protection(), model.investable()]
@@ -699,7 +711,10 @@ func _refresh_open_shop() -> void:
 	if is_instance_valid(_budget_footer): _budget_footer.text = _budget_summary()
 	_prepare_preview()
 	if panel_name in ["crops", "inventory"] and is_instance_valid(crop_list):
-		_refresh_crop_quotes()
+		var visible_ids: Array[String] = []
+		for crop in _filtered_crops(): visible_ids.append(str(crop.id))
+		if visible_ids != _crop_list_ids: _render_crop_list()
+		else: _refresh_crop_quotes()
 	elif panel_name == "animals":
 		_refresh_animal_quotes()
 		_refresh_owned_animal_cards()
@@ -757,25 +772,35 @@ func _panel_crops() -> void:
 		for quantity in [1, 5, 10, 25]:
 			var amount := int(quantity)
 			_button(quantity_row, str(amount), func(): count.value = amount)
+	var search_row := HBoxContainer.new()
+	popup_body.add_child(search_row)
 	var search := LineEdit.new()
 	search.name = "CropSearch"
 	search.placeholder_text = "搜索作物名称…"
 	search.text = crop_search
-	popup_body.add_child(search)
+	search.clear_button_enabled = true
+	search.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	search_row.add_child(search)
 	search.text_changed.connect(func(value: String): crop_search = value; _render_crop_list())
+	var reset := _button(search_row, "清除筛选", _clear_crop_filters)
+	reset.name = "CropClearFilters"
+	reset.tooltip_text = "清空搜索、季节、类型和已解锁筛选，显示当前页面的全部种类"
 	var filters := HFlowContainer.new()
 	popup_body.add_child(filters)
 	var seasons := OptionButton.new()
+	seasons.name = "CropSeasonFilter"
 	filters.add_child(seasons)
 	for label in ["全部季节", "春", "夏", "秋", "冬", "全年"]: seasons.add_item(label)
 	seasons.select(["全部", "春", "夏", "秋", "冬", "全年"].find(crop_season))
 	seasons.item_selected.connect(func(index: int): crop_season = ["全部", "春", "夏", "秋", "冬", "全年"][index]; _render_crop_list())
 	var mechanisms := OptionButton.new()
+	mechanisms.name = "CropTypeFilter"
 	filters.add_child(mechanisms)
 	for label in ["全部类型", "单次收获", "连续收获", "随机种包", "返种", "加工", "材料作物"]: mechanisms.add_item(label)
 	mechanisms.select(["全部", "single", "regrow", "mixed", "return_seed", "processing", "material"].find(crop_mechanism))
 	mechanisms.item_selected.connect(func(index: int): crop_mechanism = ["全部", "single", "regrow", "mixed", "return_seed", "processing", "material"][index]; _render_crop_list())
 	var available := CheckBox.new()
+	available.name = "CropUnlockedFilter"
 	available.text = "只看已解锁"
 	available.button_pressed = crop_unlocked_only
 	filters.add_child(available)
@@ -784,6 +809,21 @@ func _panel_crops() -> void:
 	crop_list.name = "CropList"
 	popup_body.add_child(crop_list)
 	_render_crop_list()
+
+func _clear_crop_filters() -> void:
+	crop_search = ""
+	crop_season = "全部"
+	crop_mechanism = "全部"
+	crop_unlocked_only = false
+	var search := popup_body.find_child("CropSearch", true, false) as LineEdit
+	if is_instance_valid(search): search.text = ""
+	for name in ["CropSeasonFilter", "CropTypeFilter"]:
+		var choice := popup_body.find_child(name, true, false) as OptionButton
+		if is_instance_valid(choice): choice.select(0)
+	var available := popup_body.find_child("CropUnlockedFilter", true, false) as CheckBox
+	if is_instance_valid(available): available.set_pressed_no_signal(false)
+	_render_crop_list()
+	if is_instance_valid(popup_scroll): popup_scroll.scroll_vertical = 0
 
 func _filtered_crops() -> Array:
 	var result := []
@@ -802,8 +842,13 @@ func _render_crop_list() -> void:
 	_crop_quote_controls.clear()
 	_prepare_preview()
 	var filtered := _filtered_crops()
+	_crop_list_ids.clear()
+	for crop in filtered: _crop_list_ids.append(str(crop.id))
+	var reset := popup_body.find_child("CropClearFilters", true, false) as Button
+	if is_instance_valid(reset): reset.disabled = crop_search.is_empty() and crop_season == "全部" and crop_mechanism == "全部" and not crop_unlocked_only
 	_label(crop_list, "显示 %d 种" % filtered.size())
-	if filtered.is_empty(): _wrapped_label(crop_list, "这里暂时没有种子。可到种子商店购买，或修改筛选。")
+	if filtered.is_empty():
+		_wrapped_label(crop_list, "没有符合条件的作物，可点击上方‘清除筛选’。" if not crop_search.is_empty() or crop_season != "全部" or crop_mechanism != "全部" or crop_unlocked_only else "种子库暂时没有种子，可到种子商店购买。")
 	for crop in filtered:
 		var crop_id := str(crop.id)
 		var card := _card(crop_list, "crop", crop_id)
@@ -1732,6 +1777,7 @@ func _smoke_capture() -> void:
 		return
 	_open_panel("inventory")
 	for unused in range(3): await get_tree().process_frame
+	if not _smoke_seed_filters(): return
 	await RenderingServer.frame_post_draw
 	popup.get_texture().get_image().save_png(smoke_path.get_basename() + "-menu-inventory-purchased.png")
 	print("UI_SEED_PLANTING_OK")
@@ -1770,6 +1816,21 @@ func _smoke_capture() -> void:
 	_toggle_collapse()
 	host.shutdown()
 	get_tree().quit()
+
+func _smoke_seed_filters() -> bool:
+	_clear_crop_filters()
+	var owned_ids := _crop_list_ids.duplicate()
+	var search := popup_body.find_child("CropSearch", true, false) as LineEdit
+	var reset := popup_body.find_child("CropClearFilters", true, false) as Button
+	if not _smoke_require(not owned_ids.is_empty() and search != null and reset != null and search.clear_button_enabled, "UI_SEED_FILTER_CONTROLS_FAILED"): return false
+	var snapshot_before := JSON.stringify(model.snapshot(), "", true, true)
+	search.text = "不存在的测试作物"
+	search.text_changed.emit(search.text)
+	if not _smoke_require(_crop_list_ids.is_empty() and not reset.disabled, "UI_SEED_EMPTY_FILTER_FAILED"): return false
+	reset.pressed.emit()
+	if not _smoke_require(_crop_list_ids == owned_ids and search.text.is_empty() and crop_search.is_empty() and popup_body.find_child("CropSearch", true, false) == search and JSON.stringify(model.snapshot(), "", true, true) == snapshot_before, "UI_SEED_FILTER_RESET_FAILED"): return false
+	print("UI_SEED_FILTER_RESET_OK kinds=", owned_ids.size())
+	return true
 
 func _smoke_plot_point(hit: Dictionary) -> Vector2:
 	# Tall plants may visibly cover the neighboring soil. Exercise a real

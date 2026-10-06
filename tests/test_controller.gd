@@ -136,6 +136,7 @@ func _run() -> void:
 	check(int(controller.model.seed_inventory_summary("carrot").total) == prior_carrot + 5, "Cancelling the plan releases rather than destroys purchased seeds")
 	controller._open_panel("inventory")
 	check(controller.popup_body.find_child("SeedPlan_carrot", true, false) != null, "Purchased crop appears in the real library panel")
+	await _test_inventory_search_reset(controller)
 	controller._open_panel("settings")
 	var speed_control: SpinBox = controller.popup_body.find_child("FarmerSpeed", true, false) as SpinBox
 	check(speed_control != null and speed_control.min_value == 16 and speed_control.max_value == 48 and speed_control.step == 4, "Settings expose the bounded walking speed control")
@@ -237,6 +238,164 @@ func _run() -> void:
 	else:
 		for detail in failures: printerr("FAIL: " + detail)
 		quit(1)
+
+func _inventory_cards(controller) -> Array[String]:
+	var ids: Array[String] = []
+	for button in controller.crop_list.find_children("SeedPlan_*", "Button", true, false):
+		ids.append(str(button.name).trim_prefix("SeedPlan_"))
+	return ids
+
+func _stock_crop_ids(controller) -> Array[String]:
+	var ids: Array[String] = []
+	for crop in controller.config.crops:
+		if int(controller.model.seed_inventory_summary(str(crop.id)).total) > 0: ids.append(str(crop.id))
+	return ids
+
+func _assert_crop_reset(controller, search: LineEdit, season: OptionButton, type_filter: OptionButton, unlocked: CheckBox, expected: Array[String], snapshot: Dictionary, selection: Array) -> void:
+	check(controller.crop_search == "" and controller.crop_season == "全部" and controller.crop_mechanism == "全部" and not controller.crop_unlocked_only, "Clear filters resets all four controller filters")
+	check(search.text.is_empty() and season.selected == 0 and type_filter.selected == 0 and not unlocked.button_pressed, "Clear filters synchronizes the existing text, dropdowns and checkbox")
+	check(controller.popup_body.find_child("CropSearch", true, false) == search and controller.popup_body.find_child("CropSeasonFilter", true, false) == season and controller.popup_body.find_child("CropTypeFilter", true, false) == type_filter and controller.popup_body.find_child("CropUnlockedFilter", true, false) == unlocked, "Clearing filters preserves the original input controls")
+	check(_inventory_cards(controller) == expected and expected.size() < controller.config.crops.size(), "Reset restores precisely the owned seed kinds rather than all shop crops")
+	check(controller.model.snapshot() == snapshot and controller.selected_plot_ids == selection, "Reset changes no money, seed stock, transactions, crop plans or selected fields")
+
+func _test_inventory_search_reset(controller) -> void:
+	var baseline: Dictionary = controller.model.snapshot()
+	var original_selection: Array = controller.selected_plot_ids.duplicate()
+	var original_popup_size: Vector2i = controller.popup.size
+	check(controller._act("buy_seeds", {"crop_id": "cauliflower", "count": 3}, false), "Search fixture purchases cauliflower through the real seed transaction")
+	controller.selected_plot_ids = [str(controller.model.state.plots[0].id), str(controller.model.state.plots[1].id)]
+	controller.view.set_selection(controller.selected_plot_ids)
+	controller.crop_search = ""; controller.crop_season = "全部"; controller.crop_mechanism = "全部"; controller.crop_unlocked_only = false
+	controller.toolbar.find_child("SeedInventory", true, false).pressed.emit()
+	var search := controller.popup_body.find_child("CropSearch", true, false) as LineEdit
+	var reset := controller.popup_body.find_child("CropClearFilters", true, false) as Button
+	var season := controller.popup_body.find_child("CropSeasonFilter", true, false) as OptionButton
+	var type_filter := controller.popup_body.find_child("CropTypeFilter", true, false) as OptionButton
+	var unlocked := controller.popup_body.find_child("CropUnlockedFilter", true, false) as CheckBox
+	check(search != null and reset != null and season != null and type_filter != null and unlocked != null, "Real inventory exposes search, reset and named filter controls")
+	if search == null or reset == null or season == null or type_filter == null or unlocked == null:
+		controller.model.restore(baseline)
+		controller.selected_plot_ids = original_selection
+		return
+	check(search.clear_button_enabled and reset.text == "清除筛选", "Search has its built-in clear affordance and an explicit clear-filters button")
+	var expected := _stock_crop_ids(controller)
+	check(expected.size() >= 2 and expected.has("carrot") and expected.has("cauliflower") and _inventory_cards(controller) == expected, "Real purchased inventory contains both searched seed kinds before filtering")
+	var protected_snapshot: Dictionary = controller.model.snapshot()
+	var selected: Array = controller.selected_plot_ids.duplicate()
+	for entry in [{"query": "花椰菜", "id": "cauliflower"}, {"query": "萝卜", "id": "carrot"}]:
+		search.text = str(entry.query); search.text_changed.emit(search.text)
+		check(_inventory_cards(controller) == [str(entry.id)], "Chinese inventory search displays a single owned crop: " + str(entry.query))
+		check(not reset.disabled, "A nonempty search enables the real clear-filters button")
+		reset.pressed.emit()
+		_assert_crop_reset(controller, search, season, type_filter, unlocked, expected, protected_snapshot, selected)
+	search.text = "花椰菜"; search.text_changed.emit(search.text)
+	search.clear(); search.text_changed.emit(search.text)
+	check(controller.crop_search.is_empty() and _inventory_cards(controller) == expected and controller.popup_body.find_child("CropSearch", true, false) == search, "Ordinary text clearing restores every current inventory kind without recreating search")
+	search.text = "没有这个作物"; search.text_changed.emit(search.text)
+	check(_inventory_cards(controller).is_empty() and not reset.disabled, "An empty result still exposes an enabled reset action")
+	reset.pressed.emit()
+	_assert_crop_reset(controller, search, season, type_filter, unlocked, expected, protected_snapshot, selected)
+	search.text = "花椰菜"; search.text_changed.emit(search.text)
+	season.select(2); season.item_selected.emit(2)
+	type_filter.select(2); type_filter.item_selected.emit(2)
+	unlocked.button_pressed = true
+	check(controller.crop_season == "夏" and controller.crop_mechanism == "regrow" and controller.crop_unlocked_only and _inventory_cards(controller).is_empty(), "Search, season, harvest mechanism and unlocked-only restrictions combine")
+	reset.pressed.emit()
+	_assert_crop_reset(controller, search, season, type_filter, unlocked, expected, protected_snapshot, selected)
+	# A filtered list is rebuilt once, without replacing focused input controls.
+	# A dirty whitespace query keeps enough owned cards to exercise real scrolling.
+	controller.popup.size = Vector2i(540, 360)
+	search.text = " "; search.text_changed.emit(search.text)
+	await process_frame
+	await process_frame
+	controller.popup_scroll.scroll_vertical = 100000
+	check(controller.popup_scroll.scroll_vertical > 0, "Owned multi-kind inventory has a scrollable result before reset")
+	var entered: Array[int] = [0]
+	var count_entry := func(_node: Node): entered[0] += 1
+	controller.crop_list.child_entered_tree.connect(count_entry)
+	reset.pressed.emit()
+	controller.crop_list.child_entered_tree.disconnect(count_entry)
+	check(entered[0] == expected.size() + 1, "Clearing combined filters renders the result list exactly once")
+	check(controller.popup_scroll.scroll_vertical == 0, "Clear filters returns the existing scroll container to the top")
+	_assert_crop_reset(controller, search, season, type_filter, unlocked, expected, protected_snapshot, selected)
+	controller.popup.size = original_popup_size
+	search.text = "花椰菜"; search.text_changed.emit(search.text)
+	search.grab_focus()
+	var plan := controller.popup_body.find_child("SeedPlan_cauliflower", true, false) as Button
+	var detail_before: String = controller._crop_quote_controls.cauliflower.detail.text
+	controller.model.state.coins += 1
+	controller._refresh_open_shop()
+	check(controller.popup_body.find_child("CropSearch", true, false) == search and controller.popup.gui_get_focus_owner() == search and controller.crop_search == "花椰菜", "Quote-only refresh keeps the same focused inventory search and query")
+	check(controller.popup_body.find_child("SeedPlan_cauliflower", true, false) == plan, "Quote-only refresh preserves the existing inventory card action")
+	controller.model.state.seeds.cauliflower += 1
+	controller._refresh_open_shop()
+	check(controller.popup_body.find_child("SeedPlan_cauliflower", true, false) == plan and controller._crop_quote_controls.cauliflower.detail.text != detail_before, "Changing an existing stock quantity updates its quote without rebuilding membership")
+	search.text = "萝卜"; search.text_changed.emit(search.text)
+	search.grab_focus()
+	controller.model.state.seeds.radish = 3
+	controller._refresh_open_shop()
+	check(_inventory_cards(controller) == ["carrot", "radish"] and controller.crop_search == "萝卜" and search.text == "萝卜", "A newly available matching inventory kind appears without changing the user's query")
+	check(controller.popup_body.find_child("CropSearch", true, false) == search and controller.popup.gui_get_focus_owner() == search, "Natural inventory membership updates preserve the original focused input")
+	controller.model.state.seeds.carrot = 0
+	controller._refresh_open_shop()
+	check(_inventory_cards(controller) == ["radish"] and controller.crop_search == "萝卜", "A naturally exhausted matching seed kind disappears while another match remains")
+	controller.model.state.seeds.radish = 0
+	controller._refresh_open_shop()
+	check(_inventory_cards(controller).is_empty() and controller.crop_search == "萝卜" and not reset.disabled, "Exhausting the final matching kind preserves the query and a usable reset")
+	reset.pressed.emit()
+	check(_inventory_cards(controller) == _stock_crop_ids(controller) and search.text.is_empty(), "Reset after stock exhaustion recovers only the still-owned inventory kinds")
+	# A one-kind vault must stay a one-kind vault after a reset; it is not the shop.
+	controller.model.state.seeds = {"carrot": 2}
+	controller.model.state.seed_reservations = []
+	controller._refresh_open_shop()
+	check(_inventory_cards(controller) == ["carrot"], "An inventory containing exactly one seed kind renders one card")
+	search.text = "花椰菜"; search.text_changed.emit(search.text)
+	check(_inventory_cards(controller).is_empty(), "Searching an unowned kind does not create a vault entry")
+	var single_snapshot: Dictionary = controller.model.snapshot()
+	reset.pressed.emit()
+	_assert_crop_reset(controller, search, season, type_filter, unlocked, ["carrot"], single_snapshot, selected)
+	# The final physical seed remains a vault member while a real farmer carries
+	# it. Completing sow changes neither the stock dictionary nor seed claims.
+	controller.model.state.seeds = {"carrot": 1}
+	controller.model.state.seed_reservations = []
+	controller.model.state.farmers = []
+	controller.model._add_farmer("farm")
+	var last_plot: Dictionary = controller.model.state.plots[0]
+	last_plot.status = "empty"; last_plot.remaining = 0.0; last_plot.product = {}
+	last_plot.crop_id = "carrot"; last_plot.preferred_crop_id = "carrot"
+	last_plot.pending_crop_id = ""; last_plot.return_seed = false
+	var last_worker: Dictionary = controller.model.state.farmers[0]
+	controller.model._dispatch(last_worker)
+	check(last_worker.task.action == "sow" and last_worker.task.crop_id == "carrot" and last_worker.task.seed_source == "inventory" and last_worker.phase == "walking", "Real farm dispatch claims the last physical carrot seed and starts walking")
+	search.text = "胡萝卜"; search.text_changed.emit(search.text)
+	search.grab_focus()
+	controller._refresh_open_shop()
+	var carried: Dictionary = controller.model.seed_inventory_summary("carrot")
+	check(carried.total == 1 and carried.available == 0 and carried.in_flight == 1 and _inventory_cards(controller) == ["carrot"], "The last carried seed remains visible with total one despite zero available stock")
+	var carried_plan := controller.popup_body.find_child("SeedPlan_carrot", true, false) as Button
+	var stock_before: Dictionary = controller.model.state.seeds.duplicate(true)
+	var claims_before: Array = controller.model.state.seed_reservations.duplicate(true)
+	var coins_before: int = controller.model.balance()
+	var protection_before: int = controller.model.protection()
+	var carried_revision: String = controller._shop_state_revision()
+	var route_length: float = controller.model.RANCH.path_length(controller.model.RANCH.point(last_worker), last_worker.path)
+	controller.model._advance_farmer(last_worker, route_length / float(controller.model.state.settings.farmer_speed))
+	check(last_worker.phase == "acting" and controller._shop_state_revision() == carried_revision, "Arriving at the plot does not change the stable carried-seed shop revision")
+	controller._refresh_open_shop()
+	check(controller.popup_body.find_child("SeedPlan_carrot", true, false) == carried_plan and controller.popup.gui_get_focus_owner() == search, "Travel-only progress does not rebuild the inventory card or disturb search focus")
+	controller.model._advance_farmer(last_worker, float(last_worker.remaining))
+	check(last_worker.task.is_empty() and last_plot.status == "unwatered" and controller.model.seed_inventory_summary("carrot").total == 0, "The full real sow action consumes the final in-flight seed exactly once")
+	check(controller.model.state.seeds == stock_before and controller.model.state.seed_reservations == claims_before and controller.model.balance() == coins_before and controller.model.protection() == protection_before, "Task completion changes no stock dictionary, reservation ledger, coins or protected budget to mask the revision regression")
+	controller._refresh_open_shop()
+	check(_inventory_cards(controller).is_empty() and controller.popup_body.find_child("SeedPlan_carrot", true, false) == null, "Completing the last in-flight seed automatically removes that inventory member")
+	check(controller.popup_body.find_child("CropSearch", true, false) == search and controller.popup.gui_get_focus_owner() == search and search.text == "胡萝卜" and controller.crop_search == "胡萝卜", "Automatic in-flight exhaustion preserves the search control, focus and user's query")
+	check(controller.model.restore(baseline).ok, "Inventory search regression restores its original isolated model")
+	controller.selected_plot_ids = original_selection
+	controller.view.set_selection(original_selection)
+	controller.crop_search = ""; controller.crop_season = "全部"; controller.crop_mechanism = "全部"; controller.crop_unlocked_only = false
+	controller._close_panel()
+	controller.view.set_model(controller.model.state, true)
+	check(controller._save_now(), "Inventory search regression restores its original test-store snapshot")
 
 func _test_pond_modes_and_interaction(controller, blocker_path: String, valid_path: String) -> void:
 	var baseline: Dictionary = controller.model.snapshot()
