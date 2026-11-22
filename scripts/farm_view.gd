@@ -20,6 +20,7 @@ var page := 0
 var camera_offset := 0.0
 var selection_mode := false
 var selected_plot_ids: Array = []
+var expansion_plot_id := ""
 var seed_preview_provider := Callable()
 
 const INK := Color("#54382d")
@@ -123,7 +124,7 @@ func _ready() -> void:
 
 func configure(values: Dictionary) -> void:
 	config = values
-	_crops = _index(config.get("crops", []))
+	_crops = _index(config.get("crops", []) + config.get("retired_crops", []))
 	_animals = _index(config.get("animals", []))
 	_fish_types = _index(config.get("fish", []))
 	_invalidate_scene()
@@ -151,6 +152,15 @@ func set_selection(ids: Array) -> void:
 		if _plots_by_id.has(key) and bool(_plots_by_id[key].get("open", false)) and not selected_plot_ids.has(key):
 			selected_plot_ids.append(key)
 	_redraw_animation()
+
+func set_expansion_plot(id: String) -> void:
+	if expansion_plot_id == id: return
+	expansion_plot_id = id
+	_redraw_animation()
+
+func plot_view_rect(index: int) -> Rect2:
+	var bounds := WORLD.plot_bounds(index)
+	return Rect2(_to_screen(bounds.position), bounds.size)
 
 func set_desktop_suspended(enabled: bool) -> void:
 	_desktop_suspended = enabled
@@ -540,12 +550,14 @@ func _draw_farm_overlay() -> void:
 		if selected_plot_ids.has(str(hit.id)):
 			_canvas().draw_rect(rect.grow(-1), GOLD, false, 2, false)
 			_box(Rect2(rect.position + Vector2(3, 3), Vector2(5, 5)), GOLD)
+		if str(hit.id) == expansion_plot_id:
+			_box(rect.grow(-2), Color(1.0, 0.86, 0.46, 0.21))
+			_canvas().draw_rect(rect.grow(-2), INK, false, 5, false)
+			_canvas().draw_rect(rect.grow(-2), GOLD, false, 2, false)
+			continue
 		if str(hit.id) == _hover:
-			hovered = hit
+			if bool(hit.open): hovered = hit
 			_canvas().draw_rect(rect.grow(-1), CREAM, false, 2, false)
-			if not bool(hit.open):
-				_box(Rect2(rect.position + Vector2(13, 10), Vector2(2, 10)), CREAM)
-				_box(Rect2(rect.position + Vector2(9, 14), Vector2(10, 2)), CREAM)
 	if _farm_dragging and _farm_drag_start.distance_to(_farm_drag_end) >= 5.0:
 		var rect := Rect2(_farm_drag_start, _farm_drag_end - _farm_drag_start).abs()
 		_canvas().draw_rect(rect, Color(1.0, 0.88, 0.53, 0.12), true)
@@ -557,10 +569,6 @@ func _draw_farm_overlay() -> void:
 	var bounds := Rect2(origin, Vector2(width, 57))
 	_box(bounds, Color("#66563e"))
 	_box(bounds.grow(-1), Color("#f0e0b9"))
-	if not bool(plot.get("open", false)):
-		_label("荒地 · 可开垦", origin + Vector2(8, 17), INK)
-		_label("点击查看开垦安排", origin + Vector2(8, 36), MUTED, 11)
-		return
 	var crop_id := str(plot.get("crop_id", ""))
 	var status := str(plot.get("status", "empty"))
 	var name := str(_crops.get(crop_id, {}).get("name", crop_id)) if status != "empty" else "空地"
@@ -806,8 +814,7 @@ func _draw_fish(item: Dictionary) -> void:
 
 func _sample_farmers(values: Dictionary) -> void:
 	var sample_time := float(values.get("elapsed", 0))
-	# Positions advance at one-second simulation boundaries. Interpolate the
-	# whole interval so a 32px step does not become a fast half-second sprint.
+	# Interpolate for the whole interval between model samples.
 	var duration := clampf(sample_time - _last_farmer_sample, 1.0 / 30.0, 1.0)
 	if sample_time < _last_farmer_sample: _farmer_tracks.clear()
 	_last_farmer_sample = sample_time
@@ -821,14 +828,18 @@ func _sample_farmers(values: Dictionary) -> void:
 		var id := str(farmer.get("id", ""))
 		var track: Dictionary = _farmer_tracks.get(id, {})
 		if _desktop_suspended or track.is_empty() or str(track.get("scene", "")) != scene:
-			_farmer_tracks[id] = {"from": foot, "target": foot, "since": _animation_seconds, "duration": duration, "left": false, "scene": scene}
+			_farmer_tracks[id] = {"from": foot, "target": foot, "since": _animation_seconds, "duration": duration, "left": false, "scene": scene, "distance": 0.0}
 		elif (track.target as Vector2).distance_squared_to(foot) > 0.00001:
 			var drawn := _farmer_position(track)
-			_farmer_tracks[id] = {"from": drawn, "target": foot, "since": _animation_seconds, "duration": duration, "left": foot.x < drawn.x, "scene": scene}
+			var distance := _farmer_distance(track, drawn)
+			_farmer_tracks[id] = {"from": drawn, "target": foot, "since": _animation_seconds, "duration": duration, "left": foot.x < drawn.x, "scene": scene, "distance": distance}
 
 func _farmer_position(track: Dictionary) -> Vector2:
 	var progress := clampf((_animation_seconds - float(track.since)) / maxf(1.0 / 30.0, float(track.duration)), 0, 1)
 	return (track.from as Vector2).lerp(track.target as Vector2, progress)
+
+func _farmer_distance(track: Dictionary, current_position: Vector2) -> float:
+	return float(track.distance) + (track.from as Vector2).distance_to(current_position)
 
 func _draw_farmers() -> void:
 	var visible_index := 0

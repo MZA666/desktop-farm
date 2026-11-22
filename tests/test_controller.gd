@@ -81,7 +81,15 @@ func _run() -> void:
 	controller.crop_mechanism = "全部"
 	controller.crop_unlocked_only = false
 	controller.seed_shop_mode = "shop"
-	check(controller._filtered_crops().size() == 53, "Unfiltered seed shop contains all 53 crops")
+	check(controller._filtered_crops().size() == 48, "Unfiltered seed shop contains exactly 48 crops")
+	var inventory_snapshot: Dictionary = controller.model.snapshot()
+	controller.model.state.seeds.spring_seeds = 1
+	controller.model.state.unlocked_crops.append("spring_seeds")
+	check(not controller._filtered_crops().any(func(c): return c.id == "spring_seeds"), "Shop does not offer a retired pack even if a player owns it")
+	controller.seed_shop_mode = "inventory"
+	check(controller._filtered_crops().any(func(c): return c.id == "spring_seeds"), "Seed library still offers a retired pack from old inventory")
+	controller.seed_shop_mode = "shop"
+	controller.model.restore(inventory_snapshot)
 	controller.crop_search = "防风草"
 	check(controller._filtered_crops().size() == 1 and controller._filtered_crops()[0].id == "parsnip", "Crop search matches the Chinese crop name")
 	controller.crop_search = ""
@@ -94,6 +102,9 @@ func _run() -> void:
 	controller.crop_unlocked_only = true
 	check(controller._filtered_crops().all(func(c): return controller.model.state.unlocked_crops.has(str(c.id))), "Unlocked-only filter excludes locked crops")
 	controller.crop_unlocked_only = false
+	var sorted_crops: Array = controller._filtered_crops()
+	check(int(sorted_crops[0].seed_price) == 20 and int(sorted_crops[0].price_level) == 1 and int(sorted_crops[-1].seed_price) == 9600 and int(sorted_crops[-1].price_level) == 24, "Shop displays the cheapest seeds first and the premium seeds last")
+	controller.model.state.unlocked_crops.append("cauliflower")
 	var shop_snapshot: Dictionary = controller.model.snapshot()
 	controller._prepare_preview()
 	var budget_preview: Dictionary = controller._preview_command("set_default_seed", {"crop_id": "cauliflower"})
@@ -122,10 +133,18 @@ func _run() -> void:
 	check(controller._act("buy_seeds", {"crop_id": "carrot", "count": 5}, false), "Seed quantity purchase commits through the controller")
 	check(controller.model.balance() == int(before_buy.coins) - 5 * int(controller.model.crops.carrot.seed_price), "Purchase charges exactly the displayed seed quantity")
 	check(int(controller.model.seed_inventory_summary("carrot").total) == prior_carrot + 5, "Purchase puts physical seeds in the library")
-	controller.selected_plot_ids.clear()
+	var selected_ids: Array = [str(controller.model.state.plots[0].id), str(controller.model.state.plots[1].id)]
+	controller._close_panel()
+	controller._on_plots_selected(selected_ids)
+	check(not controller.popup.visible and controller.plant_controls.visible and controller.plant_selection_button.text == "选择种子", "Selecting land leaves the library closed and offers an explicit seed action")
+	controller._on_plots_selected([])
+	check(controller.selected_plot_ids.is_empty() and not controller.popup.visible and not controller.plant_controls.visible, "Empty selection clears the controls without opening the library")
+	controller._on_plots_selected(selected_ids)
+	controller.plant_selection_button.pressed.emit()
+	check(controller.panel_name == "inventory" and controller.popup.visible and controller.selected_plot_ids == selected_ids, "Explicit seed action opens the library and preserves selected land")
+	controller._on_plots_selected([])
 	controller._choose_planting_seed("carrot")
 	check(controller.view.selection_mode and controller.plant_controls.visible and not controller.popup.visible, "Choosing a seed opens field selection and the commit HUD")
-	var selected_ids: Array = [str(controller.model.state.plots[0].id), str(controller.model.state.plots[1].id)]
 	controller._on_plots_selected(selected_ids)
 	check(controller.selected_plot_ids == selected_ids and not controller.plant_selection_button.disabled, "Multiple real plot IDs enable planting")
 	controller.plant_selection_button.pressed.emit()
@@ -166,6 +185,10 @@ func _run() -> void:
 	check(controller._filtered_catalog_items().all(func(item): return controller.model.state.catalog.has(str(item.id))), "Discovered-only filter excludes undiscovered items")
 	controller.catalog_category = "全部"
 	controller.catalog_discovered_only = false
+	check(not controller._filtered_catalog_items().any(func(item): return item.id == "crystal_fruit"), "Undiscovered retired items are hidden from the active catalogue")
+	controller.model.state.catalog.crystal_fruit = {"count": 1}
+	check(controller._filtered_catalog_items().any(func(item): return item.id == "crystal_fruit"), "A discovered retired item remains in the catalogue")
+	controller.model.state.catalog.erase("crystal_fruit")
 	controller.catalog_selection = "egg"
 	controller.panel_name = "catalog_detail"
 	controller._render_panel()
@@ -292,7 +315,7 @@ func _test_pond_modes_and_interaction(controller, blocker_path: String, valid_pa
 	controller._close_panel()
 	controller.toolbar.find_child("DisplayMode", true, false).pressed.emit()
 	check(controller.model.state.settings.display_mode == "compact" and controller.get_window().content_scale_size.y == 240 and controller.view.view_height == 172, "Real display mode button selects the compact scene")
-	check(controller.saves.load_save().data.settings.display_mode == "compact" and controller.status_label.position.y == 220, "Compact mode and the bottom status location persist correctly")
+	check(controller.saves.load_save().data.settings.display_mode == "compact" and controller.status_label.position.y == controller.view.position.y + controller.view.view_height and controller.plant_controls.get_rect().end.y == 240, "Compact mode keeps the status controls below the scenery")
 	controller._open_panel("settings")
 	var display: OptionButton = controller.popup_body.find_child("SettingsDisplayMode", true, false) as OptionButton
 	controller.saves.path = blocker_path.path_join("display-fails.json")
@@ -305,13 +328,25 @@ func _test_pond_modes_and_interaction(controller, blocker_path: String, valid_pa
 	display.select(0)
 	display.item_selected.emit(0)
 	check(controller.model.state.settings.display_mode == "expanded" and controller.get_window().content_scale_size.y == 420 and controller.view.view_height == 352, "Settings restore the expanded scene without scaling sprites down")
-	check(controller.saves.load_save().data.settings.display_mode == "expanded" and controller.status_label.position.y == 400, "Expanded mode and its bottom status location persist correctly")
+	check(controller.saves.load_save().data.settings.display_mode == "expanded" and controller.status_label.position.y == controller.view.position.y + controller.view.view_height and controller.plant_controls.get_rect().end.y == 420, "Expanded mode keeps the status controls below the scenery")
+	check(controller._act("settings", {"values": {"window_size": [900, 310], "window_position": [-300, 200]}}, false), "Custom dimensions and position save together")
+	controller._apply_settings()
+	var custom_settings: Dictionary = controller.saves.load_save().data.settings
+	check(controller.HOST.saved_window_size(custom_settings) == Vector2i(900, 310) and int(custom_settings.window_position[0]) == -300 and int(custom_settings.window_position[1]) == 200 and controller.view.view_height == 242, "Reloaded settings contain the custom layout")
+	check(not controller._act("settings", {"values": {"window_size": [900, -1]}}, false), "Invalid dimensions are rejected")
+	controller._open_panel("settings")
+	display = controller.popup_body.find_child("SettingsDisplayMode", true, false) as OptionButton
+	check(display.selected == 2 and display.get_item_text(2).contains("242"), "Settings show the custom scene height and keep both presets available")
+	controller.display_mode_button.pressed.emit()
+	check(controller.model.state.settings.window_size == [900, 0] and controller.view.view_height == 172, "Height preset preserves custom width")
+	controller.display_mode_button.pressed.emit()
 	var prior_window_size: Vector2i = controller.get_window().size
 	controller.get_window().size = Vector2i(640, 420)
 	controller._sync_layout()
 	var toolbar_row: HBoxContainer = controller.toolbar.get_child(1) as HBoxContainer
 	check(toolbar_row.get_combined_minimum_size().x <= 628, "Toolbar still fits the 640 logical pixel desktop width")
 	check(controller.toolbar.find_child("CameraUp", true, false).visible and controller.toolbar.find_child("CameraNext", true, false).visible and controller.display_mode_button.visible and controller.collapse_button.visible, "Narrow toolbar keeps both-axis camera, display mode and collapse controls reachable")
+	check(controller.toolbar.find_child("MoveFarm", true, false).visible and controller.toolbar.find_child("ResizeFarm", true, false).visible, "Narrow toolbar keeps both layout handles reachable")
 	controller.get_window().size = prior_window_size
 	controller._sync_layout()
 	var original_camera: float = float(controller.view.get("camera_y"))
@@ -319,6 +354,36 @@ func _test_pond_modes_and_interaction(controller, blocker_path: String, valid_pa
 	check(float(controller.view.get("camera_y")) > original_camera, "Real down camera button moves the vertical view")
 	controller.toolbar.find_child("CameraUp", true, false).pressed.emit()
 	check(float(controller.view.get("camera_y")) < 160, "Real up camera button returns the vertical view")
+	controller.model.state.coins = 1419
+	controller._close_panel()
+	controller.view.locked_plot_clicked.emit("plot_5_15")
+	check(not controller.popup.visible and controller.panel_name.is_empty(), "Clicking locked land opens no window")
+	check(controller.view.expansion_plot_id == "plot_1_8" and controller.model.balance() == 1419, "The next plot is highlighted even when another locked plot was clicked")
+	check(controller.status_label.text.contains("900 金币") and controller.status_label.text.contains("经营 → 建设扩展") and not controller.plant_controls.visible, "Locked land only shows its price and the management path in the status bar")
+	controller._on_plots_selected([])
+	check(controller.view.expansion_plot_id.is_empty() and not controller.popup.visible, "Clicking the scenery clears the expansion hint")
+	controller.toolbar.find_child("Management", true, false).pressed.emit()
+	controller.popup_body.find_child("Construction", true, false).pressed.emit()
+	var expand := controller.popup_body.find_child("ExpandIndividualPlot", true, false) as Button
+	check(expand != null and expand.disabled and expand.text.ends_with("900") and expand.tooltip_text.contains("1 金币"), "Expansion shows the current price and exact seed-budget shortfall")
+	check(not controller.popup.borderless and controller.popup.size.x >= 540, "Full construction remains a separate management panel")
+	var detail := controller.popup_body.find_child("PlotExpansionQuote", true, false) as Label
+	check(detail.visible and detail.text.contains("1 金币"), "Construction shows the affordability gap without requiring a tooltip")
+	controller.model.state.coins += 1
+	controller._refresh_open_shop()
+	check(not expand.disabled and not detail.visible, "New income enables expansion without reopening the panel")
+	expand.pressed.emit()
+	check(controller.model.balance() == 520 and controller.popup_body.find_child("ExpandIndividualPlot", true, false).text.contains("1250") and str(controller.model.next_expansion_plot().id) == "plot_1_9", "Construction purchases the next plot and advances the price")
+	controller._open_panel("decorations")
+	check(controller.popup_body.find_child("Placement_flower_box", true, false) == null, "Locked decoration shows no placement control")
+	controller.model.state.coins += 10000
+	for unused in range(3): check(controller._act("expand_plot", {}, false), "Build continues towards the first decoration")
+	controller._render_panel()
+	var location := controller.popup_body.find_child("Placement_flower_box", true, false) as OptionButton
+	check(location != null and location.selected == 0, "Unlocked item defaults to the first location in the management panel")
+	location.select(1)
+	location.item_selected.emit(1)
+	check(int(controller.saves.load_save().data.decorations.flower_box) == 1, "Changing the placement through the real control saves it")
 	controller._close_panel()
 	check(controller.model.restore(baseline).ok, "Controller fixture restores after isolated pond tests")
 	controller._apply_settings()

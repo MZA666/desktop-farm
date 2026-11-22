@@ -266,6 +266,20 @@ __declspec(dllexport) int desktop_show_without_raise(HWND hwnd) {
     return IsWindowVisible(hwnd) != 0;
 }
 
+static int hide_from_taskbar(HWND hwnd) {
+    LONG_PTR style = GetWindowLongPtrW(hwnd, GWL_EXSTYLE);
+    LONG_PTR hidden_style = (style | WS_EX_TOOLWINDOW) & ~(LONG_PTR)WS_EX_APPWINDOW;
+    if (style == hidden_style) return 1;
+    BOOL visible = IsWindowVisible(hwnd);
+    if (visible) ShowWindow(hwnd, SW_HIDE);
+    SetLastError(0);
+    int ok = SetWindowLongPtrW(hwnd, GWL_EXSTYLE, hidden_style) != 0 || !GetLastError();
+    SetWindowPos(hwnd, NULL, 0, 0, 0, 0,
+        SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE | SWP_FRAMECHANGED);
+    if (visible) ShowWindow(hwnd, SW_SHOWNA);
+    return ok;
+}
+
 __declspec(dllexport) int desktop_apply_style(HWND hwnd, int interactive) {
     if (!IsWindow(hwnd)) return 0;
     LONG_PTR style = GetWindowLongPtrW(hwnd, GWL_EXSTYLE);
@@ -311,7 +325,7 @@ static int attach(DesktopState *state, int64_t handle) {
         return 0;
     }
     state->attached = 1;
-    if (!desktop_apply_style(hwnd, 0)) {
+    if (!hide_from_taskbar(hwnd) || !desktop_apply_style(hwnd, 0)) {
         detach(state);
         return 0;
     }
@@ -406,6 +420,19 @@ static int make_independent_window(int64_t handle) {
     return GetWindow(hwnd, GW_OWNER) == NULL && desktop_make_normal_window(hwnd);
 }
 
+static int hide_auxiliary_taskbar_entry(int64_t handle) {
+    HWND hwnd = (HWND)(intptr_t)handle;
+    DWORD process_id = 0;
+    GetWindowThreadProcessId(hwnd, &process_id);
+    return process_id == GetCurrentProcessId() && hide_from_taskbar(hwnd);
+}
+
+static void raise_scene_with_toolbar(DesktopState *state, int64_t handle) {
+    HWND toolbar = (HWND)(intptr_t)handle;
+    if (!state->attached || !IsWindowVisible(state->hwnd) || GetForegroundWindow() != toolbar) return;
+    SetWindowPos(state->hwnd, toolbar, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
+}
+
 static int show_window(int64_t handle) {
     HWND hwnd = (HWND)(intptr_t)handle;
     DWORD process_id = 0;
@@ -459,7 +486,7 @@ typedef enum { ATTACH, INTERACTIVE, AREA, AWAKE, SINGLE, RELEASE,
     SET_VISIBLE, IS_VISIBLE, WINDOW_IS_VISIBLE, INDEPENDENT_WINDOW, SHOW_WINDOW,
     WINDOW_IS_TOPMOST, WINDOW_HIDE, ACTION_CALLBACK, INSTALL_TRAY, REGISTER_HOTKEY,
     TRAY_REGISTERED, HOTKEY_REGISTERED, SHELL_ERROR, SHELL_HANDLE, SHELL_FLAGS,
-    TEST_NAMESPACE, FOREGROUND_FULLSCREEN } Method;
+    TEST_NAMESPACE, FOREGROUND_FULLSCREEN, HIDE_TASKBAR_ENTRY, RAISE_WITH_TOOLBAR } Method;
 typedef struct { const char *name; Method id; GDExtensionVariantType ret, arg; } MethodSpec;
 static const MethodSpec methods[] = {
     {"attach", ATTACH, GDEXTENSION_VARIANT_TYPE_BOOL, GDEXTENSION_VARIANT_TYPE_INT},
@@ -478,6 +505,8 @@ static const MethodSpec methods[] = {
     {"is_visible", IS_VISIBLE, GDEXTENSION_VARIANT_TYPE_BOOL, GDEXTENSION_VARIANT_TYPE_NIL},
     {"window_is_visible", WINDOW_IS_VISIBLE, GDEXTENSION_VARIANT_TYPE_BOOL, GDEXTENSION_VARIANT_TYPE_INT},
     {"make_independent_window", INDEPENDENT_WINDOW, GDEXTENSION_VARIANT_TYPE_BOOL, GDEXTENSION_VARIANT_TYPE_INT},
+    {"hide_taskbar_entry", HIDE_TASKBAR_ENTRY, GDEXTENSION_VARIANT_TYPE_BOOL, GDEXTENSION_VARIANT_TYPE_INT},
+    {"raise_scene_with_toolbar", RAISE_WITH_TOOLBAR, GDEXTENSION_VARIANT_TYPE_NIL, GDEXTENSION_VARIANT_TYPE_INT},
     {"show_window", SHOW_WINDOW, GDEXTENSION_VARIANT_TYPE_BOOL, GDEXTENSION_VARIANT_TYPE_INT},
     {"window_is_topmost", WINDOW_IS_TOPMOST, GDEXTENSION_VARIANT_TYPE_BOOL, GDEXTENSION_VARIANT_TYPE_INT},
     {"hide_window", WINDOW_HIDE, GDEXTENSION_VARIANT_TYPE_BOOL, GDEXTENSION_VARIANT_TYPE_INT},
@@ -512,6 +541,8 @@ static void execute(Method id, DesktopState *state, int64_t integer,
         case IS_VISIBLE: *(GDExtensionBool *)result = state->attached && IsWindowVisible(state->hwnd); break;
         case WINDOW_IS_VISIBLE: *(GDExtensionBool *)result = IsWindowVisible((HWND)(intptr_t)integer) != 0; break;
         case INDEPENDENT_WINDOW: *(GDExtensionBool *)result = (GDExtensionBool)make_independent_window(integer); break;
+        case HIDE_TASKBAR_ENTRY: *(GDExtensionBool *)result = (GDExtensionBool)hide_auxiliary_taskbar_entry(integer); break;
+        case RAISE_WITH_TOOLBAR: raise_scene_with_toolbar(state, integer); break;
         case SHOW_WINDOW: *(GDExtensionBool *)result = (GDExtensionBool)show_window(integer); break;
         case WINDOW_IS_TOPMOST: *(GDExtensionBool *)result =
             (GetWindowLongPtrW((HWND)(intptr_t)integer, GWL_EXSTYLE) & WS_EX_TOPMOST) != 0; break;

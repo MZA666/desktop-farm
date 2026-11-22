@@ -14,6 +14,7 @@ const COMPACT_HEIGHT := 240
 const SCENE_HEIGHT := EXPANDED_HEIGHT
 const SCENE_CHROME_HEIGHT := 68
 const TOOLBAR_HEIGHT := 32
+const MIN_WINDOW_SIZE := Vector2i(640, COMPACT_HEIGHT)
 const NATIVE_READY_MASK := 1 | 2 | 8 | 16 | 32 | 64 | 128
 
 var native: RefCounted
@@ -24,6 +25,7 @@ var collapsed := false
 var power_saving := false
 var topmost := false
 var display_mode := "expanded"
+var preferred_size := Vector2i.ZERO
 var dpi_scale := 1.0
 var ready_for_desktop := false
 var user_hidden := false
@@ -47,6 +49,7 @@ var _last_visibility_reason := "visible"
 var _window_viewport_active: Dictionary = {}
 var _window_logical_visible: Dictionary = {}
 var _window_native_id: Dictionary = {}
+var _scene_input_region := Rect2i()
 
 func acquire_instance() -> bool:
 	# Acquire before any player-save load/migration. A second instance must not
@@ -89,6 +92,7 @@ func start(scene: Window, toolbar: Window = null, settings: Dictionary = {}) -> 
 	power_saving = bool(settings.get("power_saving", false))
 	display_mode = str(settings.get("display_mode", "expanded"))
 	if display_mode not in ["expanded", "compact"]: display_mode = "expanded"
+	preferred_size = saved_window_size(settings)
 	scene_window.borderless = true
 	scene_window.unresizable = true
 	scene_window.transparent = true
@@ -148,7 +152,7 @@ func start(scene: Window, toolbar: Window = null, settings: Dictionary = {}) -> 
 	# Make the native window fit wholly inside the chosen monitor before
 	# querying its DPI/work area, so MonitorFromWindow cannot select a
 	# neighbouring monitor based on the old wide window's overlap.
-	scene_window.size = scenery_size_for_area(target_area, 1.0, display_mode, collapsed)
+	scene_window.size = scenery_size_for_area(target_area, 1.0, display_mode, collapsed, preferred_size)
 	scene_window.position = target_area.position
 	dpi_scale = float(native.call("get_dpi_scale"))
 	_work_area = native.call("get_work_area")
@@ -317,6 +321,11 @@ func set_topmost(_enabled: bool) -> void:
 	if is_instance_valid(toolbar_window) and toolbar_window.always_on_top:
 		toolbar_window.always_on_top = false
 
+func raise_scene_with_toolbar() -> void:
+	if ready_for_desktop and is_instance_valid(toolbar_window):
+		var handle := DisplayServer.window_get_native_handle(DisplayServer.WINDOW_HANDLE, toolbar_window.get_window_id())
+		native.call("raise_scene_with_toolbar", handle)
+
 func set_collapsed(enabled: bool) -> void:
 	var changed := collapsed != enabled
 	collapsed = enabled
@@ -327,10 +336,11 @@ func set_collapsed(enabled: bool) -> void:
 	_apply_desktop_visibility()
 	if changed and _work_area.size.x > 0: display_changed.emit(_work_area)
 
-func set_display_mode(mode: String) -> bool:
+func set_display_mode(mode: String, size_preference := Vector2i.ZERO) -> bool:
 	if mode not in ["expanded", "compact"]: return false
-	if display_mode == mode: return true
+	if display_mode == mode and preferred_size == size_preference: return true
 	display_mode = mode
+	preferred_size = size_preference
 	_layout_windows()
 	if _work_area.size.x > 0: display_changed.emit(_work_area)
 	return true
@@ -354,22 +364,25 @@ static func display_height_for_mode(mode: String) -> int:
 static func scene_height_for_mode(mode: String) -> int:
 	return display_height_for_mode(mode) - SCENE_CHROME_HEIGHT
 
-static func scenery_size_for_area(area: Rect2i, scale: float, mode: String = "expanded", is_collapsed: bool = false) -> Vector2i:
+static func saved_window_size(settings: Dictionary) -> Vector2i:
+	var dimensions: Array = settings.get("window_size", [0, 0])
+	return Vector2i(int(dimensions[0]), int(dimensions[1]))
+
+static func scenery_size_for_area(area: Rect2i, scale: float, mode: String = "expanded", is_collapsed: bool = false, size_preference := Vector2i.ZERO) -> Vector2i:
 	if area.size.x <= 0 or area.size.y <= 0: return Vector2i.ZERO
 	var safe_scale := scale if is_finite(scale) and scale > 0.0 else 1.0
-	var height := TOOLBAR_HEIGHT if is_collapsed else display_height_for_mode(mode)
-	return Vector2i(area.size.x, mini(area.size.y, maxi(1, int(round(height * safe_scale)))))
+	var width := roundi(maxi(MIN_WINDOW_SIZE.x, size_preference.x) * safe_scale) if size_preference.x > 0 else area.size.x
+	var height := maxi(MIN_WINDOW_SIZE.y, size_preference.y) if size_preference.y > 0 else display_height_for_mode(mode)
+	if is_collapsed: height = TOOLBAR_HEIGHT
+	return Vector2i(clampi(width, 1, area.size.x), clampi(roundi(height * safe_scale), 1, area.size.y))
 
 static func toolbar_size_for_area(area: Rect2i, scale: float) -> Vector2i:
 	return scenery_size_for_area(area, scale, "expanded", true)
 
-## Effective logical heights follow the clamped physical work area. On a
-## short or high-DPI display the world is cropped, never rescaled/simulated.
 func logical_window_height() -> int:
 	var safe_scale := dpi_scale if is_finite(dpi_scale) and dpi_scale > 0.0 else 1.0
-	if is_instance_valid(scene_window): return maxi(1, int(floor(scene_window.size.y / safe_scale)))
-	var size := scenery_size_for_area(_work_area, safe_scale, display_mode, collapsed)
-	return maxi(1, int(floor(size.y / safe_scale))) if size.y > 0 else (TOOLBAR_HEIGHT if collapsed else display_height_for_mode(display_mode))
+	if is_instance_valid(scene_window): return maxi(1, roundi(scene_window.size.y / safe_scale))
+	return TOOLBAR_HEIGHT if collapsed else (preferred_size.y if preferred_size.y > 0 else display_height_for_mode(display_mode))
 
 func visible_scene_height() -> int:
 	return 0 if collapsed else maxi(0, logical_window_height() - SCENE_CHROME_HEIGHT)
@@ -388,10 +401,41 @@ func set_position_clamped(position: Vector2i) -> void:
 		scene_window.position = clamped
 	_align_toolbar()
 
+func move_with_pointer(position: Vector2i, pointer: Vector2i) -> void:
+	for screen in range(DisplayServer.get_screen_count()):
+		var area := DisplayServer.screen_get_usable_rect(screen)
+		if area == _work_area or not area.has_point(pointer): continue
+		# Fit inside the destination before Windows selects its DPI.
+		_work_area = area
+		scene_window.size = scenery_size_for_area(area, dpi_scale, display_mode, collapsed, preferred_size)
+		scene_window.position = area.position
+		dpi_scale = float(native.call("get_dpi_scale"))
+		_manual_position = true
+		_layout_windows()
+		display_changed.emit(area)
+		break
+	set_position_clamped(position)
+
+static func resized_bounds(origin: Rect2i, movement: Vector2i, area: Rect2i, scale: float, is_collapsed: bool) -> Rect2i:
+	var available := Vector2i(area.end.x - origin.position.x, origin.end.y - area.position.y)
+	var minimum := Vector2i(Vector2(MIN_WINDOW_SIZE) * scale).min(available)
+	var width := clampi(origin.size.x + movement.x, minimum.x, available.x)
+	var height := origin.size.y if is_collapsed else clampi(origin.size.y - movement.y, minimum.y, available.y)
+	return Rect2i(origin.position.x, origin.end.y - height, width, height)
+
+func resize_from_top_right(origin: Rect2i, movement: Vector2i, original_preference: Vector2i) -> void:
+	var bounds := resized_bounds(origin, movement, _work_area, dpi_scale, collapsed)
+	preferred_size = original_preference
+	if bounds.size.x != origin.size.x: preferred_size.x = roundi(bounds.size.x / dpi_scale)
+	if bounds.size.y != origin.size.y: preferred_size.y = roundi(bounds.size.y / dpi_scale)
+	var size := scenery_size_for_area(_work_area, dpi_scale, display_mode, collapsed, preferred_size)
+	if scene_window.size != size: scene_window.size = size
+	set_position_clamped(Vector2i(origin.position.x, origin.end.y - size.y))
+
 func _layout_windows() -> void:
 	if not is_instance_valid(scene_window) or _work_area.size.x <= 0:
 		return
-	var size := scenery_size_for_area(_work_area, dpi_scale, display_mode, collapsed)
+	var size := scenery_size_for_area(_work_area, dpi_scale, display_mode, collapsed, preferred_size)
 	var height := size.y
 	if scene_window.size != size:
 		scene_window.size = size
@@ -406,20 +450,33 @@ func _layout_windows() -> void:
 func _align_toolbar() -> void:
 	if not is_instance_valid(toolbar_window) or not is_instance_valid(scene_window):
 		return
-	var size := toolbar_size_for_area(_work_area, dpi_scale)
+	var size := Vector2i(scene_window.size.x, toolbar_size_for_area(_work_area, dpi_scale).y)
 	var position := scene_window.position
-	if collapsed:
-		position.y = _work_area.end.y - size.y
 	# Avoid native move/show work when a settings refresh changes no geometry.
 	if toolbar_window.size != size:
 		toolbar_window.size = size
 	if toolbar_window.position != position:
 		toolbar_window.position = position
+	_update_scene_input_region(size.y)
+
+func _update_scene_input_region(toolbar_height: int) -> void:
+	# The scene can move above the toolbar after a scene click. Its transparent
+	# top strip must not intercept clicks intended for the toolbar HWND.
+	var size := scene_window.size
+	var region := Rect2i(0, toolbar_height, size.x, size.y - toolbar_height) if size.y > toolbar_height else Rect2i()
+	if region == _scene_input_region: return
+	_scene_input_region = region
+	var polygon := PackedVector2Array()
+	if region.has_area():
+		polygon = PackedVector2Array([Vector2(region.position), Vector2(region.end.x, region.position.y),
+			Vector2(region.end), Vector2(region.position.x, region.end.y)])
+	DisplayServer.window_set_mouse_passthrough(polygon, scene_window.get_window_id())
 
 func export_settings() -> Dictionary:
 	var position := scene_window.position if is_instance_valid(scene_window) else Vector2i.ZERO
 	return {"topmost": topmost, "interactive": interactive, "collapsed": collapsed,
-		"power_saving": power_saving, "display_mode": display_mode, "window_position": [position.x, position.y]}
+		"power_saving": power_saving, "display_mode": display_mode, "window_position": [position.x, position.y],
+		"window_size": [preferred_size.x, preferred_size.y]}
 
 func diagnostics() -> Dictionary:
 	return {"native_ready": ready_for_desktop, "status_bits": int(native.call("native_status")) if native else 0,
@@ -437,6 +494,9 @@ func shutdown() -> void:
 	ready_for_desktop = false
 	tray_available = false
 	hotkey_available = false
+	if _scene_input_region.has_area() and is_instance_valid(scene_window):
+		DisplayServer.window_set_mouse_passthrough(PackedVector2Array(), scene_window.get_window_id())
+	_scene_input_region = Rect2i()
 	if native != null:
 		native.call("release")
 		native = null

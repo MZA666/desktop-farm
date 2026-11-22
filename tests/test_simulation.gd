@@ -11,6 +11,8 @@ var full_scale_report: Dictionary = {}
 func _init() -> void:
 	values = Config.load_values()
 	_test_initial_and_cycles()
+	_test_crop_price_progression()
+	_test_retired_seed_packs()
 	_test_water_and_task_restore()
 	_test_special_crops()
 	_test_all_crop_routes()
@@ -83,6 +85,60 @@ func _test_initial_and_cycles() -> void:
 	game.tick(3300)
 	check(game.balance() >= 0 and game.state.catalog.get("parsnip", {}).get("count", 0) >= 72, "At least three crop cycles and no debt")
 	check(game.state.catalog.has("egg"), "Animal produce automatically sells and registers")
+	check(game.command("unlock_crop", {"crop_id": "cauliflower"}).ok, "Starter harvests fund the first regular crop upgrade")
+
+func _test_crop_price_progression() -> void:
+	var game := fresh()
+	var ordered: Array = values.crops.duplicate()
+	ordered.sort_custom(func(a, b): return int(a.seed_price) < int(b.seed_price))
+	var levels := {}
+	var previous: Dictionary = ordered[0]
+	for crop in ordered:
+		var level := int(crop.price_level)
+		levels[level] = int(levels.get(level, 0)) + 1
+		if int(crop.seed_price) > int(previous.seed_price):
+			check(level == int(previous.price_level) + 1 and float(crop.expected_sale_price) > float(previous.expected_sale_price) and int(crop.first_seconds) > int(previous.first_seconds) and int(crop.unlock_price) > int(previous.unlock_price), "Higher tier increases sale value, growth time and unlock cost: " + str(crop.id))
+		else:
+			check(level == int(previous.price_level) and int(crop.first_seconds) == int(previous.first_seconds) and int(crop.unlock_price) == int(previous.unlock_price) and is_equal_approx(float(crop.expected_sale_price), float(previous.expected_sale_price)), "Both seeds in a tier share price, timing and expected sale value: " + str(crop.id))
+		check(float(crop.expected_sale_price) > int(crop.seed_price), "Harvest pays more than a replacement seed: " + str(crop.id))
+		check(crop.initial_unlocked == game.state.unlocked_crops.has(str(crop.id)), "Initial availability follows price tier: " + str(crop.id))
+		for product in crop.pool:
+			check(product.sell_price == values.products[product.product_id].sell_price, "Mixed and named crops share the same sale price: " + str(product.product_id))
+		previous = crop
+	check(levels.size() == 24 and levels.get(1) == 2 and levels.get(24) == 2 and levels.values().all(func(count): return count == 2), "Exactly two seeds appear in each of the 24 numbered tiers")
+	var before := game.snapshot()
+	check(game.command("buy_seeds", {"crop_id": "carrot", "count": 1}).ok, "A new farm can buy a starter seed immediately")
+	check(not game.command("unlock_crop", {"crop_id": "cauliflower"}).ok, "Seed reserves prevent opening the next tier on day one")
+	check(not game.command("unlock_crop", {"crop_id": "ancient_fruit"}).ok and not game.command("buy_seeds", {"crop_id": "ancient_fruit", "count": 1}).ok, "Premium seeds require both unlock and purchasing power")
+	var old := fresh()
+	before.unlocked_crops.append("ancient_fruit")
+	before.default_seed_id = "ancient_fruit"
+	before.plots[0].crop_id = "ancient_fruit"
+	before.plots[0].status = "growing"
+	before.plots[0].remaining = 1234.0
+	before.plots[0].product = {"id": "ancient_fruit", "name": "远古果实", "sell_price": 550}
+	check(old.restore(before).ok and old.state.unlocked_crops.has("ancient_fruit") and old.state.plots[0].product.sell_price == 550 and old.state.plots[0].remaining == 1234.0, "Existing unlocks, crop countdowns and committed harvest prices survive the balance update")
+	check(old.protection() > old.balance() and old.command("set_default_seed", {"crop_id": "parsnip"}).ok, "An older farm can lower its former expensive automatic order budget")
+
+func _test_retired_seed_packs() -> void:
+	var old := single_crop("winter_seeds")
+	old.state.seeds.winter_seeds = 2
+	old.state.config_version = "0.8.10"
+	plot0(old).status = "growing"
+	plot0(old).remaining = 1.0
+	plot0(old).product = {"id": "crystal_fruit", "name": "水晶果", "sell_price": 1600}
+	var game := fresh()
+	check(game.restore(old.snapshot()).ok, "Old winter seed inventory and crops still load")
+	check(game.state.default_seed_id == "parsnip" and game.state.seeds.winter_seeds == 2 and plot0(game).remaining == 1.0 and plot0(game).product == plot0(old).product, "Retired auto-order switches to parsnip while stock and current harvest stay intact")
+	var before := game.snapshot()
+	for command in ["unlock_crop", "buy_seeds", "set_default_seed"]:
+		check(not game.command(command, {"crop_id": "winter_seeds", "count": 1}).ok, "Retired seeds cannot be reordered: " + command)
+	check(game.snapshot() == before, "Rejected orders do not change the existing farm")
+	var coins := game.balance()
+	until(game, func(): return game.state.catalog.has("crystal_fruit"))
+	check(game.balance() == coins + 1600, "The archived harvest sells for the amount stored in the old save")
+	until(game, func(): return plot0(game).status == "growing")
+	check(plot0(game).crop_id == "winter_seeds" and game.state.seeds.winter_seeds == 1, "Old stock is still planted without purchasing new retired seeds")
 
 func _test_water_and_task_restore() -> void:
 	var game := single_crop("parsnip")
@@ -125,17 +181,17 @@ func _test_special_crops() -> void:
 	plot0(berry).remaining = 1.0
 	until(berry, func(): return berry.state.catalog.has("strawberry"))
 	check(berry.state.catalog.strawberry.count == 1, "Strawberry first harvest")
-	check(plot0(berry).status == "unwatered" and plot0(berry).remaining == 2400, "Regrowth uses one-third first interval and needs water")
+	check(plot0(berry).status == "unwatered" and plot0(berry).remaining == berry.crops.strawberry.repeat_seconds, "Regrowth uses the tier's repeat interval and needs water")
 	check(berry.protection() == 0, "Established regrowth has no seed reserve")
 	var flower := single_crop("sunflower")
 	until(flower, func(): return plot0(flower).status == "growing")
 	var after_seed := flower.balance()
 	plot0(flower).remaining = 1.0
 	until(flower, func(): return flower.state.catalog.has("sunflower"))
-	check(flower.balance() == after_seed + 80, "Sunflower sells exactly one flower")
+	check(flower.balance() == after_seed + int(flower.crops.sunflower.sell_price), "Sunflower sells exactly one flower")
 	check(flower.state.farmers[0].task.get("seed_source", "") == "dedicated", "Sunflower dedicated seed reserved for same plot")
 	until(flower, func(): return plot0(flower).status == "growing")
-	check(flower.balance() == after_seed + 80 and plot0(flower).remaining == 2520, "Sunflower replants freely at full first interval")
+	check(flower.balance() == after_seed + int(flower.crops.sunflower.sell_price) and plot0(flower).remaining == flower.crops.sunflower.first_seconds, "Sunflower replants freely at full first interval")
 	var rice := single_crop("unmilled_rice")
 	until(rice, func(): return plot0(rice).status == "growing")
 	var original := rice.balance()
@@ -147,10 +203,10 @@ func _test_special_crops() -> void:
 	rice.tick(179)
 	check(rice.balance() == original and plot0(rice).remaining == 1, "Rice cannot sell before processing finishes")
 	rice.tick(1)
-	check(rice.balance() == original + 100 and rice.state.catalog.rice.count == 1, "Processing sells one rice for 100")
+	check(rice.balance() == original + int(rice.crops.unmilled_rice.sell_price) and rice.state.catalog.rice.count == 1, "Processing sells one rice at the configured tier price")
 
 func _test_all_crop_routes() -> void:
-	check(values.crops.size() == 53, "All 53 crop definitions available")
+	check(values.crops.size() == 48, "All 48 active crop definitions available")
 	for crop in values.crops:
 		var game := single_crop(str(crop.id))
 		until(game, func(): return plot0(game).status == "growing")
@@ -172,13 +228,18 @@ func _test_all_crop_routes() -> void:
 
 func _test_protection_and_switches() -> void:
 	var game := fresh()
-	check(game.command("expand_plot").ok, "Affordable expansion succeeds")
-	check(game.balance() == 650 and game.protection() == 520, "Expansion reserves initial and following seed for new plot")
+	game.state.coins = 1419
 	var before := game.snapshot()
-	check(not game.command("expand_plot").ok, "Unaffordable expansion rejected")
+	check(not game.command("expand_plot").ok, "Expansion leaves enough for both seed purchases")
 	check(JSON.stringify(before) == JSON.stringify(game.snapshot()), "Rejected investment has no side effects")
+	game.state.coins += 1
+	check(game.command("expand_plot").ok, "Affordable expansion succeeds")
+	check(game.balance() == 520 and game.protection() == 520, "Expansion reserves initial and following seed for new plot")
+	var expanded := fresh()
+	check(expanded.restore(game.snapshot()).ok and expanded.plot_expansion_price() == 1250, "Restored plot progress determines the next price")
 	var switch := fresh()
 	switch.state.coins = 1000000
+	check(switch.command("unlock_crop", {"crop_id": "cauliflower"}).ok, "Switch fixture unlocks the target crop")
 	until(switch, func(): return switch.state.plots.all(func(p): return not p.open or p.status == "growing"), 600)
 	switch.command("buy_seeds", {"crop_id": "cauliflower", "count": 2})
 	var old_reserve := switch.protection()
@@ -295,9 +356,9 @@ func _test_farmers() -> void:
 	var game := fresh()
 	game.state.coins = 100000
 	var cash := game.balance()
-	check(game.command("hire_farmer", {"scene": "farm"}).ok and game.balance() == cash - 1000, "First global hire costs 1000")
+	check(game.command("hire_farmer", {"scene": "farm"}).ok and game.balance() == cash - 1500, "First global hire costs 1500")
 	cash = game.balance()
-	check(game.command("hire_farmer", {"scene": "ranch"}).ok and game.balance() == cash - 2000, "Second hire in other scene costs 2000")
+	check(game.command("hire_farmer", {"scene": "ranch"}).ok and game.balance() == cash - 4000, "Second hire in other scene costs 4000")
 	var pond: Dictionary = game.state.farmers.filter(func(f): return str(f.home) == "pond")[0]
 	check(game.command("transfer_farmer", {"farmer_id": pond.id, "scene": "farm"}).ok, "Idle free permanent transfer")
 	check(game.state.paid_hires == 2, "Transfer does not reset global hire ordinal")

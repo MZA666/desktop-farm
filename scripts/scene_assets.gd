@@ -3,6 +3,8 @@ extends RefCounted
 
 ## Scene art is baked offline. Getters only load/cache immutable runtime textures.
 const ROOT := "res://assets/pixel/v0.8.1/runtime/"
+const DECOR_ROOT := "res://assets/pixel/v0.8.4/runtime/"
+const FARMER_WALK_ROOT := "res://assets/pixel/v0.8.7/runtime/"
 const ICONS = preload("res://scripts/pixel_assets.gd")
 const CROP_IDS = ICONS.CROP_IDS
 const ANIMAL_IDS := ["chicken", "duck", "rabbit", "cow", "goat", "sheep", "pig", "void_chicken", "golden_chicken", "dinosaur", "ostrich"]
@@ -11,6 +13,8 @@ const FISH_IDS := ["silver_fish", "blueback_fish", "goldstripe_fish"]
 const CROP_CELL := Vector2i(64, 96)
 const ANIMAL_CELL := Vector2i(96, 96)
 const FARMER_CELL := Vector2i(64, 80)
+const FARMER_WALK_FRAMES := 4
+const WALK_PIXELS_PER_FRAME := 6.0
 const NATURE_CELL := Vector2i(64, 64)
 static var _atlases: Dictionary = {}
 static var _regions: Dictionary = {}
@@ -62,24 +66,36 @@ static func fish(id: String, frame := 0) -> Texture2D:
 
 static func farmer(action: String, direction := "down", frame := 0) -> Texture2D:
 	var row: int = maxi(0, DIRECTIONS.find(direction))
+	if action in ["walk", "walking", "idle"]:
+		var column := 0 if action == "idle" else 1 + posmod(frame, FARMER_WALK_FRAMES)
+		return _region("farmer-walk", column, row, FARMER_CELL, FARMER_WALK_ROOT)
 	if action == "water": row = 4
 	elif action in ["sow", "sow_grass", "plant"]: row = 5
 	elif action in ["harvest", "collect_product", "cut_grass"]: row = 6
 	elif action in ["pet", "feed", "interact_animal"]: row = 7
 	return _region("farmer", posmod(frame, 4), row, FARMER_CELL)
 
+static func farmer_walk_frame(distance: float) -> int:
+	return posmod(floori(distance / WALK_PIXELS_PER_FRAME), FARMER_WALK_FRAMES)
+
 static func grass(variant := 0) -> Texture2D:
 	return _region("nature", posmod(variant, 4), 3, NATURE_CELL)
+
+static func farm_decoration(id: String) -> Texture2D:
+	var path := DECOR_ROOT + id + ".png"
+	if not _atlases.has(path): _atlases[path] = _load_texture(path)
+	return _atlases[path]
 
 static func foreground(_scene: String) -> Texture2D:
 	# The supplied backgrounds are complete paintings; no fake opaque cutout.
 	return null
 
-static func _region(kind: String, column: int, row: int, cell: Vector2i) -> Texture2D:
-	var key := "%s:%d:%d" % [kind, column, row]
+static func _region(kind: String, column: int, row: int, cell: Vector2i, root := ROOT) -> Texture2D:
+	var path := root + kind + "-atlas.png"
+	var key := "%s:%d:%d" % [path, column, row]
 	if _regions.has(key): return _regions[key]
-	if not _atlases.has(kind): _atlases[kind] = _load_texture(ROOT + kind + "-atlas.png")
-	var texture: Texture2D = _atlases[kind]
+	if not _atlases.has(path): _atlases[path] = _load_texture(path)
+	var texture: Texture2D = _atlases[path]
 	if texture == null: return null
 	var region := AtlasTexture.new()
 	region.atlas = texture

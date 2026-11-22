@@ -10,7 +10,10 @@ const SEED_PLAN = preload("res://scripts/seed_planner.gd")
 const WORLD = preload("res://scripts/world_layout.gd")
 const RANCH = preload("res://scripts/ranch_life.gd")
 const POND = preload("res://scripts/pond_rules.gd")
+const DECOR = preload("res://scripts/farm_decor.gd")
 const SCENES := ["farm", "ranch", "pond"]
+const IDLE_ACTIONS := ["patrol", "flower_box", "rest", "stone_well"]
+const IDLE_ACTION_SECONDS := {"patrol": 3.0, "flower_box": 4.0, "rest": 12.0, "stone_well": 4.0}
 var config: Dictionary = {}
 var state: Dictionary = {}
 var crops: Dictionary = {}
@@ -27,9 +30,10 @@ func _init(values: Dictionary = {}) -> void:
 
 func config_from(values: Dictionary) -> void:
 	config = values.duplicate(true)
-	crops = _index(config.get("crops", []))
+	var crop_definitions: Array = config.get("crops", []) + config.get("retired_crops", [])
+	crops = _index(crop_definitions)
 	crop_order = []
-	for crop in config.get("crops", []): crop_order.append(str(crop.id))
+	for crop in crop_definitions: crop_order.append(str(crop.id))
 	animal_types = _index(config.get("animals", []))
 	shelter_types = _index(config.get("shelters", []))
 	fish_types = _index(config.get("fish", []))
@@ -71,9 +75,9 @@ func new_game() -> void:
 		"settings": {"topmost": false, "interactive": true, "power_saving": false, "collapsed": false, "farmer_speed": 32.0, "display_mode": "expanded"},
 	}
 	_tick_fraction = 0.0
-	for id in crops:
-		if int(crops[id].get("unlock_price", 0)) == 0:
-			state.unlocked_crops.append(id)
+	for crop in config.get("crops", []):
+		if int(crop.get("unlock_price", 0)) == 0:
+			state.unlocked_crops.append(str(crop.id))
 	for index in range(96):
 		state.plots.append({"id": "plot_%d_%d" % [index / 16, index % 16], "index": index,
 			"open": index < int(initial.get("crop_plots", 24)), "crop_id": default_crop,
@@ -113,8 +117,13 @@ func protection() -> int:
 func get_plots() -> Array:
 	return state.plots
 
+func next_expansion_plot() -> Dictionary:
+	for plot in state.plots:
+		if not plot.open: return plot
+	return {}
+
 func plot_expansion_price() -> int:
-	var owned: int = state.plots.filter(func(p): return bool(p.open)).size()
+	var owned := DECOR.opened_plots(state)
 	var prices: Array = config.get("upgrades", {}).get("individual_plot_costs", [])
 	return int(prices[owned - 24]) if owned >= 24 and owned < 96 and prices.size() == 72 else -1
 
@@ -189,10 +198,16 @@ func restore(data: Dictionary) -> Dictionary:
 	if not checked.ok:
 		return checked
 	state = data.duplicate(true)
+	# Saved inventory and active crops still use their original IDs. Only future automatic purchases switch.
+	if bool(crops[str(state.default_seed_id)].get("retired", false)):
+		state.default_seed_id = "parsnip"
+		if not state.unlocked_crops.has("parsnip"): state.unlocked_crops.append("parsnip")
 	_tick_fraction = float(state.get("tick_fraction", 0.0))
 	# Bad/stale claims are safely released; valid active actions resume their timer.
 	var claims := {}
 	for farmer in state.farmers:
+		if farmer.has("idle_activity") and not _valid_idle_activity(farmer):
+			farmer.erase("idle_activity")
 		var task: Dictionary = farmer.get("task", {})
 		if task.is_empty():
 			continue
@@ -267,6 +282,11 @@ func _validate(data: Dictionary) -> Dictionary:
 	for key in ["net_level", "capacity_level"]:
 		if not _integer(data.pond.get(key)) or int(data.pond[key]) < 0 or int(data.pond[key]) > 3: return _result(false, "鱼塘升级等级无效")
 	if not data.get("settings") is Dictionary or not ["expanded", "compact"].has(str(data.settings.get("display_mode", ""))): return _result(false, "显示模式无效")
+	if data.settings.has("window_size") and not _valid_window_size(data.settings.window_size): return _result(false, "存档窗口尺寸无效")
+	var decorations: Variant = data.get("decorations", {})
+	if not decorations is Dictionary: return _result(false, "存档装饰摆放无效")
+	for id in decorations:
+		if not _valid_decoration_placement(id, decorations[id]): return _result(false, "存档装饰摆放无效")
 	var legacy := data.duplicate(true)
 	legacy.version = 2
 	var common := _validate_v2(legacy, true)
@@ -276,12 +296,31 @@ func _validate(data: Dictionary) -> Dictionary:
 	for farmer in data.farmers:
 		if not farmer.get("path") is Array or not _number(farmer.get("task_elapsed")) or float(farmer.task_elapsed) < 0 or not _number(farmer.get("track_remaining")) or float(farmer.track_remaining) < 0: return _result(false, "农夫路径进度无效")
 		if not ["up", "down", "left", "right"].has(str(farmer.get("facing", ""))): return _result(false, "农夫朝向无效")
-		var origin := Vector2(float(farmer.x), float(farmer.y))
-		for waypoint in farmer.path:
-			if not waypoint is Dictionary or not _number(waypoint.get("x")) or not _number(waypoint.get("y")) or not WORLD.is_walkable(str(farmer.scene), Vector2(float(waypoint.x), float(waypoint.y))) or not WORLD.segment_walkable(str(farmer.scene), origin, Vector2(float(waypoint.x), float(waypoint.y))): return _result(false, "农夫路径穿墙或越界")
-			origin = Vector2(float(waypoint.x), float(waypoint.y))
+		if not _valid_farmer_path(farmer, farmer.path): return _result(false, "农夫路径穿墙或越界")
 		if str(farmer.phase) == "acting" and not farmer.path.is_empty(): return _result(false, "到达作业阶段仍有路径")
 	return _result(true, "有效")
+
+func _valid_farmer_path(farmer: Dictionary, path: Array) -> bool:
+	var origin := RANCH.point(farmer)
+	var scene := str(farmer.scene)
+	for waypoint in path:
+		if not waypoint is Dictionary or not _number(waypoint.get("x")) or not _number(waypoint.get("y")): return false
+		var target := RANCH.point(waypoint)
+		if not WORLD.segment_walkable(scene, origin, target): return false
+		origin = target
+	return true
+
+func _valid_idle_activity(farmer: Dictionary) -> bool:
+	var activity: Variant = farmer.idle_activity
+	if str(farmer.mode) != "idle" or str(farmer.scene) != "farm" or str(farmer.home) != "farm" or not activity is Dictionary:
+		return false
+	var action := str(activity.get("action", ""))
+	if not action.is_empty() and not IDLE_ACTIONS.has(action): return false
+	if not _integer(activity.get("next")) or int(activity.next) < 0 or int(activity.next) >= IDLE_ACTIONS.size(): return false
+	if not _number(activity.get("remaining")) or float(activity.remaining) < 0.0 or float(activity.remaining) > 30.0: return false
+	if not activity.get("path") is Array or (action.is_empty() and not activity.path.is_empty()): return false
+	if DECOR.ITEMS.has(action) and (not _integer(activity.get("placement")) or int(activity.placement) != DECOR.placement(state, action) or int(activity.placement) < 0): return false
+	return _valid_farmer_path(farmer, activity.path)
 
 func _number(value: Variant) -> bool:
 	return (value is int or value is float) and is_finite(float(value))
@@ -573,6 +612,7 @@ func _execute_command(action: String, payload: Dictionary) -> Dictionary:
 			return _result(true, "已取消尚未生效的切换")
 		"buy_seeds":
 			var id := str(payload.get("crop_id", ""))
+			if bool(crops.get(id, {}).get("retired", false)): return _result(false, "该种包已下架，可继续种完库存")
 			var count: Variant = payload.get("count", 1)
 			if not crops.has(id) or not state.unlocked_crops.has(id) or not _integer(count) or int(count) < 1 or int(count) > 1000000:
 				return _result(false, "种子品种或购买数量无效")
@@ -582,12 +622,17 @@ func _execute_command(action: String, payload: Dictionary) -> Dictionary:
 			return _check_investment()
 		"set_default_seed":
 			var id := str(payload.get("crop_id", ""))
+			if bool(crops.get(id, {}).get("retired", false)): return _result(false, "下架的种包无法自动订购")
 			if not crops.has(id) or not state.unlocked_crops.has(id): return _result(false, "请先解锁默认种子")
+			var previous_protection := protection()
 			state.previous_default_seed_id = str(state.default_seed_id)
 			state.default_seed_id = id
+			if protection() < previous_protection:
+				return _result(true, "默认订购已更新，补种预算已降低")
 			return _check_investment()
 		"unlock_crop":
 			var id := str(payload.get("crop_id", ""))
+			if bool(crops.get(id, {}).get("retired", false)): return _result(false, "该种包已下架")
 			if not crops.has(id) or state.unlocked_crops.has(id):
 				return _result(false, "此作物不存在或已解锁")
 			state.coins = balance() - int(crops[id].unlock_price)
@@ -596,16 +641,30 @@ func _execute_command(action: String, payload: Dictionary) -> Dictionary:
 		"expand_plot":
 			var price := plot_expansion_price()
 			if price < 0: return _result(false, "地块已开满或费用配置无效")
-			var target := {}
-			for plot in state.plots:
-				if not plot.open:
-					target = plot
-					break
+			var target := next_expansion_plot()
 			if target.is_empty(): return _result(false, "地块已开满96格")
 			state.coins = balance() - price
 			target.open = true
 			target.preferred_crop_id = str(state.default_seed_id)
-			return _check_investment()
+			var investment := _check_investment()
+			if not investment.ok: return investment
+			var opened := DECOR.opened_plots(state)
+			for item in DECOR.ITEMS.values():
+				if opened == int(item.unlock_plots):
+					return _result(true, "已开垦第 %d 块地，%s已布置" % [opened, item.name])
+			return investment
+		"set_decoration":
+			var id := str(payload.get("decoration_id", ""))
+			var placement: Variant = payload.get("placement")
+			if not _valid_decoration_placement(id, placement): return _result(false, "装饰位置无效")
+			var item: Dictionary = DECOR.ITEMS[id]
+			if DECOR.opened_plots(state) < int(item.unlock_plots): return _result(false, "开垦 %d 块地后解锁" % item.unlock_plots)
+			if DECOR.placement(state, id) != int(placement):
+				for worker in state.farmers:
+					if worker.get("idle_activity", {}).get("action", "") == id: worker.erase("idle_activity")
+			if not state.has("decorations"): state.decorations = {}
+			state.decorations[id] = int(placement)
+			return _result(true, "%s已收起" % item.name if int(placement) == -1 else "%s已摆好" % item.name)
 		"expand_grass":
 			var target := {}
 			for grass in state.grass:
@@ -692,6 +751,7 @@ func _execute_command(action: String, payload: Dictionary) -> Dictionary:
 				return _result(false, "目标岗位已满")
 			farmer.home = scene
 			farmer.scene = scene
+			farmer.erase("idle_activity")
 			var position: Vector2 = WORLD.farmer_idle_position(scene, _home_count(scene) - 1)
 			farmer.x = position.x
 			farmer.y = position.y
@@ -706,15 +766,28 @@ func _execute_command(action: String, payload: Dictionary) -> Dictionary:
 				if values.has(key) and not values[key] is bool: return _result(false, "设置开关格式无效")
 			if values.has("farmer_speed") and (not _number(values.farmer_speed) or float(values.farmer_speed) < 16 or float(values.farmer_speed) > 48): return _result(false, "农夫速度范围为16至48")
 			if values.has("display_mode") and not ["expanded", "compact"].has(str(values.display_mode)): return _result(false, "显示模式无效")
+			if values.has("window_size") and not _valid_window_size(values.window_size): return _result(false, "窗口尺寸无效")
 			if values.has("window_position"):
 				var position: Variant = values.window_position
 				if not position is Array or position.size() != 2 or not (position[0] is int or position[0] is float) or not (position[1] is int or position[1] is float) or not is_finite(float(position[0])) or not is_finite(float(position[1])):
 					return _result(false, "窗口位置无效")
-			for key in ["topmost", "interactive", "power_saving", "collapsed", "window_x", "window_y", "window_position", "monitor", "farmer_speed", "display_mode"]:
+			# Selecting a height preset clears only the manually set height.
+			if values.has("display_mode") and not values.has("window_size") and state.settings.has("window_size"):
+				state.settings.window_size[1] = 0
+			for key in ["topmost", "interactive", "power_saving", "collapsed", "window_x", "window_y", "window_position", "window_size", "monitor", "farmer_speed", "display_mode"]:
 				if values.has(key):
 					state.settings[key] = values[key]
 			return _result(true, "设置已更新")
 	return _result(false, "未知操作：" + action)
+
+func _valid_window_size(size: Variant) -> bool:
+	if not size is Array or size.size() != 2: return false
+	for dimension in size:
+		if not _integer(dimension) or int(dimension) < 0 or int(dimension) > 16384: return false
+	return true
+
+func _valid_decoration_placement(id: Variant, placement: Variant) -> bool:
+	return id is String and DECOR.ITEMS.has(id) and _integer(placement) and int(placement) >= -1 and int(placement) < DECOR.ITEMS[id].spots.size()
 
 func _find(items: Array, id: String) -> Dictionary:
 	for item in items:
@@ -841,6 +914,11 @@ func _step(dt: float) -> void:
 	for farmer in state.farmers:
 		if str(farmer.mode) == "idle":
 			_dispatch(farmer)
+		# Real work (including support) claims the worker before any leisure step.
+		if str(farmer.mode) == "idle" and str(farmer.scene) == "farm" and str(farmer.home) == "farm":
+			_advance_idle_activity(farmer, dt)
+		else:
+			farmer.erase("idle_activity")
 
 func _random(stream: String) -> float:
 	# Park-Miller generator fits safely inside signed 64-bit integers and survives JSON.
@@ -1153,6 +1231,82 @@ func _set_farmer_path(farmer: Dictionary, destination: Vector2) -> bool:
 	farmer.remaining = RANCH.path_length(position, farmer.path) / float(state.settings.farmer_speed) if not route.is_empty() else float(_p("action_seconds", 2))
 	return true
 
+func _walk_farmer(farmer: Dictionary, path: Array, dt: float) -> float:
+	var position := RANCH.point(farmer)
+	var speed := float(state.settings.farmer_speed)
+	var available := dt
+	while not path.is_empty() and available > 0.000001:
+		var destination := RANCH.point(path[0])
+		var difference := destination - position
+		var distance := difference.length()
+		var travel := minf(available, distance / speed)
+		if absf(difference.x) > absf(difference.y): farmer.facing = "right" if difference.x >= 0 else "left"
+		elif difference.length_squared() > 0.001: farmer.facing = "down" if difference.y >= 0 else "up"
+		position = position.move_toward(destination, speed * travel)
+		available -= travel
+		if distance <= travel * speed + 0.000001: path.pop_front()
+		else: break
+	farmer.x = position.x
+	farmer.y = position.y
+	return available
+
+func _advance_idle_activity(farmer: Dictionary, dt: float) -> void:
+	var slot := posmod(int(str(farmer.id).get_slice("_", 1)), 3)
+	var delay := 14.0 + slot * 4.0
+	if not farmer.has("idle_activity"):
+		farmer.idle_activity = {"action": "", "next": 0, "remaining": delay, "path": []}
+	var activity: Dictionary = farmer.idle_activity
+	var action := str(activity.action)
+	if action.is_empty():
+		activity.remaining = maxf(0.0, float(activity.remaining) - dt)
+		if float(activity.remaining) <= 0.000001: _start_idle_activity(farmer, activity, slot, delay)
+		return
+	var available := dt
+	if not activity.path.is_empty():
+		available = _walk_farmer(farmer, activity.path, dt)
+		farmer.path_target_x = farmer.x
+		farmer.path_target_y = farmer.y
+		if not activity.path.is_empty(): return
+	match action:
+		"patrol": farmer.facing = "right" if float(farmer.x) < WORLD.field_bounds().get_center().x else "left"
+		"flower_box": farmer.facing = "up"
+		"stone_well": farmer.facing = "left"
+		"rest": farmer.facing = "down"
+	activity.remaining = maxf(0.0, float(activity.remaining) - available)
+	if float(activity.remaining) <= 0.000001:
+		activity.action = ""
+		activity.remaining = delay
+		activity.erase("placement")
+
+func _start_idle_activity(farmer: Dictionary, activity: Dictionary, slot: int, delay: float) -> void:
+	var origin := RANCH.point(farmer)
+	var field := WORLD.field_bounds()
+	for unused in IDLE_ACTIONS:
+		var action := str(IDLE_ACTIONS[int(activity.next)])
+		activity.next = (int(activity.next) + 1) % IDLE_ACTIONS.size()
+		var destination: Vector2
+		var placement := -1
+		match action:
+			"patrol":
+				var edge := field.position.x - 28.0 if origin.x < field.get_center().x else field.end.x + 28.0
+				destination = Vector2(edge, (331.0 if origin.y < 280.0 else 203.0) + slot * 17.0)
+			"rest":
+				destination = Vector2(119.0 + slot * 35.0, 306.0)
+			_:
+				var decoration: Dictionary = DECOR.ITEMS[action]
+				placement = DECOR.placement(state, action)
+				if placement < 0 or DECOR.opened_plots(state) < int(decoration.unlock_plots): continue
+				var offset := Vector2(0, 25 + slot * 8) if action == "flower_box" else Vector2(40 + slot * 10, 10)
+				destination = (decoration.spots[placement] as Vector2) + offset
+		var path := WORLD.find_path("farm", origin, destination)
+		if path.is_empty() and origin.distance_to(destination) > 0.001: continue
+		activity.action = action
+		activity.remaining = IDLE_ACTION_SECONDS[action]
+		activity.path = RANCH.pack_path(path)
+		if placement >= 0: activity.placement = placement
+		return
+	activity.remaining = delay
+
 func _advance_farmer(farmer: Dictionary, dt: float) -> void:
 	match str(farmer.mode):
 		"working":
@@ -1169,23 +1323,9 @@ func _advance_farmer(farmer: Dictionary, dt: float) -> void:
 					farmer.track_remaining = 1.0
 			var available := dt
 			if str(farmer.phase) == "walking":
-				var position := Vector2(float(farmer.x), float(farmer.y))
-				var speed := float(state.settings.farmer_speed)
-				var distance := 0.0
-				while not farmer.path.is_empty() and available > 0.000001:
-					var destination := RANCH.point(farmer.path[0])
-					distance = position.distance_to(destination)
-					var travel := minf(available, distance / speed)
-					var difference := destination - position
-					if absf(difference.x) > absf(difference.y): farmer.facing = "right" if difference.x >= 0 else "left"
-					elif difference.length_squared() > 0.001: farmer.facing = "down" if difference.y >= 0 else "up"
-					position = position.move_toward(destination, speed * travel)
-					available -= travel
-					if distance <= travel * speed + 0.000001: farmer.path.pop_front()
-					else: break
-				farmer.x = position.x
-				farmer.y = position.y
-				farmer.remaining = RANCH.path_length(position, farmer.path) / speed
+				available = _walk_farmer(farmer, farmer.path, dt)
+				var position := RANCH.point(farmer)
+				farmer.remaining = RANCH.path_length(position, farmer.path) / float(state.settings.farmer_speed)
 				if not farmer.path.is_empty(): return
 				if str(farmer.task.action) == "collect_product":
 					var animal := _find(state.animals, str(farmer.task.target))

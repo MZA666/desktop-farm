@@ -7,12 +7,16 @@ const VIEW = preload("res://scripts/illustrated_view.gd")
 const HOST = preload("res://scripts/desktop_host.gd")
 const ASSETS = preload("res://scripts/pixel_assets.gd")
 const POND = preload("res://scripts/pond_rules.gd")
+const DECOR = preload("res://scripts/farm_decor.gd")
+const SCENE_ART = preload("res://scripts/scene_assets.gd")
 const SCENE_NAMES := {"farm": "农场", "ranch": "牧场", "pond": "鱼塘"}
 const INK := Color("#4f3828")
 const CREAM := Color("#f4e6c8")
 const MUTED := Color("#8a735b")
 const ALERT := Color("#a14732")
 const CATEGORY_NAMES := {"crop": "作物", "animal": "动物产物", "fish": "鱼"}
+const MANAGEMENT_MIN_SIZE := Vector2i(540, 360)
+const STATUS_HEIGHT := 28
 var model: FarmState
 var saves: FarmSaveStore
 var view: FarmView
@@ -22,6 +26,7 @@ var toolbar: Window
 var popup: Window
 var popup_body: VBoxContainer
 var coin_label: Label
+var status_background: ColorRect
 var status_label: Label
 var mode_button: Button
 var collapse_button: Button
@@ -47,9 +52,9 @@ var quitting := false
 var smoke_path := ""
 var benchmark_fixture := false
 var benchmark_options: Dictionary = {}
-var _dragging := false
 var _drag_mouse := Vector2i.ZERO
-var _drag_origin := Vector2i.ZERO
+var _drag_bounds := Rect2i()
+var _drag_settings: Dictionary = {}
 var crop_search := ""
 var crop_season := "全部"
 var crop_mechanism := "全部"
@@ -76,6 +81,8 @@ var _budget_footer: Label
 var _seed_status_label: Label
 var _sale_controls: Dictionary = {}
 var _pond_quote_controls: Dictionary = {}
+var _plot_expansion_button: Button
+var _plot_expansion_detail: Label
 
 func _ready() -> void:
 	get_tree().auto_accept_quit = false
@@ -109,9 +116,11 @@ func _ready() -> void:
 	view.configure(config)
 	view.seed_preview_provider = Callable(model, "seed_preview")
 	view.set_model(model.state)
-	view.plot_clicked.connect(func(id: String): _act("water", {"plot_id": id}, false))
+	view.plot_clicked.connect(func(id: String):
+		view.set_expansion_plot("")
+		_act("water", {"plot_id": id}, false))
 	view.plots_selected.connect(_on_plots_selected)
-	view.locked_plot_clicked.connect(func(_id: String): _open_panel("build"))
+	view.locked_plot_clicked.connect(_show_plot_expansion)
 	view.fish_clicked.connect(_cast_net)
 	view.connect("animal_clicked", Callable(self, "_interact_animal"))
 	add_child(view)
@@ -123,6 +132,7 @@ func _ready() -> void:
 	host.display_changed.connect(func(_area: Rect2i): _sync_layout())
 	host.tray_action.connect(_on_tray_action)
 	host.desktop_visibility_changed.connect(func(visible: bool, _reason: String):
+		if not visible: view.set_expansion_plot("")
 		view.set_process(visible and not bool(model.state.settings.collapsed))
 		if view.has_method("set_desktop_suspended"):
 			view.call("set_desktop_suspended", not visible or bool(model.state.settings.collapsed)))
@@ -226,12 +236,11 @@ func _load_game() -> void:
 
 func _build_toolbar() -> void:
 	toolbar = Window.new()
-	toolbar.title = "桌面农场 · 控制栏"
+	toolbar.title = "桌面农场"
 	toolbar.borderless = true
 	toolbar.unresizable = true
 	toolbar.transparent = false
 	toolbar.theme = theme
-	toolbar.min_size = Vector2i(600, 32)
 	add_child(toolbar)
 	var background := ColorRect.new()
 	background.color = CREAM
@@ -245,10 +254,13 @@ func _build_toolbar() -> void:
 	row.offset_bottom = -1
 	toolbar.add_child(row)
 	var grip := _label(row, "≡")
+	grip.name = "MoveFarm"
 	grip.mouse_filter = Control.MOUSE_FILTER_STOP
+	grip.mouse_default_cursor_shape = Control.CURSOR_MOVE
+	grip.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	grip.tooltip_text = "按住拖动农场位置"
-	grip.custom_minimum_size = Vector2(20, 0)
-	grip.gui_input.connect(_drag_toolbar)
+	grip.custom_minimum_size = Vector2(24, 0)
+	grip.gui_input.connect(_drag_toolbar.bind(false))
 	for id in ["farm", "ranch", "pond"]:
 		var scene_id := str(id)
 		_button(row, SCENE_NAMES[id], func(): _set_scene(scene_id))
@@ -271,26 +283,49 @@ func _build_toolbar() -> void:
 	display_mode_button.name = "DisplayMode"
 	collapse_button = _button(row, "收起", _toggle_collapse)
 	_button(row, "退出", _quit_game)
+	row.add_spacer(false).name = "NarrowSpacer"
+	var resize_grip := _label(row, "↗")
+	resize_grip.name = "ResizeFarm"
+	resize_grip.mouse_filter = Control.MOUSE_FILTER_STOP
+	resize_grip.mouse_default_cursor_shape = Control.CURSOR_BDIAGSIZE
+	resize_grip.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	resize_grip.tooltip_text = "按住拖动调整农场宽高。收起时可调宽度。"
+	resize_grip.custom_minimum_size = Vector2(24, 0)
+	resize_grip.gui_input.connect(_drag_toolbar.bind(true))
+	toolbar.focus_entered.connect(host.raise_scene_with_toolbar)
+	toolbar.focus_exited.connect(_finish_window_drag)
 	toolbar.show()
 
 func _build_plant_controls() -> void:
 	plant_controls = HBoxContainer.new()
-	plant_controls.position = Vector2(14, 182)
+	plant_controls.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	plant_controls.visible = false
 	plant_controls.theme = theme
 	add_child(plant_controls)
 	plant_selection_label = _label(plant_controls, "")
-	plant_selection_label.add_theme_color_override("font_color", CREAM)
-	plant_selection_button = _button(plant_controls, "种植所选", func(): _apply_selected_crop(planting_seed_id))
+	plant_selection_button = _button(plant_controls, "选择种子", func():
+		if view.selection_mode: _apply_selected_crop(planting_seed_id)
+		else: _open_panel("inventory"))
 	plant_selection_button.name = "PlantSelectedPlots"
 	_button(plant_controls, "取消", _end_seed_selection)
+	for child in plant_controls.get_children():
+		child.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 
 func _on_plots_selected(ids: Array) -> void:
-	selected_plot_ids = ids.duplicate()
-	view.set_selection(selected_plot_ids)
+	view.set_expansion_plot("")
+	view.set_selection(ids)
+	selected_plot_ids = view.selected_plot_ids.duplicate()
 	_refresh_plant_controls()
-	if not view.selection_mode:
-		_open_panel("inventory")
+	_refresh_labels()
+
+func _show_plot_expansion(_clicked_id: String) -> void:
+	if view.selection_mode: return
+	var target := model.next_expansion_plot()
+	if target.is_empty(): return
+	_end_seed_selection()
+	view.set_expansion_plot(str(target.id))
+	_focus_expansion_plot(target)
+	_refresh_labels()
 
 func _choose_planting_seed(crop_id: String) -> void:
 	if not selected_plot_ids.is_empty():
@@ -321,9 +356,12 @@ func _end_seed_selection() -> void:
 
 func _refresh_plant_controls() -> void:
 	if not is_instance_valid(plant_controls): return
-	plant_controls.visible = view.selection_mode and current_scene == "farm" and not bool(model.state.settings.collapsed)
-	plant_selection_label.text = str(model.crops.get(planting_seed_id, {}).get("name", "种植"))
-	plant_selection_button.text = "种植所选 %d 块" % selected_plot_ids.size()
+	plant_controls.visible = current_scene == "farm" and view.interactive and not bool(model.state.settings.collapsed) and (view.selection_mode or not selected_plot_ids.is_empty())
+	status_label.visible = not plant_controls.visible
+	var count := selected_plot_ids.size()
+	plant_selection_label.text = "%s · 已选 %d 块地" % [model.crops[planting_seed_id].name, count] if view.selection_mode else "已选 %d 块地" % count
+	plant_selection_button.text = "种植所选" if view.selection_mode else "选择种子"
+	plant_selection_button.tooltip_text = ""
 	plant_selection_button.disabled = selected_plot_ids.is_empty() or save_blocked or startup_blocked
 	if not selected_plot_ids.is_empty() and not planting_seed_id.is_empty():
 		_prepare_preview()
@@ -332,17 +370,13 @@ func _refresh_plant_controls() -> void:
 		plant_selection_button.tooltip_text = "补种保护 %d → %d；%s" % [quote.protection_before, quote.protection_after, quote.message]
 
 func _build_status() -> void:
-	var bar := ColorRect.new()
-	bar.name = "StatusBackground"
-	bar.color = Color("#edf0dc")
-	bar.position = Vector2(0, 220)
-	bar.size = Vector2(1920, 20)
-	bar.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	add_child(bar)
+	status_background = ColorRect.new()
+	status_background.name = "StatusBackground"
+	status_background.color = Color("#edf0dc")
+	status_background.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	add_child(status_background)
 	status_label = Label.new()
 	status_label.theme = theme
-	status_label.position = Vector2(10, 220)
-	status_label.size = Vector2(1900, 20)
 	status_label.add_theme_font_size_override("font_size", 12)
 	status_label.clip_text = true
 	status_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
@@ -357,7 +391,7 @@ func _build_popup() -> void:
 	popup.title = "桌面农场"
 	popup.borderless = false
 	popup.size = Vector2i(760, 500)
-	popup.min_size = Vector2i(540, 360)
+	popup.min_size = MANAGEMENT_MIN_SIZE
 	popup.theme = theme
 	popup.always_on_top = false
 	popup.close_requested.connect(_close_panel)
@@ -383,20 +417,22 @@ func _build_popup() -> void:
 func _sync_layout() -> void:
 	if not is_instance_valid(view): return
 	var scale := host.dpi_scale if is_instance_valid(host) and host.ready_for_desktop else 1.0
-	var logical_width := maxi(640, int(round(get_window().size.x / scale)))
-	var display_mode := str(model.state.settings.get("display_mode", "expanded"))
-	var logical_height := host.logical_window_height() if host.ready_for_desktop else (32 if bool(model.state.settings.collapsed) else HOST.display_height_for_mode(display_mode))
-	var scene_height := host.visible_scene_height() if host.ready_for_desktop else (0 if bool(model.state.settings.collapsed) else HOST.scene_height_for_mode(display_mode))
+	var logical_width := maxi(HOST.MIN_WINDOW_SIZE.x, roundi(get_window().size.x / scale))
+	var logical_height := host.logical_window_height()
+	var scene_height := host.visible_scene_height()
 	get_window().content_scale_size = Vector2i(logical_width, logical_height)
 	get_window().content_scale_mode = Window.CONTENT_SCALE_MODE_CANVAS_ITEMS
 	toolbar.content_scale_size = Vector2i(logical_width, 32)
 	toolbar.content_scale_mode = Window.CONTENT_SCALE_MODE_CANVAS_ITEMS
-	view.resize_view(Vector2(logical_width, maxi(1, scene_height)))
-	get_node("StatusBackground").position.y = maxi(32, logical_height - 20)
-	status_label.position.y = maxi(32, logical_height - 20)
-	get_node("StatusBackground").size.x = logical_width
-	status_label.size.x = logical_width - 20
-	plant_controls.position.y = maxi(40, logical_height - 58)
+	if int(view.view_width) != logical_width or int(view.view_height) != maxi(32, scene_height):
+		view.resize_view(Vector2(logical_width, maxi(1, scene_height)))
+	var status_top := maxi(32, logical_height - STATUS_HEIGHT)
+	status_background.position.y = status_top
+	status_background.size = Vector2(logical_width, STATUS_HEIGHT)
+	status_label.position = Vector2(10, status_top)
+	status_label.size = Vector2(logical_width - 20, STATUS_HEIGHT)
+	plant_controls.position = status_label.position
+	plant_controls.size = status_label.size
 	# Keep every action reachable at narrow desktop widths without forcing a
 	# taller strip. The management hub also contains both shop entry points.
 	for button_name in ["SeedShop", "SeedInventory", "AnimalShop"]:
@@ -405,6 +441,7 @@ func _sync_layout() -> void:
 	var pond_button := toolbar.find_child("PondManagement", true, false)
 	if pond_button != null: pond_button.visible = current_scene == "pond" and logical_width >= 1000
 	coin_label.visible = logical_width >= 850
+	(toolbar.find_child("NarrowSpacer", true, false) as Control).visible = not coin_label.visible
 	page_label.visible = logical_width >= 850
 	mode_button.visible = logical_width >= 850
 	(toolbar.get_child(1) as HBoxContainer).add_theme_constant_override("separation", 6 if logical_width >= 850 else 2)
@@ -429,7 +466,7 @@ func _process(delta: float) -> void:
 	if _shop_refresh_elapsed >= 2.0:
 		_shop_refresh_elapsed = 0.0
 		_refresh_open_shop()
-		if not planting_seed_id.is_empty(): _refresh_plant_controls()
+		if plant_controls.visible: _refresh_plant_controls()
 
 func _act(action: String, payload: Dictionary = {}, rebuild := true) -> bool:
 	if startup_blocked:
@@ -480,8 +517,10 @@ func _refresh_labels() -> void:
 	page_label.text = "%d/%d" % [view.page + 1, view.get_page_count()]
 	mode_button.text = "可交互" if model.state.settings.interactive else "观察中"
 	collapse_button.text = "展开" if model.state.settings.collapsed else "收起"
-	display_mode_button.text = "紧凑" if str(model.state.settings.get("display_mode", "expanded")) == "expanded" else "加高"
-	if toast_remaining > 0:
+	display_mode_button.text = "紧凑" if str(model.state.settings.get("display_mode", "expanded")) == "expanded" else "标准"
+	if not view.expansion_plot_id.is_empty():
+		status_label.text = "下一块开垦 %d 金币 · 经营 → 建设扩展" % model.plot_expansion_price()
+	elif toast_remaining > 0:
 		status_label.text = toast
 	else:
 		var working: int = model.state.farmers.filter(func(f): return str(f.mode) == "working").size()
@@ -489,6 +528,9 @@ func _refresh_labels() -> void:
 		status_label.text = "农夫 %d人在忙 · %s" % [working, "保存异常，请重试" if save_blocked else ("%d只动物缺粮" % hungry if hungry > 0 else "点击缺水地块浇水 · 种子库可安排种植")]
 
 func _set_scene(id: String) -> void:
+	if id != "farm":
+		view.set_expansion_plot("")
+		if not view.selection_mode: _end_seed_selection()
 	current_scene = id
 	view.set_scene(id)
 	_sync_layout()
@@ -507,6 +549,7 @@ func _toggle_display_mode() -> void:
 
 func _apply_settings() -> void:
 	var settings: Dictionary = model.state.settings
+	if bool(settings.collapsed) or not bool(settings.interactive): view.set_expansion_plot("")
 	settings.topmost = false
 	view.set_interactive(bool(settings.interactive))
 	_refresh_plant_controls()
@@ -514,10 +557,10 @@ func _apply_settings() -> void:
 	host.set_topmost(false)
 	popup.always_on_top = false
 	host.set_power_saving(bool(settings.power_saving))
-	host.set_display_mode(str(settings.get("display_mode", "expanded")))
+	host.set_display_mode(str(settings.get("display_mode", "expanded")), HOST.saved_window_size(settings))
 	host.set_collapsed(bool(settings.collapsed))
 	if not host.ready_for_desktop:
-		get_window().size.y = 32 if bool(settings.collapsed) else HOST.display_height_for_mode(str(settings.get("display_mode", "expanded")))
+		get_window().size.y = host.logical_window_height()
 	view.set_process(host.is_desktop_visible() and not bool(settings.collapsed))
 	if view.has_method("set_desktop_suspended"):
 		view.call("set_desktop_suspended", not host.is_desktop_visible() or bool(settings.collapsed))
@@ -539,9 +582,11 @@ func _interact_animal(id: String) -> void:
 	if _act("interact_animal", {"instance_id": id}, false): view.call("show_animal_feedback", id)
 
 func _open_panel(name: String) -> void:
+	view.set_expansion_plot("")
+	_refresh_labels()
 	panel_name = name
 	_render_panel()
-	var area := host.get_work_area() if is_instance_valid(host) and host.ready_for_desktop else Rect2i(Vector2i.ZERO, DisplayServer.screen_get_usable_rect().size)
+	var area := host.get_work_area() if host.ready_for_desktop else DisplayServer.screen_get_usable_rect()
 	popup.size = Vector2i(mini(760, maxi(540, area.size.x - 40)), mini(500, maxi(360, area.size.y - 100)))
 	popup.position = area.position + Vector2i((area.size.x - popup.size.x) / 2, maxi(20, area.size.y - get_window().size.y - popup.size.y - 16))
 	if is_instance_valid(catalog_grid): catalog_grid.columns = _catalog_columns()
@@ -551,13 +596,14 @@ func _open_panel(name: String) -> void:
 	if is_instance_valid(host) and host.native != null:
 		var popup_handle := DisplayServer.window_get_native_handle(DisplayServer.WINDOW_HANDLE, popup.get_window_id())
 		host.native.call("make_independent_window", popup_handle)
+		host.native.call("hide_taskbar_entry", popup_handle)
 		host.native.call("show_window", popup_handle)
 	popup.grab_focus()
 	host.refresh_desktop_visibility()
 
 func _close_panel() -> void:
-	popup.hide()
 	panel_name = ""
+	popup.hide()
 
 func _render_panel() -> void:
 	crop_list = null
@@ -565,6 +611,8 @@ func _render_panel() -> void:
 	_catalog_count_label = null
 	_budget_footer = null
 	_seed_status_label = null
+	_plot_expansion_button = null
+	_plot_expansion_detail = null
 	_crop_quote_controls.clear()
 	_animal_quote_controls.clear()
 	_owned_animal_controls.clear()
@@ -583,6 +631,7 @@ func _render_panel() -> void:
 		"hub": _panel_hub()
 		"crops", "inventory": _panel_crops()
 		"build": _panel_build()
+		"decorations": _panel_decorations()
 		"animals": _panel_animals()
 		"sell_confirm": _panel_sell_confirm()
 		"farmers": _panel_farmers()
@@ -606,7 +655,7 @@ func _preview_command(action: String, payload: Dictionary = {}) -> Dictionary:
 	# The public command restores failed mutations. A second dry calculation
 	# on this disposable model keeps the proposed reservation visible even
 	# when it is unaffordable; no signal or disk write reaches the live model.
-	if not preview.ok and action in ["set_crop", "set_default_seed", "unlock_crop"]:
+	if not preview.ok and action in ["set_crop", "set_default_seed", "unlock_crop", "expand_plot"]:
 		_preview_model._execute_command(action, payload)
 	var result := {"ok": bool(preview.ok), "message": str(preview.message),
 		"balance_before": int(_preview_snapshot.coins), "balance_after": _preview_model.balance(),
@@ -634,9 +683,11 @@ func _refresh_open_shop() -> void:
 		_refresh_owned_animal_cards()
 	elif panel_name == "pond":
 		_refresh_pond_quotes()
+	elif panel_name == "build":
+		_refresh_plot_expansion_quote()
 	elif panel_name == "catalog" and hash(model.state.catalog) != _catalog_revision:
 		_render_catalog_grid()
-		if is_instance_valid(_catalog_count_label): _catalog_count_label.text = "已发现 %d / %d" % [model.state.catalog.size(), config.items.size()]
+		if is_instance_valid(_catalog_count_label): _catalog_count_label.text = _catalog_summary()
 	elif panel_name == "sell_confirm":
 		_refresh_sale_confirmation()
 	elif panel_name == "catalog_detail" and hash(model.state.catalog) != _catalog_revision:
@@ -647,9 +698,10 @@ func _panel_hub() -> void:
 	popup.title = "经营"
 	_title("桌面农场 · 经营手册")
 	_paragraph("安排作物、扩建牧场、招募农夫。生产在后台继续；需要专心工作时可隐藏整个农场。")
-	for entry in [{"id": "inventory", "text": "种子库 / 独立地块种植"}, {"id": "crops", "text": "种子商店 / 默认自动订购"}, {"id": "animals", "text": "动物商店 / 购买与出售"}, {"id": "pond", "text": "鱼塘升级 / 渔网与容量"}, {"id": "build", "text": "建设扩展"}, {"id": "farmers", "text": "农夫管理"}, {"id": "catalog", "text": "收藏图鉴"}, {"id": "settings", "text": "设置 / 帮助"}]:
+	for entry in [{"id": "inventory", "text": "种子库 / 独立地块种植"}, {"id": "crops", "text": "种子商店 / 默认自动订购"}, {"id": "animals", "text": "动物商店 / 购买与出售"}, {"id": "pond", "text": "鱼塘升级 / 渔网与容量"}, {"id": "build", "text": "建设扩展"}, {"id": "decorations", "text": "农场装饰"}, {"id": "farmers", "text": "农夫管理"}, {"id": "catalog", "text": "收藏图鉴"}, {"id": "settings", "text": "设置 / 帮助"}]:
 		var target := str(entry.id)
-		_button(popup_body, str(entry.text), func(): _open_panel(target))
+		var button := _button(popup_body, str(entry.text), func(): _open_panel(target))
+		if target == "build": button.name = "Construction"
 	_button(popup_body, "隐藏整个农场（后台继续生产）", func(): host.set_user_hidden(true))
 	_paragraph("可通过系统托盘图标或 Ctrl+Alt+F 返回农场。", MUTED)
 
@@ -716,13 +768,18 @@ func _panel_crops() -> void:
 
 func _filtered_crops() -> Array:
 	var result := []
-	for crop in config.crops:
+	var crops: Array = config.crops + config.retired_crops if seed_shop_mode == "inventory" else config.crops
+	for crop in crops:
 		if seed_shop_mode == "inventory" and int(model.seed_inventory_summary(str(crop.id)).total) == 0: continue
 		if not crop_search.strip_edges().is_empty() and not str(crop.name).contains(crop_search.strip_edges()): continue
 		if crop_season != "全部" and not str(crop.season).contains(crop_season): continue
 		if crop_mechanism != "全部" and str(crop.mechanism) != crop_mechanism: continue
 		if crop_unlocked_only and not model.state.unlocked_crops.has(str(crop.id)): continue
 		result.append(crop)
+	result.sort_custom(func(a: Dictionary, b: Dictionary):
+		if a.retired != b.retired: return not a.retired
+		if a.seed_price == b.seed_price: return str(a.name) < str(b.name)
+		return int(a.seed_price) < int(b.seed_price))
 	return result
 
 func _render_crop_list() -> void:
@@ -736,7 +793,8 @@ func _render_crop_list() -> void:
 	for crop in filtered:
 		var crop_id := str(crop.id)
 		var card := _card(crop_list, "crop", crop_id)
-		var heading := _wrapped_label(card, "%s · %s" % [crop.name, crop.season])
+		var tier := "旧版库存" if crop.retired else "%02d 级" % int(crop.price_level)
+		var heading := _wrapped_label(card, "%s · %s · %s" % [crop.name, tier, crop.season])
 		heading.add_theme_font_size_override("font_size", 16)
 		var detail := _wrapped_label(card, _crop_description(crop))
 		var actions := HFlowContainer.new()
@@ -758,9 +816,11 @@ func _render_crop_list() -> void:
 
 func _crop_description(crop: Dictionary) -> String:
 	var stock: Dictionary = model.seed_inventory_summary(str(crop.id))
-	var detail := "种价 %d · 可用 %d · 预留 %d · 在途 %d · 首熟 %s" % [int(crop.seed_price), int(stock.available), int(stock.reserved), int(stock.in_flight), _duration(crop.first_seconds)]
+	var detail := "可用 %d · 预留 %d · 在途 %d · 首熟 %s" % [int(stock.available), int(stock.reserved), int(stock.in_flight), _duration(crop.first_seconds)]
+	if not crop.retired: detail = "种价 %d · " % int(crop.seed_price) + detail
 	if bool(crop.regrow): detail += " · 再熟 " + _duration(crop.repeat_seconds)
-	if str(crop.mechanism) == "mixed": detail += " · 随机产物"
+	if float(crop.processing_seconds) > 0: detail += " · 加工 " + _duration(crop.processing_seconds)
+	if str(crop.mechanism) == "mixed": detail += " · 随机产物均售 %d" % roundi(float(crop.expected_sale_price))
 	else: detail += " · 售 %d" % int(crop.sell_price)
 	return detail
 
@@ -793,18 +853,23 @@ func _refresh_crop_quotes() -> void:
 
 func _panel_build() -> void:
 	popup.title = "建设扩展"
-	_paragraph("所有费用按数值表执行。扩建后的空地也会计入补种预算，余额不足时操作会完整撤回。")
+	_paragraph("耕地越多，下一块开垦费用越高。新地也会计入补种预算。")
 	_title("独立耕地")
-	var opened: int = model.state.plots.filter(func(p): return bool(p.open)).size()
+	var opened := DECOR.opened_plots(model.state)
 	var land_row := _row()
 	_expand_label(land_row, "已开 %d / 96 块" % opened)
 	if opened < 96:
-		var quote := _preview_command("expand_plot")
-		var expand := _button(land_row, "开垦下一块 %d" % model.plot_expansion_price(), func(): _act("expand_plot"))
-		expand.name = "ExpandIndividualPlot"
-		expand.disabled = not quote.ok
-		expand.tooltip_text = str(quote.message)
+		_plot_expansion_button = _button(land_row, "开垦下一块 %d" % model.plot_expansion_price(), func(): _act("expand_plot"))
+		_plot_expansion_button.name = "ExpandIndividualPlot"
+		_plot_expansion_detail = _wrapped_label(popup_body, "", ALERT)
+		_plot_expansion_detail.name = "PlotExpansionQuote"
+		_refresh_plot_expansion_quote()
 	else: _label(land_row, "全部已开垦")
+	for piece in DECOR.ITEMS.values():
+		if opened < int(piece.unlock_plots):
+			_paragraph("开到 %d 块地时，会布置%s。" % [piece.unlock_plots, piece.name], MUTED)
+			break
+	_button(popup_body, "农场装饰", func(): _open_panel("decorations"))
 	_title("牧草与储粮")
 	var grass_count: int = model.state.grass.filter(func(g): return bool(g.open)).size()
 	var row := _row()
@@ -825,6 +890,62 @@ func _panel_build() -> void:
 		_expand_label(row, "%s  ·  %d级  ·  容量 %d" % [shelter.name, level, model.shelter_capacity(sid)])
 		if level < 3:
 			_button(row, "%s %d" % ["建造" if level == 0 else "升级", int(shelter.costs[level])], func(): _act("upgrade_shelter", {"shelter_id": sid}))
+
+func _refresh_plot_expansion_quote() -> void:
+	if not is_instance_valid(_plot_expansion_button): return
+	var quote := _preview_command("expand_plot")
+	_plot_expansion_button.disabled = not quote.ok
+	var shortfall := int(quote.protection_after) - int(quote.balance_after)
+	_plot_expansion_button.tooltip_text = "还差 %d 金币（含补种预算）" % shortfall if shortfall > 0 and not save_blocked and not startup_blocked else str(quote.message)
+	if is_instance_valid(_plot_expansion_detail):
+		_plot_expansion_detail.text = _plot_expansion_button.tooltip_text
+		_plot_expansion_detail.visible = not quote.ok
+
+func _focus_expansion_plot(plot: Dictionary) -> void:
+	var rect := view.plot_view_rect(int(plot.index))
+	if not Rect2(0, 0, view.view_width, view.view_height).encloses(rect):
+		view.call("focus_world", MODEL.WORLD.plot_bounds(int(plot.index)).get_center())
+
+func _panel_decorations() -> void:
+	popup.title = "农场装饰"
+	_title("农场装饰")
+	_paragraph("达到开垦目标后，装饰会自动摆到农场。可以换位置，或暂时收起。")
+	var opened := DECOR.opened_plots(model.state)
+	_label(popup_body, "已开垦 %d / 96 块地" % opened)
+	for id in DECOR.ITEMS:
+		var piece: Dictionary = DECOR.ITEMS[id]
+		var locked := opened < int(piece.unlock_plots)
+		var card := _card(popup_body, "decoration", id)
+		_label(card, str(piece.name))
+		if locked:
+			_wrapped_label(card, "开垦至 %d 块解锁" % int(piece.unlock_plots), MUTED)
+			continue
+		var row := HBoxContainer.new()
+		card.add_child(row)
+		var choice := OptionButton.new()
+		choice.name = "Placement_" + id
+		choice.tooltip_text = "选择摆放位置"
+		for spot_name in piece.spot_names: choice.add_item(str(spot_name))
+		choice.add_item("收起装饰")
+		var placement := DECOR.placement(model.state, id)
+		choice.select(placement if placement >= 0 else piece.spots.size())
+		choice.disabled = save_blocked
+		row.add_child(choice)
+		choice.item_selected.connect(func(index: int):
+			var next := index if index < piece.spots.size() else -1
+			if not _act("set_decoration", {"decoration_id": id, "placement": next}):
+				choice.select(placement if placement >= 0 else piece.spots.size()))
+		var show_piece := _button(row, "查看位置", func(): _show_decoration(piece.spots[placement]))
+		show_piece.disabled = placement < 0
+
+func _show_decoration(location: Vector2) -> void:
+	if bool(model.state.settings.collapsed):
+		if not _act("settings", {"values": {"collapsed": false}}, false): return
+		_apply_settings()
+	_close_panel()
+	_set_scene("farm")
+	view.call("focus_world", location)
+	_refresh_labels()
 
 func _panel_animals() -> void:
 	popup.title = "动物商店"
@@ -1002,7 +1123,7 @@ func _panel_catalog() -> void:
 	popup.title = "收藏图鉴"
 	_title("收藏图鉴")
 	_paragraph("作物与动物产物收获后自动登记并出售。鱼需捕获后选择登记，登记会消耗这条鱼。点击图标查看详情与获取来源。")
-	_catalog_count_label = _wrapped_label(popup_body, "已发现 %d / %d" % [model.state.catalog.size(), config.items.size()])
+	_catalog_count_label = _wrapped_label(popup_body, _catalog_summary())
 	_catalog_count_label.add_theme_font_size_override("font_size", 16)
 	var search := LineEdit.new()
 	search.placeholder_text = "搜索图鉴名称…"
@@ -1031,10 +1152,17 @@ func _panel_catalog() -> void:
 func _catalog_columns() -> int:
 	return clampi(int((popup.size.x - 60) / 152), 2, 4)
 
+func _catalog_summary() -> String:
+	var total: int = config.items.size()
+	for id in config.retired_products:
+		if not model.state.catalog.has(id): total -= 1
+	return "已发现 %d / %d" % [model.state.catalog.size(), total]
+
 func _filtered_catalog_items() -> Array:
 	var result := []
 	for item in config.items:
 		if catalog_category != "全部" and str(item.category) != catalog_category: continue
+		if item.id in config.retired_products and not model.state.catalog.has(item.id): continue
 		if catalog_discovered_only and not model.state.catalog.has(str(item.id)): continue
 		if not catalog_search.strip_edges().is_empty() and not str(item.name).contains(catalog_search.strip_edges()): continue
 		result.append(item)
@@ -1075,11 +1203,11 @@ func _render_catalog_grid() -> void:
 
 func _catalog_sources(item_id: String) -> Array[String]:
 	var sources: Array[String] = []
-	for crop in config.crops:
+	for crop in config.crops + config.retired_crops:
 		var matches := str(crop.product_id) == item_id or str(crop.get("raw_product_id", "")) == item_id
 		for product in crop.pool:
 			if str(product.get("product_id", "")) == item_id: matches = true
-		if matches: sources.append("种植 " + str(crop.name))
+		if matches: sources.append("种植 " + str(crop.name) + ("（旧版种包）" if crop.retired else ""))
 	for animal in config.animals:
 		if str(animal.product_id) == item_id: sources.append("饲养 " + str(animal.name))
 	for fish in config.fish:
@@ -1123,12 +1251,21 @@ func _panel_settings() -> void:
 	display.name = "SettingsDisplayMode"
 	display.add_item("展开 · 场景 352 像素")
 	display.add_item("紧凑 · 场景 172 像素")
-	display.select(0 if str(model.state.settings.get("display_mode", "expanded")) == "expanded" else 1)
+	var custom_height := HOST.saved_window_size(model.state.settings).y
+	if custom_height > 0:
+		display.add_item("自定义 · 场景 %d 像素" % (custom_height - HOST.SCENE_CHROME_HEIGHT))
+		display.set_item_disabled(2, true)
+		display.select(2)
+	else:
+		display.select(0 if model.state.settings.display_mode == "expanded" else 1)
 	popup_body.add_child(display)
 	display.item_selected.connect(func(index: int):
-		if _act("settings", {"values": {"display_mode": "expanded" if index == 0 else "compact"}}, false): _apply_settings()
-		else: display.select(0 if str(model.state.settings.get("display_mode", "expanded")) == "expanded" else 1))
-	_paragraph("默认展开。场景按原比例显示，‹ › 左右移动视野，↑ ↓ 浏览上下区域；紧凑模式保留同样清晰的作物与动物。", MUTED)
+		if _act("settings", {"values": {"display_mode": "expanded" if index == 0 else "compact"}}, false):
+			_apply_settings()
+			if display.item_count > 2: display.remove_item(2)
+		else:
+			display.select(2 if display.item_count > 2 else (0 if model.state.settings.display_mode == "expanded" else 1)))
+	_paragraph("拖动工具栏左侧 ≡ 移动农场，拖动右侧 ↗ 调整宽高。选用高度预设会替换手动设置的高度。‹ › 和 ↑ ↓ 可以移动视野。", MUTED)
 	_title("农夫行走速度")
 	var speed_row := _row()
 	var speed := SpinBox.new()
@@ -1157,11 +1294,15 @@ func _panel_settings() -> void:
 	_button(row, "重试保存" if save_blocked else "立即保存", func():
 		if _save_now(): _show_message("存档已保存，经营操作已恢复。")
 		_render_panel())
-	_button(row, "恢复屏幕底部位置", func():
+	_button(row, "恢复默认布局", func():
 		var area := host.get_work_area()
 		if area.size.x > 0:
-			host.set_position_clamped(Vector2i(area.position.x, area.end.y - get_window().size.y))
-			_act("settings", {"values": {"window_position": host.export_settings().window_position}}, false))
+			var size := HOST.scenery_size_for_area(area, host.dpi_scale, "expanded", host.collapsed)
+			var position := Vector2i(area.position.x, area.end.y - size.y)
+			if _act("settings", {"values": {"display_mode": "expanded", "window_size": [0, 0], "window_position": [position.x, position.y]}}, false):
+				_apply_settings()
+				host.set_position_clamped(position)
+				_render_panel())
 	_button(row, "打开存档目录", func(): OS.shell_open(saves.path.get_base_dir()))
 	_paragraph("入门：种子商店购买入库，种子库选择品种后可框选地块安排种植；动物商店购买与出售动物；经营可扩建、管理农夫和查看图鉴。农夫自动播种、浇水和收获，鱼塘需手动捕鱼。窄屏可用 ‹ › 切换页面。")
 	_paragraph("时间：关机、退出和休眠均暂停，不计算离线收益；收起、切场景和锁屏仍继续生产。捕鱼首次自动登记图鉴，已登记的鱼自动出售；经营首页可以升级渔网和鱼塘容量。")
@@ -1227,7 +1368,7 @@ func _clear_children(parent: Node) -> void:
 
 func _icon(parent: Node, kind: String, id: String) -> TextureRect:
 	var picture := TextureRect.new()
-	picture.texture = ASSETS.icon(kind, id)
+	picture.texture = SCENE_ART.farm_decoration(id) if kind == "decoration" else ASSETS.icon(kind, id)
 	picture.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
 	picture.custom_minimum_size = Vector2(40, 40)
 	picture.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
@@ -1293,17 +1434,34 @@ func _duration(seconds: float) -> String:
 func _farmer_mode(mode: String) -> String:
 	return {"idle": "待命", "resting": "休息", "working": "工作", "outbound": "支援途中", "returning": "返岗途中"}.get(mode, mode)
 
-func _drag_toolbar(event: InputEvent) -> void:
+func _drag_toolbar(event: InputEvent, resizing: bool) -> void:
 	if not is_instance_valid(host) or not host.ready_for_desktop: return
 	if event is InputEventMouseButton and event.button_index == MOUSE_BUTTON_LEFT:
-		_dragging = event.pressed
 		if event.pressed:
 			_drag_mouse = DisplayServer.mouse_get_position()
-			_drag_origin = get_window().position
+			_drag_bounds = Rect2i(get_window().position, get_window().size)
+			_drag_settings = host.export_settings()
 		else:
-			_act("settings", {"values": {"window_position": host.export_settings().window_position}}, false)
-	elif event is InputEventMouseMotion and _dragging:
-		host.set_position_clamped(_drag_origin + DisplayServer.mouse_get_position() - _drag_mouse)
+			_finish_window_drag()
+	elif event is InputEventMouseMotion and not _drag_settings.is_empty():
+		var pointer := DisplayServer.mouse_get_position()
+		var movement := pointer - _drag_mouse
+		if resizing:
+			host.resize_from_top_right(_drag_bounds, movement, HOST.saved_window_size(_drag_settings))
+		else:
+			host.move_with_pointer(_drag_bounds.position + movement, pointer)
+
+func _finish_window_drag() -> void:
+	if _drag_settings.is_empty(): return
+	var previous := _drag_settings
+	_drag_settings = {}
+	var current := host.export_settings()
+	if current.window_position == previous.window_position and current.window_size == previous.window_size: return
+	if _act("settings", {"values": {"window_position": current.window_position, "window_size": current.window_size}}, false):
+		if popup.visible and panel_name == "settings" and current.window_size != previous.window_size: _render_panel()
+	else:
+		host.set_display_mode(str(previous.display_mode), HOST.saved_window_size(previous))
+		host.move_with_pointer(_drag_bounds.position, _drag_bounds.position)
 
 func _parse_benchmark_options() -> bool:
 	# Duration activates this normal-entry test runner. Fixture-only controller
@@ -1556,7 +1714,7 @@ func _smoke_capture() -> void:
 	model.state.fish = model.state.fish.slice(0, 12)
 	model.state.pond = {"net_level": 0, "capacity_level": 0}
 	view.set_model(model.state, true)
-	for name in ["hub", "crops", "inventory", "build", "animals", "farmers", "catalog", "settings", "pond"]:
+	for name in ["hub", "crops", "inventory", "build", "decorations", "animals", "farmers", "catalog", "settings", "pond"]:
 		var direct_buttons := {"hub": "Management", "crops": "SeedShop", "inventory": "SeedInventory", "animals": "AnimalShop", "pond": "PondManagement"}
 		if direct_buttons.has(name):
 			var entry_button := toolbar.find_child(str(direct_buttons[name]), true, false) as Button
@@ -1577,6 +1735,13 @@ func _smoke_capture() -> void:
 			get_tree().quit(9)
 			return
 		popup.get_texture().get_image().save_png(smoke_path.get_basename() + "-menu-" + name + ".png")
+		if name == "decorations":
+			var placement := popup_body.find_child("Placement_flower_box", true, false) as OptionButton
+			if not _smoke_require(placement != null and placement.selected == 0, "UI_DECORATION_PANEL_FAILED"): return
+			placement.select(1)
+			placement.item_selected.emit(1)
+			if not _smoke_require(DECOR.placement(model.state, "flower_box") == 1, "UI_DECORATION_PLACEMENT_FAILED"): return
+			print("UI_DECORATION_PLACEMENT_OK")
 		if name == "pond":
 			var cash_before := model.balance()
 			(popup_body.find_child("PondUpgradeNet", true, false) as Button).pressed.emit()
@@ -1667,8 +1832,44 @@ func _smoke_capture() -> void:
 		return
 	print("UI_SHOPS_AND_CLOSE_OK")
 	_toggle_collapse()
+	if not await _smoke_land_controls(): return
 	host.shutdown()
 	get_tree().quit()
+
+func _smoke_land_controls() -> bool:
+	model.new_game()
+	view.set_model(model.state, true)
+	_set_scene("farm")
+	var area := host.get_work_area()
+	host.set_display_mode("expanded", Vector2i(740, 320))
+	host.set_position_clamped(area.end - get_window().size - Vector2i(16, 16))
+	_sync_layout()
+	for unused in range(3): await get_tree().process_frame
+	var bounds := Rect2(0, 0, view.view_width, view.view_height).grow(-6)
+	var locked_hits := view._plot_hits.filter(func(hit): return not bool(hit.open) and bounds.has_point(hit.rect.get_center()))
+	if not _smoke_require(not locked_hits.is_empty(), "UI_LOCKED_PLOT_HIT_MISSING"): return false
+	var coins := model.balance()
+	_smoke_click((locked_hits[0].rect as Rect2).get_center())
+	if not _smoke_require(not popup.visible and view.expansion_plot_id == "plot_1_8" and status_label.text.contains("900 金币") and model.balance() == coins, "UI_PLOT_EXPANSION_STATUS_FAILED"): return false
+	await RenderingServer.frame_post_draw
+	_smoke_save_scene(smoke_path.get_basename() + "-expansion-status.png")
+	var open_hits := view._plot_hits.filter(func(hit): return bool(hit.open) and bounds.has_point(hit.rect.get_center()))
+	if not _smoke_require(not open_hits.is_empty(), "UI_OPEN_PLOT_HIT_MISSING"): return false
+	_smoke_click((open_hits[0].rect as Rect2).get_center())
+	if not _smoke_require(not popup.visible and selected_plot_ids.size() == 1 and plant_controls.visible and view.expansion_plot_id.is_empty(), "UI_LAND_SELECTION_OPENED_WINDOW"): return false
+	await RenderingServer.frame_post_draw
+	_smoke_save_scene(smoke_path.get_basename() + "-seed-selection-status.png")
+	_smoke_click(Vector2(4, view.view_height - 4))
+	if not _smoke_require(not popup.visible and selected_plot_ids.is_empty() and not plant_controls.visible, "UI_EMPTY_SCENERY_OPENED_WINDOW"): return false
+	_smoke_click((open_hits[0].rect as Rect2).get_center())
+	plant_selection_button.pressed.emit()
+	if not _smoke_require(popup.visible and panel_name == "inventory" and selected_plot_ids.size() == 1, "UI_EXPLICIT_SEED_LIBRARY_FAILED"): return false
+	toolbar.find_child("Management", true, false).pressed.emit()
+	popup_body.find_child("Construction", true, false).pressed.emit()
+	if not _smoke_require(popup.visible and panel_name == "build" and is_instance_valid(_plot_expansion_button), "UI_MANAGEMENT_EXPANSION_FAILED"): return false
+	_close_panel()
+	print("UI_LAND_CONTROLS_OK")
+	return true
 
 func _smoke_click(local_position: Vector2) -> void:
 	var event := InputEventMouseButton.new()

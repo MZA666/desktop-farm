@@ -42,6 +42,21 @@ func _run() -> void:
 	var farm_image := root.get_texture().get_image()
 	check(farm_image.get_size() == Vector2i(1536, 352), "Farm raster uses expanded viewport at actual entity scale")
 	farm_image.save_png("res://.review/v081-illustrated-farm.png")
+	root.transparent_bg = true
+	root.size.x = 1920
+	view.resize_view(Vector2(1920, 352))
+	await settle()
+	var wide_image := root.get_texture().get_image()
+	check(wide_image.get_pixel(10, 120).a < 0.01 and wide_image.get_pixel(1910, 120).a < 0.01, "Margins on a wider desktop are transparent instead of repeating the background")
+	check(wide_image.get_pixel(960, 120).a > 0.99, "The original scenery remains opaque at the centre")
+	check(view._farm_decorations.size() == 4, "An existing expanded farm displays every unlocked decoration by default")
+	var scene_before := wide_image.get_data()
+	check(model.command("set_decoration", {"decoration_id": "flower_box", "placement": 1}).ok, "Flower box can move")
+	check(model.command("set_decoration", {"decoration_id": "stone_well", "placement": -1}).ok, "Well can be stored")
+	view.set_model(model.state)
+	await settle()
+	check(view._farm_decorations.size() == 3 and view._farm_decorations[0].foot == MODEL.DECOR.ITEMS.flower_box.spots[1], "Scene redraw follows saved placement and removes stored decorations")
+	check(root.get_texture().get_image().get_data() != scene_before, "Moving and storing visible decorations changes rendered pixels")
 	var snapshot := JSON.stringify(model.snapshot())
 	view.camera_down()
 	view.page_next()
@@ -97,6 +112,29 @@ func _run() -> void:
 	await settle()
 	check(view._static_bake_count > bake_count, "Resume bakes the pending camera region")
 	check(JSON.stringify(model.snapshot()) == before_hidden, "Visibility and animation leave all economicstate unchanged")
+	model.state.animals.clear()
+	model.state.farmers.clear()
+	model.state.erase("decorations")
+	model.state.warehouse_hay = model.storage_capacity()
+	model.state.trough_hay = model.storage_capacity()
+	for plot in model.state.plots:
+		plot.status = "growing"
+		plot.remaining = 720.0
+	model._add_farmer("farm")
+	var idle_farmer: Dictionary = model.state.farmers[0]
+	var tending_flowers := false
+	for second in range(100):
+		model.tick(1)
+		var activity: Dictionary = idle_farmer.get("idle_activity", {})
+		if activity.get("action") == "flower_box" and activity.path.is_empty():
+			tending_flowers = true
+			break
+	check(tending_flowers, "Idle farmer walks to the flower box and starts its animation")
+	view.set_scene("farm")
+	view.set_model(model.state, true)
+	await settle()
+	check(view._farmer_tracks[str(idle_farmer.id)].target == Vector2(float(idle_farmer.x), float(idle_farmer.y)), "Renderer samples farmer at the real decor visit position")
+	root.get_texture().get_image().save_png("res://.review/v086-idle-farmer.png")
 	view.queue_free()
 	await process_frame
 	if failures.is_empty():

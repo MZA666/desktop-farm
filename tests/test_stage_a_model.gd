@@ -12,6 +12,7 @@ func _init() -> void:
 	_test_budget_and_library()
 	_test_claims_and_rollback()
 	_test_world_and_travel()
+	_test_farmer_idle_activity()
 	_test_migration()
 	if failures.is_empty():
 		print("STAGE_A_MODEL_PASS: %d budget/library/claims/world/migration assertions" % assertions)
@@ -39,6 +40,58 @@ func growing() -> FarmState:
 			plot.product = game._product_for_crop(game.crops.parsnip)
 	return game
 
+func _test_farmer_idle_activity() -> void:
+	var game := growing()
+	game.state.warehouse_hay = game.storage_capacity()
+	game.state.trough_hay = game.storage_capacity()
+	for index in range(48):
+		var plot: Dictionary = game.state.plots[index]
+		plot.open = true
+		plot.status = "growing"
+		plot.remaining = 720.0
+		plot.product = game._product_for_crop(game.crops.parsnip)
+	game._add_farmer("farm")
+	var farmer: Dictionary = game.state.farmers[0]
+	var start := Vector2(float(farmer.x), float(farmer.y))
+	var cash := game.balance()
+	var seed_stock: Dictionary = game.state.seeds.duplicate()
+	game.tick(10)
+	check(Vector2(float(farmer.x), float(farmer.y)) == start, "Farm worker waits before starting a leisure route")
+	game.tick(16)
+	check(farmer.mode == "idle" and farmer.task.is_empty() and farmer.get("idle_activity", {}).get("action", "") == "patrol" and Vector2(float(farmer.x), float(farmer.y)) != start, "Idle farmer starts walking along the ridge")
+	var walking := game.snapshot()
+	var resumed := fresh()
+	check(resumed.restore(walking).ok and JSON.stringify(resumed.snapshot()) == JSON.stringify(walking), "Idle route survives saving mid-walk")
+	game.tick(0.6)
+	resumed.tick(0.6)
+	check(JSON.stringify(resumed.snapshot()) == JSON.stringify(game.snapshot()), "Restored worker advances the same route on reload")
+	var interrupted: Dictionary = resumed.state.farmers[0]
+	var before := Vector2(float(interrupted.x), float(interrupted.y))
+	resumed.state.plots[0].remaining = 0.2
+	resumed.tick(0.2)
+	check(not interrupted.has("idle_activity") and interrupted.mode == "working" and interrupted.task.action == "harvest", "Ready crops immediately preempt leisure")
+	check(Vector2(float(interrupted.x), float(interrupted.y)) == before, "An interrupted farmer begins work from the current position")
+	var helping := fresh()
+	check(helping.restore(walking).ok, "Idle route can be resumed before a support request")
+	helping.state.warehouse_hay = 0
+	helping.tick(0.2)
+	var helper: Dictionary = helping.state.farmers[0]
+	check(helper.mode == "outbound" and helper.destination == "ranch" and not helper.has("idle_activity"), "Prioritized ranch support also preempts leisure")
+
+	var actions_seen := {}
+	var flower_trip := {}
+	for second in range(160):
+		game.tick(1)
+		var activity: Dictionary = farmer.get("idle_activity", {})
+		if activity.is_empty(): continue
+		if activity.path.is_empty(): actions_seen[activity.action] = true
+		if flower_trip.is_empty() and activity.action == "flower_box" and not activity.path.is_empty(): flower_trip = game.snapshot()
+	check(actions_seen.has("patrol") and actions_seen.has("flower_box") and actions_seen.has("stone_well") and actions_seen.has("rest"), "Farmer completes patrol, flower care, well visit and rest")
+	check(game.balance() == cash and game.state.seeds == seed_stock and farmer.energy == 100.0, "Leisure consumes no cash, seeds or energy")
+	var rerouted := fresh()
+	check(not flower_trip.is_empty() and rerouted.restore(flower_trip).ok, "An in-progress decoration visit restores")
+	check(rerouted.command("set_decoration", {"decoration_id": "flower_box", "placement": 1}).ok and not rerouted.state.farmers[0].has("idle_activity"), "Moving a planter cancels the visit to its former location")
+
 func _test_budget_and_library() -> void:
 	var game := fresh()
 	check(game.state.version == 3 and not game.state.has("regions"), "V3 retains independent plots and no region state")
@@ -53,6 +106,7 @@ func _test_budget_and_library() -> void:
 	check(bought.command("buy_seeds", {"crop_id": "parsnip", "count": 24}).ok, "Seed purchase may convert protected cash into inventory")
 	check(bought.balance() == 520 and bought.state.seeds.parsnip == 48 and bought.protection() == 0 and bought.investable() == 520, "Purchase cash/stock/budget conserve investable money")
 	var mixed := growing()
+	mixed.state.unlocked_crops.append("cauliflower")
 	mixed.state.seeds = {"carrot": 1, "cauliflower": 1}
 	check(mixed.protection() == 440, "Library rotation uses two different existing seeds before 22 orders")
 	var before := JSON.stringify(mixed.snapshot())
@@ -60,21 +114,42 @@ func _test_budget_and_library() -> void:
 	mixed.state.coins = 5000
 	check(mixed.command("set_default_seed", {"crop_id": "cauliflower"}).ok and mixed.protection() == 1760, "Only 22 orders use changed default price")
 	check(mixed.command("set_default_seed", {"crop_id": str(mixed.state.previous_default_seed_id)}).ok and mixed.protection() == 440, "Restoring earlier default releases remaining-order budget")
+	mixed.state.default_seed_id = "cauliflower"
+	mixed.state.coins = 200
+	check(mixed.command("set_default_seed", {"crop_id": "parsnip"}).ok and mixed.balance() == 200 and mixed.protection() == 440, "A cash-poor save can reduce its future seed budget even while it is still below reserve")
 	var preview := mixed.seed_preview("plot_0_0")
 	check(preview.crop_id == "carrot" and preview.source == "inventory" and preview.cost == 0, "Fixed config order selects carrot before cauliflower")
 	check(mixed.state.seeds.carrot == 1, "Preview does not consume inventory")
 	var cost_sum := 0
+	var previous_price := 0
 	var all := fresh()
 	all.state.coins = 10000000
+	check(all.plot_expansion_price() == 900, "First extra plot costs 900")
+	var placement := {"decoration_id": "flower_box", "placement": 1}
+	var locked := all.snapshot()
+	check(not all.command("set_decoration", placement).ok and all.snapshot() == locked, "Locked decor cannot be moved")
 	for i in range(72):
-		cost_sum += all.plot_expansion_price()
-		check(all.command("expand_plot").ok, "Independent expansion %d succeeds without region gates" % i)
-	check(cost_sum == 145500 and all.plot_expansion_price() == -1, "72 exact expansion prices sum to 145500 then stop at 96")
+		var price := all.plot_expansion_price()
+		check(price > previous_price, "Plot expansion price rises at purchase %d" % (i + 1))
+		previous_price = price
+		cost_sum += price
+		var expansion := all.command("expand_plot")
+		check(expansion.ok, "Independent expansion %d succeeds without region gates" % i)
+		if i == 3:
+			check(str(expansion.message).contains("木制花箱") and Model.DECOR.placement(all.state, "flower_box") == 0, "28th plot automatically places flower box")
+	check(previous_price == 692000 and cost_sum == 9754200 and all.plot_expansion_price() == -1, "72 prices end at 692000 and sum to 9754200")
 	var wrong := all.snapshot()
 	check(not all.command("expand_plot").ok and JSON.stringify(wrong) == JSON.stringify(all.snapshot()), "Full expansion rejects without mutation")
+	var cash := all.balance()
+	check(all.command("set_decoration", placement).ok and all.balance() == cash, "Moving decor leaves cash unchanged")
+	var copy := fresh()
+	check(copy.restore(all.snapshot()).ok and Model.DECOR.placement(copy.state, "flower_box") == 1, "Alternative decoration position survives restore")
+	check(copy.command("set_decoration", {"decoration_id": "flower_box", "placement": -1}).ok and Model.DECOR.placement(copy.state, "flower_box") == -1, "Unlocked pieces can be put away")
+	check(not copy.command("set_decoration", {"decoration_id": "stone_well", "placement": 2}).ok, "Out-of-range locations are rejected")
 
 func _test_claims_and_rollback() -> void:
 	var game := growing()
+	game.state.unlocked_crops.append("cauliflower")
 	game.state.seeds = {"carrot": 1, "cauliflower": 1}
 	check(game.command("set_crop", {"plot_ids": ["plot_0_0"], "crop_id": "cauliflower"}).ok, "Pending explicit crop accepts stock binding")
 	check(game.protection() == 460 and game.seed_inventory_summary("cauliflower").reserved == 1 and game.seed_inventory_summary("cauliflower").available == 0, "Bound cauliflower plus following batch has exact 460 budget")

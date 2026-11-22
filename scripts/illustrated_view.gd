@@ -6,6 +6,7 @@ extends "res://scripts/farm_view.gd"
 signal animal_clicked(instance_id: String)
 const SCENE_ART = preload("res://scripts/scene_assets.gd")
 const POND_RULES = preload("res://scripts/pond_rules.gd")
+const DECOR = preload("res://scripts/farm_decor.gd")
 var camera_y := 96.0
 var _scene_camera := {"farm": 96.0, "ranch": 0.0, "pond": 72.0}
 var _animal_hits: Array = []
@@ -17,6 +18,7 @@ var _pan_origin := Vector2.ZERO
 var _ranch_visual_key := -1
 var _animal_hover := ""
 var _net_flash_until := 0.0
+var _farm_decorations: Array = []
 
 func _ready() -> void:
 	super._ready()
@@ -47,6 +49,9 @@ func resize_view(size: Vector2) -> void:
 
 func _static_key() -> String:
 	return "%s/%d/%d/%d/%d" % [scene_name, page, ceili(view_width), ceili(view_height), roundi(camera_y)]
+
+func _farm_state_key() -> int:
+	return hash([super._farm_state_key(), model_state.get("decorations", {})])
 
 func _update_camera() -> void:
 	super._update_camera()
@@ -141,40 +146,22 @@ func _draw_static() -> void:
 	_target_positions.clear()
 	_animal_draws.clear()
 	_update_camera()
-	_box(Rect2(Vector2.ZERO, Vector2(view_width, view_height)), Color("#709a32"))
+	var scenery := Rect2(_to_screen(Vector2.ZERO), WORLD.world_size(scene_name))
 	var background: Texture2D = SCENE_ART.background(scene_name)
 	if background != null:
-		_draw_woodland_margins(background)
-		_canvas().draw_texture_rect(background, Rect2(_to_screen(Vector2.ZERO), WORLD.world_size(scene_name)), false)
+		_canvas().draw_texture_rect(background, scenery, false)
+	else:
+		_box(scenery, Color("#709a32"))
 	match scene_name:
-		"farm": _illustrated_soil()
+		"farm":
+			_illustrated_soil()
+			_cache_farm_decorations()
 		"ranch": _illustrated_grass()
 		"pond": _pond_bounds = Rect2(_to_screen(WORLD.water_bounds().position), WORLD.water_bounds().size)
 	_draw_target = null
 	_static_bake_count += 1
 	_scene_cache_ready = true
 	_redraw_animation()
-
-func _draw_woodland_margins(background: Texture2D) -> void:
-	# Wide desktops reveal illustrated border strips, preserving the shared
-	# world scale instead of flat bars or stretching the playable composition.
-	var left := _to_screen(Vector2.ZERO).x
-	var right := left + WORLD.world_size(scene_name).x
-	var source_height := minf(view_height, background.get_height() - camera_y)
-	if left > 0:
-		var width := minf(96, background.get_width() * 0.06)
-		var x := left
-		while x > 0:
-			var span := minf(width, x)
-			x -= span
-			_canvas().draw_texture_rect_region(background, Rect2(x, 0, span, source_height), Rect2(0, camera_y, span, source_height))
-	if right < view_width:
-		var width := minf(96, background.get_width() * 0.06)
-		var x := right
-		while x < view_width:
-			var span := minf(width, view_width - x)
-			_canvas().draw_texture_rect_region(background, Rect2(x, 0, span, source_height), Rect2(background.get_width() - span, camera_y, span, source_height))
-			x += span
 
 func _illustrated_soil() -> void:
 	for plot in model_state.get("plots", []):
@@ -191,6 +178,15 @@ func _illustrated_soil() -> void:
 		for row in range(3):
 			var yy := bounds.position.y + 14 + row * 13
 			_canvas().draw_line(Vector2(bounds.position.x + 4, yy), Vector2(bounds.end.x - 4, yy), Color(0.30, 0.15, 0.07, 0.38), 1)
+
+func _cache_farm_decorations() -> void:
+	_farm_decorations.clear()
+	var opened := DECOR.opened_plots(model_state)
+	for id in DECOR.ITEMS:
+		var piece: Dictionary = DECOR.ITEMS[id]
+		var placement := DECOR.placement(model_state, id)
+		if opened < int(piece.unlock_plots) or placement < 0: continue
+		_farm_decorations.append({"kind": "decoration", "foot": piece.spots[placement], "data": id})
 
 func _illustrated_grass() -> void:
 	for patch in model_state.get("grass", []):
@@ -235,6 +231,7 @@ func _draw_animated() -> void:
 	_draw_target = _animation_layer
 	var actors: Array = []
 	if scene_name == "farm":
+		actors.append_array(_farm_decorations)
 		for plot in model_state.get("plots", []):
 			if not bool(plot.open) or str(plot.status) == "empty": continue
 			var foot := WORLD.plot_position(int(plot.index)) + Vector2(WORLD.PLOT_SIZE / 2, WORLD.PLOT_SIZE - 4)
@@ -262,15 +259,22 @@ func _draw_animated() -> void:
 		var foot := _to_screen(actor.foot).floor()
 		if foot.x < -100 or foot.x > view_width + 100 or foot.y < -5 or foot.y > view_height + 100: continue
 		match str(actor.kind):
+			"decoration": _illustrated_decoration(foot, str(actor.data))
 			"crop": _illustrated_crop(foot, actor.data)
 			"animal": _illustrated_animal(foot, actor.data)
-			"farmer": _illustrated_farmer(foot, actor.data, actor.get("track", {}))
+			"farmer": _illustrated_farmer(foot, actor.foot, actor.data, actor.get("track", {}))
 	var foreground: Texture2D = SCENE_ART.foreground(scene_name)
 	if foreground != null: _canvas().draw_texture_rect(foreground, Rect2(_to_screen(Vector2.ZERO), WORLD.world_size(scene_name)), false)
 	if scene_name == "farm": _draw_farm_overlay()
 	elif scene_name == "ranch": _animal_tooltip()
 	elif scene_name == "pond": _pond_hint()
 	_draw_target = null
+
+func _illustrated_decoration(foot: Vector2, id: String) -> void:
+	var texture := SCENE_ART.farm_decoration(id)
+	if texture == null: return
+	var size := texture.get_size()
+	_canvas().draw_texture_rect(texture, Rect2(foot - Vector2(size.x * 0.5, size.y), size), false)
 
 func _illustrated_crop(foot: Vector2, plot: Dictionary) -> void:
 	var id := str(plot.crop_id)
@@ -318,20 +322,32 @@ func _illustrated_animal(foot: Vector2, animal: Dictionary) -> void:
 		_canvas().draw_circle(top + Vector2(3, -2), 4, Color("#ef8e8c"))
 		_canvas().draw_colored_polygon(PackedVector2Array([top + Vector2(-7, -1), top + Vector2(7, -1), top + Vector2(0, 7)]), Color("#ef8e8c"))
 
-func _illustrated_farmer(foot: Vector2, farmer: Dictionary, track: Dictionary) -> void:
+func _illustrated_farmer(foot: Vector2, world_foot: Vector2, farmer: Dictionary, track: Dictionary) -> void:
 	var phase := str(farmer.get("phase", "idle"))
-	var walking := phase == "walking"
-	var action := str((farmer.get("task", {}) as Dictionary).get("action", "walk")) if phase == "acting" else "walk"
+	var idle_activity: Dictionary = farmer.get("idle_activity", {})
+	var following_track := not track.is_empty() and world_foot.distance_squared_to(track.target) > 0.25
+	var walking := phase == "walking" or not (idle_activity.get("path", []) as Array).is_empty() or following_track
+	var leisure := str(idle_activity.get("action", "")) if not walking else ""
+	var action := "walk" if walking else "idle"
+	if not walking and phase == "acting":
+		action = str((farmer.get("task", {}) as Dictionary).get("action", "idle"))
+	if leisure == "flower_box": action = "water"
+	elif leisure == "stone_well": action = "feed"
 	var direction := str(farmer.get("facing", "down"))
-	if not track.is_empty():
+	if walking and not track.is_empty():
 		var movement: Vector2 = (track.target as Vector2) - (track.from as Vector2)
 		if absf(movement.x) > absf(movement.y): direction = "left" if movement.x < 0 else "right"
 		elif absf(movement.y) > 0.1: direction = "up" if movement.y < 0 else "down"
-	var frame := posmod(floori(_animation_seconds * 6), 4) if walking or phase == "acting" else 0
+	var frame := posmod(floori(_animation_seconds * 6), 4) if not walking and action != "idle" else 0
+	if walking and not track.is_empty(): frame = SCENE_ART.farmer_walk_frame(_farmer_distance(track, world_foot))
 	var texture: Texture2D = SCENE_ART.farmer(action, direction, frame)
 	_canvas().draw_circle(foot, 12, Color(0.18, 0.25, 0.08, 0.17))
 	if texture != null: _canvas().draw_texture_rect(texture, Rect2(foot - Vector2(32, 78), Vector2(64, 80)), false)
-	if str(farmer.get("mode", "")) == "resting": _label("z", foot + Vector2(24, -60), CREAM)
+	if str(farmer.get("mode", "")) == "resting" or leisure == "rest":
+		_label("z", foot + Vector2(24, -60), CREAM)
+	elif leisure in ["flower_box", "stone_well"] and frame >= 2:
+		var offset := Vector2(3, -29 - frame) if leisure == "flower_box" else Vector2(-21, -41 - frame)
+		_draw_drop(foot + offset, Color("#b0e6f0"))
 
 func _illustrated_water() -> void:
 	var area: Rect2 = WORLD.water_bounds()

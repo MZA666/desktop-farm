@@ -15712,7 +15712,7 @@
 		}
 	},
 	"generator": "OpenAI imagegen",
-	"prompt_provenance": "Original high-detail pixel-art desktop farm scenes, transparent crop growth, four-direction animal animation, juvenile and eating sheets, farmer actions, fish and grass; generated for this game. Exact generation prompts remain in the development chat.",
+	"prompt_provenance": "Original generated pixel art; source images preserved. Generation requirements and large-animal prompts: assets/pixel/v0.8.1/generation-prompts.md. Full historical prompts are in the development conversation.",
 	"resampling": "nearest",
 	"source_preserved": true,
 	"sources": {

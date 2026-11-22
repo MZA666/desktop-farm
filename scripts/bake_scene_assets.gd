@@ -4,6 +4,16 @@ extends SceneTree
 const SOURCE := "res://assets/pixel/v0.8.1/source/"
 const OUTPUT := "res://assets/pixel/v0.8.1/runtime/"
 const ASSETS = preload("res://scripts/scene_assets.gd")
+const DECOR = preload("res://scripts/farm_decor.gd")
+const FARMER_WALK_SOURCE := "res://assets/pixel/v0.8.7/source/farmer-walk.png"
+const FARMER_SIDE_SOURCE := "res://assets/pixel/v0.8.7/source/farmer-side-walk.png"
+const DECOR_SOURCE := "res://assets/pixel/v0.8.4/source/farm-decorations.png"
+const DECOR_CROPS := {
+	"flower_box": Rect2i(78, 176, 492, 293),
+	"scarecrow": Rect2i(730, 48, 422, 520),
+	"stone_well": Rect2i(103, 675, 428, 546),
+	"garden_lantern": Rect2i(761, 670, 359, 550),
+}
 const ALPHA_THRESHOLD := 24.0 / 255.0
 const ANIMAL_ROWS := [0, 81, 163, 236, 333, 430, 515, 596, 684, 768, 853, 992]
 const YOUNG_ROWS := [0, 83, 164, 242, 333, 430, 518, 597, 686, 769, 853, 992]
@@ -30,11 +40,13 @@ func _run() -> void:
 	_bake("young", 20, YOUNG_ROWS, ASSETS.ANIMAL_CELL, "row")
 	_bake("actions", 20, ACTION_ROWS, ASSETS.ANIMAL_CELL, "row")
 	_bake("farmer", 4, FARMER_ROWS, ASSETS.FARMER_CELL, "all")
+	_bake_farmer_walk()
 	_bake("crops", 16, CROP_ROWS, ASSETS.CROP_CELL, "crop")
 	_bake("nature", 4, [0, 256, 512, 736, 1024], ASSETS.NATURE_CELL, "row")
 	for id in ["cow", "goat", "sheep", "pig"]:
 		if FileAccess.file_exists(SOURCE + "large-" + id + ".png"):
 			_bake(id, 4, [0, 256, 512, 768, 1024], ASSETS.ANIMAL_CELL, "all", "large-" + id)
+	_bake_decorations()
 	var file := FileAccess.open(OUTPUT + "manifest.json", FileAccess.WRITE)
 	if file == null: failures.append("Cannot save scene asset manifest")
 	else:
@@ -46,6 +58,80 @@ func _run() -> void:
 	else:
 		for failure in failures: printerr(failure)
 		quit(1)
+
+func _bake_farmer_walk() -> void:
+	var main := _farmer_sheet_frames(FARMER_WALK_SOURCE, Vector2i(5, 3))
+	var side := _farmer_sheet_frames(FARMER_SIDE_SOURCE, Vector2i(2, 2))
+	if main.size() != 15 or side.size() != 4: return
+	if DirAccess.make_dir_recursive_absolute(ProjectSettings.globalize_path(ASSETS.FARMER_WALK_ROOT)) != OK:
+		failures.append("Cannot create farmer walk asset directory")
+		return
+	# Pair each planted forward foot with a passing pose on that same foot.
+	# Mirror the back-view contact and pass to replace the repeated leg in the source.
+	var right := [main[5], side[0], side[1], side[2], side[3]]
+	var poses := [
+		[main[0], main[1], _mirrored_sprite(main[2]), main[3], main[2]],
+		right,
+		[main[10], main[11], main[12], _mirrored_sprite(main[11]), _mirrored_sprite(main[12])],
+		right.map(func(sprite): return _mirrored_sprite(sprite)),
+	]
+	var columns := ASSETS.FARMER_WALK_FRAMES + 1
+	var cell: Vector2i = ASSETS.FARMER_CELL
+	var atlas := Image.create(columns * cell.x, poses.size() * cell.y, false, Image.FORMAT_RGBA8)
+	atlas.fill(Color.TRANSPARENT)
+	for row in range(poses.size()):
+		for column in range(columns):
+			var sprite: Image = poses[row][column].duplicate()
+			var hat := _bounds(sprite, Rect2i(0, 0, sprite.get_width(), roundi(sprite.get_height() * 0.34)))
+			var height := 70 if column in [1, 3] else 72
+			var scale := minf(float(cell.x - 4) / sprite.get_width(), float(height) / sprite.get_height())
+			var size := Vector2i(roundi(sprite.get_width() * scale), roundi(sprite.get_height() * scale))
+			var x := clampi(cell.x / 2 - roundi(hat.get_center().x * scale), 2, cell.x - size.x - 2)
+			var offset := Vector2i(x, cell.y - size.y - 2)
+			sprite.resize(size.x, size.y, Image.INTERPOLATE_NEAREST)
+			atlas.blit_rect(sprite, Rect2i(Vector2i.ZERO, size), Vector2i(column, row) * cell + offset)
+	_save_image(atlas, ASSETS.FARMER_WALK_ROOT + "farmer-walk-atlas.png")
+	print("FARMER_WALK_BAKED: idle and four walking poses per direction")
+
+func _farmer_sheet_frames(path: String, grid: Vector2i) -> Array[Image]:
+	var source := Image.load_from_file(ProjectSettings.globalize_path(path))
+	if source == null or source.is_empty():
+		failures.append("Missing original farmer walk sheet: " + path)
+		return []
+	source.convert(Image.FORMAT_RGBA8)
+	var output: Array[Image] = []
+	var size := Vector2(source.get_size()) / Vector2(grid)
+	for y in range(grid.y):
+		for x in range(grid.x):
+			var start := Vector2i(Vector2(x, y) * size)
+			var finish := Vector2i(Vector2(x + 1, y + 1) * size)
+			var components := _components(source, Rect2i(start, finish - start), 100)
+			if components.is_empty():
+				failures.append("Missing farmer pose at %s %d,%d" % [path, x, y])
+				return []
+			components.sort_custom(func(a, b): return a.pixels > b.pixels)
+			output.append(components[0].image)
+	return output
+
+func _mirrored_sprite(image: Image) -> Image:
+	var sprite := image.duplicate() as Image
+	sprite.flip_x()
+	return sprite
+
+func _bake_decorations() -> void:
+	var source := Image.load_from_file(ProjectSettings.globalize_path(DECOR_SOURCE))
+	if source == null or source.get_size() != Vector2i(1254, 1254) or source.detect_alpha() == Image.ALPHA_NONE:
+		failures.append("Missing or invalid decoration sprite sheet: " + DECOR_SOURCE)
+		return
+	if DirAccess.make_dir_recursive_absolute(ProjectSettings.globalize_path(ASSETS.DECOR_ROOT)) != OK:
+		failures.append("Cannot create decoration asset directory")
+		return
+	for id in DECOR.ITEMS:
+		var sprite := source.get_region(DECOR_CROPS[id])
+		var bounds: Vector2 = DECOR.ITEMS[id].max_size
+		var factor := minf(bounds.x / sprite.get_width(), bounds.y / sprite.get_height())
+		sprite.resize(roundi(sprite.get_width() * factor), roundi(sprite.get_height() * factor), Image.INTERPOLATE_NEAREST)
+		_save_image(sprite, ASSETS.DECOR_ROOT + id + ".png")
 
 func _source(kind: String) -> Image:
 	var path := SOURCE + kind + ".png"

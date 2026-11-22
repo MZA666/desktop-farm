@@ -1,0 +1,7 @@
+# 农场装饰素材
+
+使用内置 ImageGen 生成一张透明像素画图集。原图保存在 `assets/pixel/v0.8.4/source/farm-decorations.png`。构建时从原图裁出四件装饰，使用最近邻缩小到实际游戏尺寸。
+
+## 生成提示词
+
+> Use case: stylized-concept. Create a single square transparent RGBA pixel-art sprite atlas for an original desktop farming game. Exactly four different isolated farm props, one object per equal quadrant, with each object's silhouette inside the middle 70% of its own quadrant and large fully transparent gutters throughout. Top-left: a wide low dark rustic wooden flower planter with coral-pink, butter-yellow and white flowers and leafy foliage. Top-right: a cheerful field scarecrow with a broad straw hat, weathered ochre-brown shirt and a single wooden stake. Bottom-left: a small circular gray mossy stone well with a timber frame, terracotta shingle roof and bucket. Bottom-right: a tall brown wooden garden lamppost with two warm amber lanterns hanging from it, with a very small leafy base. Render as polished hand-pixeled sprites for a lush Chinese desktop farm, with visible sharp square pixels, dense warm earthy color clusters, golden afternoon light from upper left, three-quarter top-down orthographic angle from the south (not diamond isometric). Same perspective and believable scale between all four props, clear silhouettes readable at 50–100 screen pixels high. No characters, ground tiles, lettering, borders, grid lines, opaque backdrop, drop shadows around the sprite sheet, glow outside silhouettes, or checkered background. Real alpha. All four props must be complete and distinct.

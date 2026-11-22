@@ -88,6 +88,7 @@ func _run() -> void:
 	track = view._farmer_tracks.worker
 	view._animation_seconds += 0.5
 	check(view._farmer_position(track).is_equal_approx(Vector2(56, 136)), "A one-second 32px model step takes a full second to render at the configured walking speed")
+	check(is_equal_approx(view._farmer_distance(track, view._farmer_position(track)), 32.0), "Walking phase keeps the distance covered before and after a position sample")
 	view.resize_view(Vector2(640, 172))
 	view._update_camera()
 	check(view.get_page_count() == 3 and view.camera_offset == 0, "Continuous1536px farmland paginates from viewport capacity")
@@ -100,6 +101,7 @@ func _run() -> void:
 	view.set_model(fixture)
 	track = view._farmer_tracks.worker
 	check(track.from == Vector2(100, 136) and track.target == Vector2(100, 136), "Hidden simulation updates actor samples without replaying stale travel on restore")
+	check(view._farmer_distance(track, Vector2(100, 136)) == 0.0, "A hidden window does not replay steps on its next visible frame")
 	view.set_desktop_suspended(false)
 	view.set_model(model.state, true)
 	view.set_desktop_suspended(true)

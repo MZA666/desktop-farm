@@ -33,6 +33,8 @@ func _run() -> void:
 				check(hashes.size() == 4, "Four actual distinct phases per large animal direction: " + id + " " + Assets.DIRECTIONS[row])
 	_validate_alpha("crops", Assets.CROP_CELL)
 	_validate_alpha("farmer", Assets.FARMER_CELL)
+	_validate_alpha("farmer-walk", Assets.FARMER_CELL, Assets.FARMER_WALK_ROOT)
+	_validate_farmer_walk()
 	_validate_alpha("nature", Assets.NATURE_CELL)
 	for scene in ["farm", "ranch", "pond"]:
 		var texture := Assets.background(scene)
@@ -65,8 +67,8 @@ func _run() -> void:
 		for failure in failures: printerr("FAIL: " + failure)
 		quit(1)
 
-func _validate_alpha(kind: String, cell: Vector2i) -> void:
-	var image := Image.load_from_file(ProjectSettings.globalize_path(Assets.ROOT + kind + "-atlas.png"))
+func _validate_alpha(kind: String, cell: Vector2i, root_path := Assets.ROOT) -> void:
+	var image := Image.load_from_file(ProjectSettings.globalize_path(root_path + kind + "-atlas.png"))
 	check(image != null and not image.is_empty() and image.detect_alpha() != Image.ALPHA_NONE, "Scene sprite atlas has true transparency: " + kind)
 	if image == null or image.is_empty(): return
 	var rows: int = image.get_height() / cell.y
@@ -79,3 +81,42 @@ func _validate_alpha(kind: String, cell: Vector2i) -> void:
 			check(used.size.x > 0 and used.size.y > 0, "Baked cell is visible: %s %d,%d" % [kind, column, row])
 			check(sprite.get_pixel(0, 0).a == 0 and sprite.get_pixel(cell.x - 1, cell.y - 1).a == 0, "Cell padding remains transparent: %s %d,%d" % [kind, column, row])
 			check(used.position.x >= 1 and used.end.x <= cell.x - 1 and used.end.y <= cell.y - 1, "Trimmed sprite does not bleed into a neighbor: %s %d,%d" % [kind, column, row])
+
+func _validate_farmer_walk() -> void:
+	var image := Image.load_from_file(ProjectSettings.globalize_path(Assets.FARMER_WALK_ROOT + "farmer-walk-atlas.png"))
+	var cell: Vector2i = Assets.FARMER_CELL
+	check(image != null and image.get_size() == cell * Vector2i(5, 4), "Every direction has one idle pose and four walking poses")
+	if image == null: return
+	for row in range(4):
+		var direction := str(Assets.DIRECTIONS[row])
+		var lower_bodies := {}
+		for column in range(1, 5):
+			var texture := Assets.farmer("walk", direction, column - 1) as AtlasTexture
+			var area := Rect2i(Vector2i(column, row) * cell, cell)
+			check(texture != null and texture.region == Rect2(area), "Walking chooses the requested pose and direction")
+			var legs := image.get_region(Rect2i(area.position + Vector2i(0, 50), Vector2i(cell.x, 28)))
+			lower_bodies[hash(legs.get_data())] = true
+		check(lower_bodies.size() == 4, "Each direction changes the lower body across all four phases")
+		check(Assets.farmer("idle", direction, 2) == Assets.farmer("idle", direction, 0) and Assets.farmer("walk", direction, 4) == Assets.farmer("walk", direction, 0), "Idle holds and walking loops independently")
+	for row in [1, 3]:
+		for column in [1, 3]:
+			var area := Rect2i(column * cell.x, row * cell.y + 57, cell.x, 21)
+			var contact := image.get_region(area).get_used_rect().size.x
+			area.position.x += cell.x
+			var passing := image.get_region(area).get_used_rect().size.x
+			check(passing < contact, "Side-view feet close up beneath the body between strides")
+	for row in [0, 2]:
+		var first_boot := _planted_boot_x(image, cell * Vector2i(1, row))
+		var other_boot := _planted_boot_x(image, cell * Vector2i(3, row))
+		check(first_boot > cell.x / 2.0 and other_boot < cell.x / 2.0, "Front and back contacts plant opposite feet")
+	check([Assets.farmer_walk_frame(0), Assets.farmer_walk_frame(6), Assets.farmer_walk_frame(12), Assets.farmer_walk_frame(18), Assets.farmer_walk_frame(24)] == [0, 1, 2, 3, 0], "Travel advances both steps before a complete loop")
+
+func _planted_boot_x(image: Image, origin: Vector2i) -> float:
+	var total := 0.0
+	var samples := 0
+	for y in range(73, 78):
+		for x in range(Assets.FARMER_CELL.x):
+			if image.get_pixelv(origin + Vector2i(x, y)).a < 0.5: continue
+			total += x
+			samples += 1
+	return total / maxi(1, samples)
